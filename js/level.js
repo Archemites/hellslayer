@@ -333,6 +333,7 @@ function buildMapA1() {
   wfloor(45, -150, 140, -55, 'dirt', 0, 8);
   wfloor(74, -120, 112, -84, 'cobble', 0.02, 5);
   hall(45, -150, 140, -55, { h: 7.5, t: 2, wall: 'brick', skip: ['s', 'w'] });
+  wbox(139, -56, 141, -54, 7.5, 'brick'); // fecha junção do muro leste entre Beco e Praça
   fountain(93, -102);
   house(122, -78, 14, 14, 'w', { burn: true, h: 6 });
   house(120, -128, 14, 12, 'w');
@@ -366,6 +367,8 @@ function buildMapA2() {
   wfloor(-38, -70, -12, -18, 'crops', 0.04, 6);
   wfloor(12, -70, 38, -18, 'crops', 0.04, 6);
   hall(-45, -80, 45, 20, { h: 7, t: 2, wall: 'brick', skip: ['w', 'e'], openings: [{ side: 'n', c: 0, w: 14 }] });
+  wbox(-46, -1, -44, 21, 7, 'brick');
+  wbox(44, -1, 46, 21, 7, 'brick');
   house(-26, -44, 11, 10, 'e', { burn: true });
   house(26, -46, 11, 10, 'w');
 
@@ -412,6 +415,8 @@ function buildMapA3() {
   wfloor(-45, -75, 45, 20, 'dirt', 0, 8);
   wfloor(-12, -75, 12, 20, 'cobble', 0.02, 5);
   hall(-45, -75, 45, 20, { h: 8, t: 2, wall: 'brick', skip: ['w', 'e'], openings: [{ side: 'n', c: 0, w: 14 }] });
+  wbox(-46, -16, -44, 21, 8, 'brick');
+  wbox(44, -16, 46, 21, 8, 'brick');
   house(-28, -22, 12, 10, 'e', { burn: true });
   house(28, -26, 12, 10, 'w');
 
@@ -452,6 +457,8 @@ function buildMapA4() {
   // 1. Praça da Fonte
   wfloor(-55, -90, 55, 20, 'cobble', 0, 6);
   hall(-55, -90, 55, 20, { h: 9, t: 2, wall: 'stone', skip: ['w', 'e'], openings: [{ side: 'n', c: 0, w: 16 }] });
+  wbox(-56, -21, -54, 21, 9, 'stone');
+  wbox(54, -21, 56, 21, 9, 'stone');
   fountain(0, -34);
   house(-36, -18, 16, 14, 'e', { wall: 'stone', h: 7, floor: 'marble', burn: true });
   house(36, -18, 16, 14, 'w', { wall: 'stone', h: 7, floor: 'marble', burn: true });
@@ -492,6 +499,8 @@ function buildMapA5() {
   // 1. Avenida Destruída
   wfloor(-48, -90, 48, 20, 'cobble', 0, 6);
   hall(-48, -90, 48, 20, { h: 9, t: 2, wall: 'stone', skip: ['w', 'e'], openings: [{ side: 'n', c: 0, w: 14 }] });
+  wbox(-49, -26, -47, 21, 9, 'stone');
+  wbox(47, -26, 49, 21, 9, 'stone');
   // Obelisco central
   wbox(-2.5, -42.5, 2.5, -37.5, 1.4, 'stone', { tile: 2 });
   wbox(-1.1, -41.1, 1.1, -38.9, 12, 'church', { y0: 1.4, tile: 2 });
@@ -535,6 +544,10 @@ function buildMapA6Gate() {
   // Pátio Principal
   wfloor(-55, -170, 55, 20, 'cobble', 0, 6);
   hall(-55, -170, 55, 20, { h: 9.5, t: 2, wall: 'stone', skip: ['w', 'e'], heights: { n: 26 }, openings: [{ side: 'n', c: 0, w: 12, oh: 12 }] });
+  wbox(-56, -26, -54, 21, 9.5, 'stone');
+  wbox(54, -26, 56, 21, 9.5, 'stone');
+  wbox(-56, -171, -54, -124, 9.5, 'stone');
+  wbox(54, -171, 56, -124, 9.5, 'stone');
   makeGate('door', 0, -169, 12, 'x', 12, 'door');
 
   // Claustro Oeste & Claustro Leste (alas laterais)
@@ -731,7 +744,7 @@ function buildMapA6Crypt() {
 
   // 2. Sala B: Salão dos Mortos (x 36..80, z -42..6) -> saída Norte (x 58)
   fl(36, -42, 80, 6);
-  hall(36, -42, 80, 6, { h: 7.5, t: 1, wall: 'crypt', ceil: 'dark', openings: [{ side: 'w', c: -14, w: 6 }, { side: 'n', c: 58, w: 6 }] });
+  hall(36, -42, 80, 6, { h: 7.5, t: 1, wall: 'crypt', ceil: 'dark', openings: [{ side: 'w', c: -14, w: 6, oh: 6.5 }, { side: 'n', c: 58, w: 6, oh: 6.5 }] });
   [[46, -4], [70, -4], [46, -32], [70, -32]].forEach(p => wbox(p[0] - 1, p[1] - 1, p[0] + 1, p[1] + 1, 7.5, 'crypt', { tile: 2 }));
   [[52, -18], [64, -18]].forEach(p => wbox(p[0] - 1, p[1] - 2.5, p[0] + 1, p[1] + 2.5, 1.2, 'stone', { tile: 2 }));
   [[40, 2], [76, 2], [40, -38], [76, -38]].forEach(p => { wbox(p[0] - 0.4, p[1] - 0.4, p[0] + 0.4, p[1] + 0.4, 1.2, 'crypt', { tile: 1 }); flame(p[0], 1.2, p[1], 0.9, gc); });
@@ -743,7 +756,7 @@ function buildMapA6Crypt() {
 
   // 3. Sala C: Galeria dos Ossos (x 38..78, z -108..-64) -> saída Oeste (z -86)
   fl(38, -108, 78, -64);
-  hall(38, -108, 78, -64, { h: 8, t: 1, wall: 'crypt', ceil: 'dark', openings: [{ side: 's', c: 58, w: 6 }, { side: 'w', c: -86, w: 6 }] });
+  hall(38, -108, 78, -64, { h: 8, t: 1, wall: 'crypt', ceil: 'dark', openings: [{ side: 's', c: 58, w: 6, oh: 6.5 }, { side: 'w', c: -86, w: 6, oh: 6.5 }] });
   [[48, -74], [68, -74], [48, -98], [68, -98]].forEach(p => wbox(p[0] - 1, p[1] - 1, p[0] + 1, p[1] + 1, 8, 'crypt', { tile: 2 }));
   [[42, -68], [74, -68], [42, -104], [74, -104]].forEach(p => { wbox(p[0] - 0.4, p[1] - 0.4, p[0] + 0.4, p[1] + 0.4, 1.3, 'crypt', { tile: 1 }); flame(p[0], 1.3, p[1], 0.95, gc); });
   makeGate('g_c3', 38, -86, 6, 'z', 8, 'barrier');
@@ -754,7 +767,7 @@ function buildMapA6Crypt() {
 
   // 4. Câmara Sacra de Romulus III (x -22..16, z -106..-66)
   fl(-22, -106, 16, -66);
-  hall(-22, -106, 16, -66, { h: 9.5, t: 1, wall: 'crypt', ceil: 'dark', openings: [{ side: 'e', c: -86, w: 6 }] });
+  hall(-22, -106, 16, -66, { h: 9.5, t: 1, wall: 'crypt', ceil: 'dark', openings: [{ side: 'e', c: -86, w: 6, oh: 6.5 }] });
   wbox(-8, -90, 0, -82, 1.4, 'marble', { tile: 3 });
   wbox(-7, -89, -1, -83, 0.6, 'stone', { tile: 2, y0: 1.4, collide: false });
   [[-18, -70], [12, -70], [-18, -102], [12, -102]].forEach(p => { wbox(p[0] - 0.5, p[1] - 0.5, p[0] + 0.5, p[1] + 0.5, 1.6, 'crypt', { tile: 1 }); flame(p[0], 1.6, p[1], 1.0, gc); });
@@ -846,11 +859,13 @@ const SPAWNS = {
     ['gargula', -18, -168, 5], ['gargula', 18, -168, 5]
   ],
   a6_gate: [
-    // Pátio + Claustros + Maximus
+    // Pátio + Claustros (Maximus spawna após eliminar todos os inimigos)
     ['guarda', -16, -34], ['guarda', 16, -34], ['padre', -26, -62], ['padre', 26, -62],
     ['demonio', -84, -70], ['padre', -76, -92], ['gargula', -86, -80, 5],
     ['demonio', 84, -70], ['padre', 76, -92], ['gargula', 86, -80, 5],
-    ['guarda', -18, -118], ['guarda', 18, -118], ['gargula', 0, -110, 5],
+    ['guarda', -18, -118], ['guarda', 18, -118], ['gargula', 0, -110, 5]
+  ],
+  a6_maximus: [
     ['maximus', 0, -148]
   ],
   a6_nave: [

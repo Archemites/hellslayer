@@ -452,6 +452,7 @@
   }
   function updateVM(dt) {
     for (const k in VMS) VMS[k].root.visible = false;
+    if (S.cutscene > 0 && S.csKind === 'door') return;
     const w = WEAPONS[curW()], vm = VMS[w.vm];
     vm.root.visible = !(w.id === 'cross' && S.cross.state !== 'held');
     const moveAmt = Math.min(1, Math.hypot(P.vel.x, P.vel.z) / 8) * (P.onGround ? 1 : 0.2);
@@ -661,7 +662,8 @@
         setObj('Atravesse o Portão de Saída para os Portões da Ultra-Igreja', { x: World.exitGate.x, z: World.exitGate.z });
         S.stage = 'a5done';
       } },
-    a6_gate: { name: 'EP. 3 · ÁREA 6 · PORTÕES DA ULTRA-IGREJA', obj: 'Derrote a guarda e MAXIMUS nos portões', noCount: true, onClear: maximusDead },
+    a6_gate: { name: 'EP. 3 · ÁREA 6 · PORTÕES DA ULTRA-IGREJA', obj: 'Elimine todos os inimigos nos portões', onClear: spawnMaximus },
+    a6_maximus: { name: 'EP. 3 · ÁREA 6 · PORTÕES DA ULTRA-IGREJA', obj: 'Derrote MAXIMUS, Líder da Super-Guarda Real', noCount: true, onClear: maximusDead },
     a6_nave: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Esmigalhe os demônios da Ultra-Igreja', onClear: galiusEvent },
     a6_galius1: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Galius é forte demais! Desça pela ESCADARIA NO ALTAR!', noCount: true, noClear: true },
     a6_crypt1: { name: 'EP. 3 · CATACUMBAS · ENTRADA', obj: 'Elimine os endemoniados das catacumbas',
@@ -693,6 +695,7 @@
     for (const e of enemies.slice()) A.removeEnemy(e);
     A.clearProjs(); A.clearParts();
     S.boss = null;
+    if (S.corpse) { scene.remove(S.corpse); S.corpse = null; }
     for (const id in S.rooms) S.rooms[id] = { spawned: false, cleared: false };
     buildMap(mapId);
     spawnMapPickups(mapId);
@@ -800,14 +803,33 @@
     }
   }
 
+  function spawnMaximus() {
+    startRoom('a6_maximus');
+    SFX.play('roar');
+    P.shake = Math.max(P.shake, 0.9);
+    burst(0, 2.5, -148, 0xff4010, 36, 12, 0.9, 0.4, 14);
+    spawnRing(0, -148, 12, 22, 0, 0xff3010, 'e');
+    if (S.boss) { S.boss.aggro = true; S.boss.g.rotation.y = 0; }
+    say('MAXIMUS: NINGUÉM PASSA PELOS PORTÕES DA ULTRA-IGREJA!', '', 4);
+    setObj(ROOMS.a6_maximus.obj, { x: 0, z: -148 });
+    setCheckpoint(0, -108, 0);
+  }
+
   function maximusDead() {
     S.boss = null;
     S.stage = 'door';
     SFX.play('boom');
     say('Maximus esmigalhado. Agora, o aríete…', 'NIVALDO', 3);
-    S.cutscene = 2.2 + Math.max(0, P.pos.z + 165.5) / 9; S.csKind = 'door'; S.csT = 0; S.csHit = false;
+    if (Math.abs(P.pos.x) > 12 || P.pos.z > -130 || P.pos.z < -156) {
+      P.pos.set(clamp(P.pos.x, -6, 6), 0, -146);
+    }
+    P.vel.set(0, 0, 0);
+    const distToDoor = Math.max(4, P.pos.z + 165.5);
+    S.cutscene = 0.65 + distToDoor / 18 + 0.7;
+    S.csKind = 'door'; S.csT = 0; S.csHit = false;
+    if (S.corpse) scene.remove(S.corpse);
     S.corpse = BUILD.maximus().root;
-    S.corpse.rotation.x = -Math.PI / 2;
+    S.corpse.position.set(P.pos.x, P.pos.y + 0.4, P.pos.z - 0.1);
     scene.add(S.corpse);
     setObj('Arrombe a porta da Ultra-Igreja', { x: 0, z: -169 });
   }
@@ -816,23 +838,43 @@
     if (S.cutscene <= 0) return;
     S.cutscene -= dt; S.csT += dt;
     if (S.csKind === 'door') {
-      const targetZ = -165.5;
-      if (P.pos.z > targetZ && S.csT > 0.6) {
-        P.vel.z = -10; P.vel.x = -P.pos.x * 2;
-      } else { P.vel.x *= 0.8; P.vel.z *= 0.8; }
-      P.yaw = A.lerpAngle(P.yaw, 0, Math.min(1, dt * 5));
-      P.pitch += (0 - P.pitch) * Math.min(1, dt * 5);
-      if (S.corpse) S.corpse.position.set(P.pos.x, P.pos.y + 1.6, P.pos.z + 1.0);
-      P.shake = Math.max(P.shake, 0.1);
-      if (!S.csHit && (P.pos.z < -164.2 || S.cutscene <= 0)) {
-        S.csHit = true;
-        openGate('door'); SFX.play('door');
-        P.shake = 1.2;
-        burst(0, 5, -169, 0x6a5a4a, 40, 14, 1.2, 0.5, 14, false);
-        burst(0, 5, -169, 0xffa040, 12, 10, 0.5, 0.2, 8);
-        say('A Ultra-Igreja está aberta! Entre no santuário!', 'NIVALDO', 3);
-        setObj('Entre na Ultra-Igreja', { x: 0, z: -176 });
-        later(0.8, () => { if (S.corpse) { scene.remove(S.corpse); S.corpse = null; } });
+      P.yaw = A.lerpAngle(P.yaw, 0, Math.min(1, dt * 8));
+      P.pitch += (0 - P.pitch) * Math.min(1, dt * 8);
+      if (!S.csHit) {
+        if (S.csT <= 0.65) {
+          P.vel.x *= 0.8; P.vel.z *= 0.8;
+          const lift = Math.min(1, S.csT / 0.65);
+          if (S.corpse) {
+            S.corpse.rotation.x = -lift * (Math.PI / 2);
+            S.corpse.position.set(P.pos.x, P.pos.y + 0.4 + lift * 0.75, P.pos.z - 0.1);
+          }
+        } else {
+          P.vel.x = clamp(-P.pos.x * 3, -12, 12);
+          P.vel.z = -18;
+          P.fovKick = Math.max(P.fovKick, 0.35);
+          if (S.corpse) {
+            S.corpse.rotation.x = -Math.PI / 2;
+            S.corpse.position.set(P.pos.x, P.pos.y + 1.15 + Math.sin(S.csT * 18) * 0.06, P.pos.z - 0.1);
+          }
+          P.shake = Math.max(P.shake, 0.15);
+        }
+        if (P.pos.z <= -163.5 || S.cutscene <= 0.7) {
+          S.csHit = true;
+          S.cutscene = Math.min(S.cutscene, 0.7);
+          P.vel.x = 0; P.vel.z = 3;
+          openGate('door'); SFX.play('door'); SFX.play('boom');
+          P.shake = 1.2;
+          burst(0, 5, -169, 0x6a5a4a, 40, 14, 1.2, 0.5, 14, false);
+          burst(0, 5, -169, 0xffa040, 12, 10, 0.5, 0.2, 8);
+          say('A Ultra-Igreja está aberta! Entre no santuário!', 'NIVALDO', 3);
+          setObj('Entre na Ultra-Igreja', { x: 0, z: -176 });
+        }
+      } else {
+        P.vel.x *= 0.85; P.vel.z *= 0.85;
+        if (S.corpse) {
+          S.corpse.position.z -= 12 * dt;
+          S.corpse.position.y = Math.max(0.25, S.corpse.position.y - 4 * dt);
+        }
       }
       if (S.cutscene <= 0 && S.corpse) { scene.remove(S.corpse); S.corpse = null; }
     }
@@ -1065,6 +1107,7 @@
     }
     if (S.cross.state !== 'held') crossRemove();
     S.cutscene = 0; S.rip = false;
+    if (S.corpse) { scene.remove(S.corpse); S.corpse = null; }
     S.boss = enemies.find(e => e.T.boss) || null;
     requestLock();
   }
@@ -1619,8 +1662,23 @@
   }
 
   /* ---------------- entrada ---------------- */
+  function lockReservedKeys() {
+    if (!navigator.keyboard || !navigator.keyboard.lock || !document.fullscreenElement) return;
+    try {
+      const p = navigator.keyboard.lock(['KeyW', 'KeyT', 'KeyN', 'KeyR', 'KeyS', 'KeyA', 'KeyD', 'Tab']);
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) {}
+  }
   function requestLock() {
     if (nolock) return;
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      try {
+        const fs = document.documentElement.requestFullscreen();
+        if (fs && fs.then) fs.then(lockReservedKeys).catch(() => {});
+      } catch (e) {}
+    } else {
+      lockReservedKeys();
+    }
     try {
       const p = renderer.domElement.requestPointerLock({ unadjustedMovement: true });
       if (p && p.catch) {
@@ -1638,6 +1696,18 @@
       } catch (e2) {}
     }
   }
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement) lockReservedKeys();
+    else if (navigator.keyboard && navigator.keyboard.unlock) {
+      try { navigator.keyboard.unlock(); } catch (e) {}
+    }
+  });
+  window.addEventListener('beforeunload', (e) => {
+    if (S.started && !S.ended) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
   function pause(on) {
     if (S.ended || P.dead || S.intermission) return;
     S.paused = on; show('pause', on);
@@ -1678,6 +1748,7 @@
   document.addEventListener('mouseup', (e) => { if (e.button === 0) mouseL = false; if (e.button === 2) mouseR = false; });
   document.addEventListener('contextmenu', (e) => e.preventDefault());
   document.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.metaKey) e.preventDefault();
     if (!S.started || S.paused || P.dead) return;
     const dir = e.deltaY > 0 ? 1 : -1;
     let i = curW();
@@ -1685,8 +1756,19 @@
       i = (i + dir + WEAPONS.length) % WEAPONS.length;
       if (WEAPONS[i].owned) { selectWeapon(i); break; }
     }
-  });
+  }, { passive: false });
+  function shouldBlockBrowserShortcut(e) {
+    const t = e.target;
+    const tag = t && t.tagName;
+    if (tag === 'TEXTAREA' || (tag === 'INPUT' && !['range', 'checkbox', 'radio', 'button', 'submit'].includes(t.type))) return false;
+    if (e.ctrlKey || e.metaKey || e.altKey) return true;
+    if (/^F([1-9]|1[0-2])$/.test(e.code)) return true;
+    if (e.code === 'Tab' || e.code === 'ContextMenu' || e.code === 'Backspace' || e.code === 'PageUp' || e.code === 'PageDown' || e.code === 'Home' || e.code === 'End') return true;
+    if (S.started && !S.paused && (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight')) return true;
+    return false;
+  }
   document.addEventListener('keydown', (e) => {
+    if (shouldBlockBrowserShortcut(e)) e.preventDefault();
     if (e.repeat) return;
     keys[e.code] = true;
     if (!S.started) {
