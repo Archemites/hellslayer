@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>HELLSLAYER — Beta 1</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="screen"></div>
+
+<!-- ================= HUD ================= -->
+<div id="hud" class="hidden">
+  <div id="damage"></div>
+  <div id="flash"></div>
+  <div id="faithTint"></div>
+
+  <div id="topleft" class="panel">
+    <div id="areaName">EP. 1 · ÁREA 1 · BAIRRO ALTO</div>
+    <div id="objective">—</div>
+  </div>
+
+  <div id="topright">
+    <canvas id="radar" width="120" height="120"></canvas>
+    <div class="panel" id="statsBox">
+      <div>CHACINA <b id="killCount">0</b></div>
+      <div>TEMPO <b id="timeCount">00:00</b></div>
+    </div>
+    <div class="panel" id="styleBox">
+      <div id="styleRank">—</div>
+      <div id="styleBar"><div id="styleFill"></div></div>
+    </div>
+  </div>
+
+  <div id="bossbar" class="hidden">
+    <div id="bossName">BOSS</div>
+    <div id="bossTrack"><div id="bossFill"></div></div>
+  </div>
+
+  <div id="crosshair"><i></i><i></i></div>
+  <div id="hitmarker"></div>
+
+  <div id="baph" class="hidden"></div>
+  <div id="msg" class="hidden"><span id="msgWho"></span><span id="msgText"></span></div>
+  <div id="prompt" class="hidden"></div>
+
+  <div id="bottom">
+    <div class="panel" id="vitals">
+      <canvas id="face" width="24" height="24"></canvas>
+      <div id="bars">
+        <div class="row"><span class="lbl">VIDA</span><div class="bar"><div id="hpFill"></div><b id="hpNum">200</b></div></div>
+        <div class="row"><span class="lbl">FÉ</span><div class="bar faith"><div id="faithFill"></div><b id="faithTxt">0%</b></div></div>
+        <div class="row"><span class="lbl">DASH</span><div class="bar dash"><div id="dashFill"></div></div></div>
+      </div>
+    </div>
+    <div id="slots"></div>
+    <div class="panel" id="ammoBox">
+      <div id="weaponName">PUNHOS</div>
+      <div id="ammoNum">∞</div>
+      <div id="ammoLabel">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= TELAS ================= -->
+<div id="title" class="overlay title-screen">
+  <div class="title-vignette"></div>
+
+  <div class="title-left">
+    <div class="title-brand">
+      <div class="title-eyebrow">ANO 666 D.S.C. · CAPÍTULO 1 — NOS PORTÕES DO INFERNO</div>
+      <h1 class="logo title-logo">HELLSLAYER</h1>
+    </div>
+
+    <nav class="title-menu" aria-label="Menu Principal">
+      <button id="startBtn" class="menu-btn">Novo Jogo</button>
+      <button id="continueBtn" class="menu-btn">Continuar</button>
+      <button id="loadBtn" class="menu-btn">Carregar Jogo</button>
+      <button id="settingsBtn" class="menu-btn">Configurações</button>
+      <button id="exitBtn" class="menu-btn menu-btn-exit">Sair</button>
+    </nav>
+
+    <div id="bestRecord" class="small recordBox"></div>
+  </div>
+
+  <!-- Sub-painel: Seleção de Capítulo -->
+  <div id="titleChapterModal" class="title-modal hidden">
+    <div class="title-modal-card">
+      <div class="title-modal-header">SELECIONAR CAPÍTULO</div>
+      <div class="save-slots-list">
+        <div id="chapter1Card" class="save-slot-item">
+          <div>
+            <div class="save-slot-title">CAPÍTULO 1 — NOS PORTÕES DO INFERNO</div>
+            <div class="save-slot-meta">Ano 666 D.S.C. · 3 Episódios (Áreas 1–6)</div>
+          </div>
+          <div class="save-slot-badge">ENTRAR</div>
+        </div>
+        <div class="save-slot-item empty">
+          <div>
+            <div class="save-slot-title">CAPÍTULO 2 — A FLORESTA INFERNAL</div>
+            <div class="save-slot-meta">Em desenvolvimento — disponível após pacificar a cidade.</div>
+          </div>
+          <div class="save-slot-badge">EM BREVE</div>
+        </div>
+      </div>
+      <div class="title-modal-actions">
+        <button id="closeChapterBtn" class="menu-btn small-btn">Voltar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-painel: Seleção de Episódio (Áreas) -->
+  <div id="titleEpisodeModal" class="title-modal hidden">
+    <div class="title-modal-card wide-modal">
+      <div class="title-modal-header">CAPÍTULO 1 · EPISÓDIOS</div>
+      <div id="episodeList" class="episode-list"></div>
+      <div class="title-modal-actions">
+        <button id="backToChaptersBtn" class="menu-btn small-btn">Voltar aos Capítulos</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-painel: Carregar Jogo -->
+  <div id="titleLoadModal" class="title-modal hidden">
+    <div class="title-modal-card">
+      <div class="title-modal-header">CARREGAR JOGO</div>
+      <div id="saveSlotsList" class="save-slots-list"></div>
+      <div class="title-modal-actions">
+        <button id="closeLoadBtn" class="menu-btn small-btn">Voltar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-painel: Configurações -->
+  <div id="titleSettingsModal" class="title-modal hidden">
+    <div class="title-modal-card">
+      <div class="title-modal-header">CONFIGURAÇÕES</div>
+      <div class="settingsRow">
+        <label>SENSIBILIDADE <input id="sensSlider" type="range" min="0.3" max="2.5" step="0.1" value="1.0"><span id="sensVal">1.0x</span></label>
+        <label>VOLUME <input id="volSlider" type="range" min="0" max="1" step="0.05" value="0.55"><span id="volVal">55%</span></label>
+        <label>GORE / IMPACTO <input id="goreVolSlider" type="range" min="0" max="1" step="0.05" value="0.55"><span id="goreVolVal">55%</span></label>
+      </div>
+      <div class="controls">
+        <div><b>WASD</b> mover</div><div><b>MOUSE</b> mirar</div>
+        <div><b>CLIQUE ESQ.</b> atacar</div><div><b>BOTÃO DIR.</b> Parry / Golpe Sec. / Recall Cruz</div>
+        <div><b>ESPAÇO</b> pular</div><div><b>SHIFT</b> investida (Dash)</div>
+        <div><b>CTRL / C (no ar)</b> Queda de 450 kg</div><div><b>Q</b> Super-Fé (barra cheia)</div>
+        <div><b>1-7 / RODA</b> armas</div><div><b>E</b> interagir · <b>M</b> mudo · <b>ESC</b> pausa</div>
+      </div>
+      <div class="small">Dica de dev: F1 arsenal completo · F2 modo deus · F3 limpa a sala atual</div>
+      <div class="title-modal-actions">
+        <button id="closeSettingsBtn" class="menu-btn small-btn">Voltar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-painel: Sair -->
+  <div id="titleExitModal" class="title-modal hidden">
+    <div class="title-modal-card">
+      <div class="title-modal-header">ABANDONAR O INFERNO?</div>
+      <p class="lore">O Portal Maligno continua aberto. Deseja mesmo encerrar a sessão?</p>
+      <div class="title-modal-actions">
+        <button id="confirmExitBtn" class="menu-btn small-btn menu-btn-exit">Sair do Jogo</button>
+        <button id="cancelExitBtn" class="menu-btn small-btn">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="title-cam-tag" id="titleCamLabel">ÀS MARGENS DO INFERNO · ZONA DEVASTADA</div>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <div class="card">
+    <div class="logo small">PAUSADO</div>
+    <div class="settingsRow">
+      <label>SENSIBILIDADE <input id="sensSliderPause" type="range" min="0.3" max="2.5" step="0.1" value="1.0"></label>
+      <label>VOLUME <input id="volSliderPause" type="range" min="0" max="1" step="0.05" value="0.55"></label>
+      <label>GORE / IMPACTO <input id="goreVolSliderPause" type="range" min="0" max="1" step="0.05" value="0.55"></label>
+    </div>
+    <button id="resumeBtn">▶ CONTINUAR</button>
+  </div>
+</div>
+
+<div id="death" class="overlay hidden">
+  <div class="card"><div class="logo red">VOCÊ MORREU</div>
+  <p class="lore">A Super-Fé de Nivaldo vacilou…</p>
+  <button id="respawnBtn">↻ TENTAR DE NOVO (R)</button></div>
+</div>
+
+<div id="levelComplete" class="overlay hidden">
+  <div class="card lc-card">
+    <div class="lc-eyebrow" id="lcEyebrow">ÁREA CONCLUÍDA</div>
+    <div class="logo gold lc-title" id="lcTitle">BAIRRO ALTO</div>
+    <div class="lc-stats">
+      <div class="lc-row"><span>CHACINA (KILLS)</span><b id="lcKills">0 / 0 (0%)</b></div>
+      <div class="lc-row"><span>ESTILO</span><b id="lcStyle">0%</b></div>
+      <div class="lc-row"><span>TEMPO</span><b id="lcTime">00:00</b></div>
+    </div>
+    <div class="lc-rank-box">
+      <div class="lc-rank-label">RANK FINAL</div>
+      <div class="lc-rank-val" id="lcRank">—</div>
+    </div>
+    <button id="lcNextBtn" class="lc-next-btn">▶ AVANÇAR PARA PRÓXIMA ÁREA [ESPAÇO]</button>
+  </div>
+</div>
+
+<div id="end" class="overlay hidden">
+  <div class="card"><div class="logo gold">BETA 1 CONCLUÍDA</div>
+  <div class="sub">CAPÍTULO 2 — A FLORESTA INFERNAL (EM BREVE)</div>
+  <p class="lore" id="endStats"></p>
+  <button id="againBtn">↻ JOGAR DE NOVO</button></div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="js/textures.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/models.js"></script>
+<script src="js/level.js"></script>
+<script src="js/game.js"></script>
+<script src="js/game2.js"></script>
+</body>
+</html>
