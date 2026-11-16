@@ -94,7 +94,7 @@
   }
   function spawnPickup(k, x, z, id, y) {
     const g = mkPickupMesh(k, id);
-    const y0 = y != null ? y : 0.9;
+    const y0 = getGroundY(x, z) + (y != null ? y : 0.9);
     g.position.set(x, y0, z);
     scene.add(g);
     pickups.push({ k, id, g, x, z, y0, t: Math.random() * 6, life: k === 'weapon' ? 1e9 : 40 });
@@ -710,7 +710,7 @@
     S.levelPeakStyle = 0;
     const sx = opts.x != null ? opts.x : 0;
     const sz = opts.z != null ? opts.z : 10;
-    P.pos.set(sx, 0, sz); P.vel.set(0, 0, 0); P.yaw = opts.yaw || 0; P.pitch = 0;
+    P.pos.set(sx, getGroundY(sx, sz), sz); P.vel.set(0, 0, 0); P.yaw = opts.yaw || 0; P.pitch = 0;
     resetCamera();
     const firstRoom = opts.room || (mapId === 'a6_crypt' ? 'a6_crypt1' : mapId);
     if (ROOMS[firstRoom]) startRoom(firstRoom);
@@ -724,7 +724,7 @@
     SFX.play('boom');
     setTimeout(() => SFX.play('portal'), 180);
     const total = Math.max(1, S.levelTotal || 1);
-    const kills = Math.min(total, S.levelKills || total);
+    const kills = Math.min(total, S.levelKills || 0);
     const kPct = Math.round((kills / total) * 100);
     const peak = Math.max(S.levelPeakStyle || 0, S.style || 0);
     const sPct = Math.min(100, Math.round((peak / 240) * 100));
@@ -975,7 +975,7 @@
 
   /* ---------------- persistência & configurações ---------------- */
   const SAVE_KEY = 'hellslayer_save_v1';
-  const SAVE = { sens: 1.0, vol: 0.55, goreVol: 0.55, bestTime: null, bestKills: 0, bestRank: '—', ch2Unlocked: false };
+  const SAVE = { sens: 1.0, vol: 0.55, goreVol: 0.55, goreDur: 20, bestTime: null, bestKills: 0, bestRank: '—', ch2Unlocked: false };
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) Object.assign(SAVE, JSON.parse(raw));
@@ -1098,7 +1098,7 @@
   function respawn() {
     show('death', false);
     P.dead = false; P.hp = P.maxhp; P.vel.set(0, 0, 0); P.faithMode = 0; P.hurtFlash = 0;
-    P.pos.set(S.checkpoint.x, 0, S.checkpoint.z); P.yaw = S.checkpoint.yaw; P.pitch = 0;
+    P.pos.set(S.checkpoint.x, getGroundY(S.checkpoint.x, S.checkpoint.z), S.checkpoint.z); P.yaw = S.checkpoint.yaw; P.pitch = 0;
     resetCamera();
     A.clearProjs(); A.clearParts();
     for (const id in S.rooms) {
@@ -1178,11 +1178,13 @@
     if (input && keys.Space) P.jumpBufT = 0.12;
     else P.jumpBufT = Math.max(0, (P.jumpBufT || 0) - dt);
 
+    const wasOnGround = P.onGround;
     if (input && P.jumpBufT > 0 && P.coyoteT > 0) {
       P.vel.y = 10.5; P.onGround = false; P.coyoteT = 0; P.jumpBufT = 0; P.slamming = false;
       SFX.play('jump');
     }
-    if (input && !P.onGround && P.pos.y > 0.7 && !P.slamming && (keys.ControlLeft || keys.ControlRight || keys.KeyC)) {
+    const curGy = A.groundAt(P.pos.x, P.pos.z, P.pos.y, P.r);
+    if (input && !P.onGround && P.pos.y > curGy + 0.7 && !P.slamming && (keys.ControlLeft || keys.ControlRight || keys.KeyC)) {
       P.slamming = true;
       P.vel.y = -38;
       P.fovKick = Math.max(P.fovKick, 0.6);
@@ -1198,6 +1200,8 @@
         P.landImpact = Math.min(1, -P.vel.y / 22);
         if (P.vel.y < -12) P.shake = Math.max(P.shake, 0.18);
       }
+      P.pos.y = gy; P.vel.y = 0; P.onGround = true;
+    } else if (wasOnGround && P.vel.y <= 0 && P.pos.y - gy < 0.45) {
       P.pos.y = gy; P.vel.y = 0; P.onGround = true;
     } else if (P.pos.y > gy + 0.02) P.onGround = false;
 
@@ -1703,7 +1707,7 @@
     }
   });
   window.addEventListener('beforeunload', (e) => {
-    if (S.started && !S.ended) {
+    if (!(window.electronAPI && window.electronAPI.isElectron) && S.started && !S.ended) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -1761,6 +1765,7 @@
     const t = e.target;
     const tag = t && t.tagName;
     if (tag === 'TEXTAREA' || (tag === 'INPUT' && !['range', 'checkbox', 'radio', 'button', 'submit'].includes(t.type))) return false;
+    if (e.altKey && (e.code === 'F4' || e.code === 'Tab')) return false;
     if (e.ctrlKey || e.metaKey || e.altKey) return true;
     if (/^F([1-9]|1[0-2])$/.test(e.code)) return true;
     if (e.code === 'Tab' || e.code === 'ContextMenu' || e.code === 'Backspace' || e.code === 'PageUp' || e.code === 'PageDown' || e.code === 'Home' || e.code === 'End') return true;
@@ -1879,14 +1884,23 @@
   // vincula sliders de configuração e recordes
   SFX.setVolume(SAVE.vol);
   SFX.setGoreVolume(SAVE.goreVol);
+  if (SAVE.goreDur == null) SAVE.goreDur = 20;
+  A.setGoreDuration(SAVE.goreDur);
   refreshRecordUI();
+  function formatGoreDur(v) {
+    const n = Number(v);
+    return (!Number.isFinite(n) || n >= 61 || n <= 0) ? 'Nunca' : Math.round(n) + 's';
+  }
   function syncSettingsUI() {
     ['sensSlider', 'sensSliderPause'].forEach(id => { if (el(id)) el(id).value = SAVE.sens; });
     ['volSlider', 'volSliderPause'].forEach(id => { if (el(id)) el(id).value = SAVE.vol; });
     ['goreVolSlider', 'goreVolSliderPause'].forEach(id => { if (el(id)) el(id).value = SAVE.goreVol; });
+    ['goreDurSlider', 'goreDurSliderPause'].forEach(id => { if (el(id)) el(id).value = SAVE.goreDur; });
     if (el('sensVal')) el('sensVal').textContent = Number(SAVE.sens).toFixed(1) + 'x';
     if (el('volVal')) el('volVal').textContent = Math.round(SAVE.vol * 100) + '%';
     if (el('goreVolVal')) el('goreVolVal').textContent = Math.round(SAVE.goreVol * 100) + '%';
+    if (el('goreDurVal')) el('goreDurVal').textContent = formatGoreDur(SAVE.goreDur);
+    if (el('goreDurValPause')) el('goreDurValPause').textContent = formatGoreDur(SAVE.goreDur);
     if (el('continueBtn')) {
       el('continueBtn').classList.toggle('disabled-look', !SAVE.savedGame);
     }
@@ -1909,6 +1923,13 @@
     if (el(id)) el(id).addEventListener('input', (e) => {
       SAVE.goreVol = parseFloat(e.target.value);
       SFX.init(); SFX.setGoreVolume(SAVE.goreVol);
+      syncSettingsUI(); writeSave();
+    });
+  });
+  ['goreDurSlider', 'goreDurSliderPause'].forEach(id => {
+    if (el(id)) el(id).addEventListener('input', (e) => {
+      SAVE.goreDur = parseInt(e.target.value, 10) || 20;
+      A.setGoreDuration(SAVE.goreDur);
       syncSettingsUI(); writeSave();
     });
   });
@@ -2188,6 +2209,10 @@
   if (el('cancelExitBtn')) el('cancelExitBtn').addEventListener('click', closeAllTitleModals);
   if (el('confirmExitBtn')) {
     el('confirmExitBtn').addEventListener('click', () => {
+      if (window.electronAPI && window.electronAPI.quit) {
+        window.electronAPI.quit();
+        return;
+      }
       window.close();
       closeAllTitleModals();
       el('titleCamLabel').textContent = 'SESSÃO ENCERRADA · FECHE A ABA OU CLIQUE EM NOVO JOGO';

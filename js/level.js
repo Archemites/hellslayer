@@ -6,6 +6,7 @@
 const World = {
   scene: null, group: null, currentMap: 'a1',
   colliders: [], triggers: [], gates: {}, flames: [], anim: [], meshes: [],
+  terrainY: null, terrainBaseFn: null, pads: [], pendingFloors: [],
   exitGate: null, breakWall: null, hatch: null, altar: null, portal: null,
   altarCross: null, ghost: null, crossPickup: null, doorMesh: null, skyPortal: null,
   addTrigger(t) {
@@ -15,10 +16,42 @@ const World = {
 window.CHAPTERS = window.CHAPTERS || {};
 
 const ENV = {
-  hell:   { fog: 0x2a0a08, near: 6,  far: 115, amb: 0x8a5a50, ambI: 1.15, dir: 0xff6a40, dirI: 0.7 },
+  hell:   { fog: 0x2a0a08, near: 6,  far: 140, amb: 0x8a5a50, ambI: 1.15, dir: 0xff6a40, dirI: 0.7 },
   church: { fog: 0x160a18, near: 5,  far: 90,  amb: 0x84609a, ambI: 1.4,  dir: 0xaa5080, dirI: 0.5 },
   crypt:  { fog: 0x050c0a, near: 2,  far: 52,  amb: 0x4a7060, ambI: 1.0,  dir: 0x40a080, dirI: 0.35 }
 };
+
+function getGroundY(x, z) {
+  return World.terrainY ? World.terrainY(x, z) : 0;
+}
+function smoothstep(a, b, x) {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+function applyPads(x, z, h) {
+  const pads = World.pads;
+  for (let i = 0; i < pads.length; i++) {
+    const p = pads[i];
+    const dx = Math.max(0, Math.abs(x - p.cx) - p.hw);
+    const dz = Math.max(0, Math.abs(z - p.cz) - p.hd);
+    const d = Math.hypot(dx, dz);
+    if (d < p.blend) {
+      const s = smoothstep(0, p.blend, d);
+      h = p.y * (1 - s) + h * s;
+    }
+  }
+  return h;
+}
+function setTerrain(baseFn) {
+  World.terrainBaseFn = baseFn;
+  World.terrainY = (x, z) => applyPads(x, z, baseFn(x, z));
+}
+function addPad(cx, cz, hw, hd, blend) {
+  if (!World.terrainBaseFn) return 0;
+  const y = World.terrainBaseFn(cx, cz);
+  World.pads.push({ cx, cz, hw, hd, blend: blend || 5, y });
+  return y;
+}
 function envAt(x, z) {
   if (World.currentMap === 'a6_crypt') return 'crypt';
   if (World.currentMap === 'a6_nave') return 'church';
@@ -50,7 +83,7 @@ function wbox(x1, z1, x2, z2, h, tex, o) {
   addW(m);
   let col = null;
   if (o.collide !== false) {
-    const walkable = o.walkable != null ? o.walkable : (y0 + h <= 2.2);
+    const walkable = o.walkable != null ? o.walkable : (h <= 2.2);
     col = {
       x1: Math.min(x1, x2), z1: Math.min(z1, z2),
       x2: Math.max(x1, x2), z2: Math.max(z1, z2),
@@ -62,9 +95,49 @@ function wbox(x1, z1, x2, z2, h, tex, o) {
   return m;
 }
 
-function wfloor(x1, z1, x2, z2, tex, y, tile) {
+function wterrain(x1, z1, x2, z2, tex, yOff, tile, segStep, customFn) {
+  tile = tile || 4;
+  const yPos = yOff || 0;
+  const step = segStep || 5;
+  const w = x2 - x1, d = z2 - z1;
+  const segX = Math.max(1, Math.min(56, Math.round(Math.abs(w) / step)));
+  const segZ = Math.max(1, Math.min(56, Math.round(Math.abs(d) / step)));
+  const g = new THREE.PlaneGeometry(w, d, segX, segZ);
+  const uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / tile, uv.getY(i) * d / tile);
+  g.rotateX(-Math.PI / 2);
+  const cx = (x1 + x2) / 2, cz = (z1 + z2) / 2;
+  const pos = g.attributes.position;
+  const fn = customFn || getGroundY;
+  for (let i = 0; i < pos.count; i++) {
+    const vx = pos.getX(i) + cx, vz = pos.getZ(i) + cz;
+    pos.setY(i, fn(vx, vz) + yPos);
+  }
+  g.computeVertexNormals();
+  const polyOffset = yPos < 0 ? 4 : (yPos >= 0.06 ? -5 : (yPos > 0 ? -2 : 0));
+  const m = new THREE.Mesh(g, TX.mat(tex, polyOffset));
+  m.position.set(cx, 0, cz);
+  if (yPos < 0) m.renderOrder = -1;
+  else if (yPos >= 0.06) m.renderOrder = 2;
+  else if (yPos > 0) m.renderOrder = 1;
+  return addW(m);
+}
+
+function flushTerrain() {
+  for (let i = 0; i < World.pendingFloors.length; i++) {
+    const f = World.pendingFloors[i];
+    wterrain(f.x1, f.z1, f.x2, f.z2, f.tex, f.y, f.tile, f.segStep, f.customFn);
+  }
+  World.pendingFloors.length = 0;
+}
+
+function wfloor(x1, z1, x2, z2, tex, y, tile, flat) {
   tile = tile || 4;
   const yPos = y || 0;
+  if (World.terrainY && !flat) {
+    World.pendingFloors.push({ x1, z1, x2, z2, tex, y: yPos, tile, segStep: 5 });
+    return null;
+  }
   const w = x2 - x1, d = z2 - z1;
   const segX = Math.max(1, Math.min(32, Math.round(Math.abs(w) / 12)));
   const segZ = Math.max(1, Math.min(32, Math.round(Math.abs(d) / 12)));
@@ -72,10 +145,11 @@ function wfloor(x1, z1, x2, z2, tex, y, tile) {
   const uv = g.attributes.uv;
   for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / tile, uv.getY(i) * d / tile);
   g.rotateX(-Math.PI / 2);
-  const polyOffset = yPos < 0 ? 2 : (yPos > 0 ? -2 : 0);
+  const polyOffset = yPos < 0 ? 4 : (yPos >= 0.06 ? -5 : (yPos > 0 ? -2 : 0));
   const m = new THREE.Mesh(g, TX.mat(tex, polyOffset));
   m.position.set((x1 + x2) / 2, yPos, (z1 + z2) / 2);
   if (yPos < 0) m.renderOrder = -1;
+  else if (yPos >= 0.06) m.renderOrder = 2;
   else if (yPos > 0) m.renderOrder = 1;
   return addW(m);
 }
@@ -94,6 +168,8 @@ function wceil(x1, z1, x2, z2, tex, y, tile) {
 function hall(x1, z1, x2, z2, o) {
   const h = o.h || 5, t = o.t || 1, tex = o.wall || 'brick', skip = o.skip || [], ops = o.openings || [];
   const hts = o.heights || {};
+  const baseY = o.y0 || 0, sink = o.sink || 0;
+  const follow = !!(World.terrainY && o.y0 == null && !o.flat);
   const sides = {
     n: { ax: 'x', f: z1, a: x1 - t / 2, b: x2 + t / 2 },
     s: { ax: 'x', f: z2, a: x1 - t / 2, b: x2 + t / 2 },
@@ -104,28 +180,47 @@ function hall(x1, z1, x2, z2, o) {
     if (skip.includes(k)) continue;
     const S = sides[k], H = hts[k] || h;
     const list = ops.filter(p => p.side === k).map(p => ({ a: p.c - p.w / 2, b: p.c + p.w / 2, oh: p.oh || H })).sort((p, q) => p.a - q.a);
-    const seg = (sa, sb, y0, hh, collide) => {
+    const seg = (sa, sb, y0, hh, collide, isLintel) => {
       if (sb - sa < 0.01) return;
-      if (S.ax === 'x') wbox(sa, S.f - t / 2, sb, S.f + t / 2, hh, tex, { y0, collide });
-      else wbox(S.f - t / 2, sa, S.f + t / 2, sb, hh, tex, { y0, collide });
+      if (follow) {
+        const len = sb - sa;
+        const nChunks = Math.max(1, Math.ceil(len / 8));
+        const step = len / nChunks;
+        for (let i = 0; i < nChunks; i++) {
+          const ca = sa + i * step, cb = sa + (i + 1) * step, cm = (ca + cb) * 0.5;
+          const ga = S.ax === 'x' ? getGroundY(ca, S.f) : getGroundY(S.f, ca);
+          const gm = S.ax === 'x' ? getGroundY(cm, S.f) : getGroundY(S.f, cm);
+          const gb = S.ax === 'x' ? getGroundY(cb, S.f) : getGroundY(S.f, cb);
+          const gMin = Math.min(ga, gm, gb), gMax = Math.max(ga, gm, gb);
+          const cy0 = isLintel ? (gm + y0) : (gMin - 3.0);
+          const ch = isLintel ? hh : (gMax + hh - cy0);
+          if (S.ax === 'x') wbox(ca, S.f - t / 2, cb, S.f + t / 2, ch, tex, { y0: cy0, collide, walkable: false });
+          else wbox(S.f - t / 2, ca, S.f + t / 2, cb, ch, tex, { y0: cy0, collide, walkable: false });
+        }
+        return;
+      }
+      const cy0 = isLintel ? (baseY + y0) : (baseY + y0 - sink);
+      const ch = isLintel ? hh : (hh + sink);
+      if (S.ax === 'x') wbox(sa, S.f - t / 2, sb, S.f + t / 2, ch, tex, { y0: cy0, collide, walkable: false });
+      else wbox(S.f - t / 2, sa, S.f + t / 2, sb, ch, tex, { y0: cy0, collide, walkable: false });
     };
     let cur = S.a;
     for (const p of list) {
-      if (p.a > cur) seg(cur, p.a, 0, H, true);
-      if (p.oh < H) seg(p.a, p.b, p.oh, H - p.oh, false);
+      if (p.a > cur) seg(cur, p.a, 0, H, true, false);
+      if (p.oh < H) seg(p.a, p.b, p.oh, H - p.oh, false, true);
       cur = p.b;
     }
-    if (cur < S.b) seg(cur, S.b, 0, H, true);
+    if (cur < S.b) seg(cur, S.b, 0, H, true, false);
   }
-  if (o.ceil) wceil(x1, z1, x2, z2, o.ceil, h, 8);
+  if (o.ceil) wceil(x1, z1, x2, z2, o.ceil, baseY + h, 8);
   if (o.roof) {
     const w = x2 - x1, d = z2 - z1, m = Math.max(w, d);
     const roof = new THREE.Mesh(new THREE.ConeGeometry(m * 0.78, o.roofH || 3, 4), TX.mat('roof'));
     roof.rotation.y = Math.PI / 4;
     roof.scale.set(w / m, 1, d / m);
-    roof.position.set((x1 + x2) / 2, h + (o.roofH || 3) / 2, (z1 + z2) / 2);
+    roof.position.set((x1 + x2) / 2, baseY + h + (o.roofH || 3) / 2, (z1 + z2) / 2);
     addW(roof);
-    if (o.burn) flame((x1 + x2) / 2, h + (o.roofH || 3) - 0.2, (z1 + z2) / 2, 2.2);
+    if (o.burn) flame((x1 + x2) / 2, baseY + h + (o.roofH || 3) - 0.2, (z1 + z2) / 2, 2.2);
   }
 }
 
@@ -133,11 +228,19 @@ function house(cx, cz, w, d, face, o) {
   o = o || {};
   const doorC = (face === 'e' || face === 'w') ? cz : cx;
   const big = (o.h || 4.5) > 5;
+  const sink = World.terrainY ? 2.5 : 0.2;
+  const floorRise = 0.22;
+  const hy = World.terrainY ? addPad(cx, cz, w / 2 + 1.5, d / 2 + 1.5, 5.5) : 0;
   hall(cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, {
     h: o.h || 4.5, t: 0.7, wall: o.wall || 'brick', roof: true, burn: o.burn, roofH: big ? 4 : 3,
+    y0: hy, sink: World.terrainY ? 2.5 : 0,
     openings: [{ side: face, c: doorC, w: big ? 4 : 3, oh: big ? 5 : 3.4 }]
   });
-  wfloor(cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, o.floor || 'wood', 0.04, 4);
+  wbox(cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, sink + floorRise, o.floor || 'wood', {
+    y0: hy - sink,
+    tile: 4,
+    walkable: true
+  });
 }
 
 function flame(x, y, z, s, cols) {
@@ -155,8 +258,9 @@ function flame(x, y, z, s, cols) {
 }
 
 function deadTree(x, z) {
+  const ty = getGroundY(x, z);
   const g = new THREE.Group();
-  g.position.set(x, 0, z);
+  g.position.set(x, ty, z);
   part(g, 0.5, 5, 0.5, 0x2a1c12, 0, 2.5, 0);
   const b1 = part(g, 0.25, 2.2, 0.25, 0x2a1c12, 0.8, 4.0, 0); b1.rotation.z = -0.9;
   const b2 = part(g, 0.25, 1.8, 0.25, 0x2a1c12, -0.7, 3.4, 0.2); b2.rotation.z = 0.9;
@@ -165,22 +269,27 @@ function deadTree(x, z) {
   World.colliders.push({ x1: x - 0.4, z1: z - 0.4, x2: x + 0.4, z2: z + 0.4, active: true });
 }
 function crate(x, z, s) {
-  wbox(x - s / 2, z - s / 2, x + s / 2, z + s / 2, s, 'wood', { tile: s });
+  const ty = getGroundY(x, z);
+  wbox(x - s / 2, z - s / 2, x + s / 2, z + s / 2, s, 'wood', { y0: ty, tile: s });
 }
 function hay(x, z) {
-  wbox(x - 1, z - 1, x + 1, z + 1, 1.6, 'hay', { tile: 2 });
+  const ty = getGroundY(x, z);
+  wbox(x - 1, z - 1, x + 1, z + 1, 1.6, 'hay', { y0: ty, tile: 2 });
 }
 function lamp(x, z, cols) {
-  wbox(x - 0.2, z - 0.2, x + 0.2, z + 0.2, 4, 'stone', { tile: 2 });
-  flame(x, 4, z, 0.8, cols);
+  const ty = getGroundY(x, z);
+  wbox(x - 0.2, z - 0.2, x + 0.2, z + 0.2, 4, 'stone', { y0: ty, tile: 2 });
+  flame(x, ty + 4, z, 0.8, cols);
 }
 function barrelFire(x, z) {
-  wbox(x - 0.5, z - 0.5, x + 0.5, z + 0.5, 1.1, 'brick', { tile: 1 });
-  flame(x, 1.1, z, 1.1);
+  const ty = getGroundY(x, z);
+  wbox(x - 0.5, z - 0.5, x + 0.5, z + 0.5, 1.1, 'brick', { y0: ty, tile: 1 });
+  flame(x, ty + 1.1, z, 1.1);
 }
 function scarecrow(x, z) {
+  const ty = getGroundY(x, z);
   const g = new THREE.Group();
-  g.position.set(x, 0, z);
+  g.position.set(x, ty, z);
   part(g, 0.12, 3, 0.12, 0x5a3a1c, 0, 1.5, 0);
   part(g, 2.2, 0.1, 0.1, 0x5a3a1c, 0, 2.3, 0);
   part(g, 0.5, 0.5, 0.5, 0x8a7020, 0, 3.1, 0);
@@ -190,15 +299,17 @@ function scarecrow(x, z) {
   addW(g);
 }
 function fountain(cx, cz) {
-  wbox(cx - 3.2, cz - 3.2, cx + 3.2, cz + 3.2, 1.2, 'stone', { tile: 2 });
-  wbox(cx - 0.6, cz - 0.6, cx + 0.6, cz + 0.6, 5, 'stone', { tile: 2, collide: false });
-  const sg = new THREE.Group(); sg.position.set(cx, 5, cz);
+  const ty = World.terrainY ? addPad(cx, cz, 4.2, 4.2, 5.0) : 0;
+  wbox(cx - 3.2, cz - 3.2, cx + 3.2, cz + 3.2, 1.2, 'stone', { y0: ty, tile: 2 });
+  wbox(cx - 0.6, cz - 0.6, cx + 0.6, cz + 0.6, 3.8, 'stone', { y0: ty + 1.2, tile: 2, collide: false });
+  const sg = new THREE.Group(); sg.position.set(cx, ty + 5, cz);
   part(sg, 1.2, 1.6, 0.8, 0x6a6a7a, 0, 0.8, 0); part(sg, 0.6, 0.6, 0.6, 0x6a6a7a, 0, 1.9, 0);
   part(sg, 2.4, 0.2, 0.2, 0x6a6a7a, 0, 1.3, 0);
   addW(sg);
 }
 
 function makeGate(id, cx, cz, w, axis, h, style) {
+  const ty = getGroundY(cx, cz);
   const t = 1.2;
   const col = {
     x1: axis === 'x' ? cx - w / 2 : cx - t / 2, x2: axis === 'x' ? cx + w / 2 : cx + t / 2,
@@ -206,7 +317,7 @@ function makeGate(id, cx, cz, w, axis, h, style) {
   };
   World.colliders.push(col);
   const grp = new THREE.Group();
-  grp.position.set(cx, 0, cz);
+  grp.position.set(cx, ty, cz);
   if (style === 'barrier') {
     const pl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), MT(0xff2200, { basic: true, tr: 0.35, add: true, dbl: true }));
     pl.position.y = h / 2;
@@ -242,8 +353,9 @@ function closeGateInstant(id) {
 
 /* ---------------- Portão de Saída em Destaque (Intermission Doom-style) ---------------- */
 function makeExitGate(cx, cz, nextMap, nextLabel) {
+  const ty = World.terrainY ? addPad(cx, cz, 7.0, 5.0, 6.0) : 0;
   const grp = new THREE.Group();
-  grp.position.set(cx, 0, cz);
+  grp.position.set(cx, ty, cz);
   const w = 9.5, h = 8.5;
   // Pilares monumentais dourados/negros
   part(grp, 1.8, h + 1.5, 1.8, 0x221010, -w / 2 - 0.6, (h + 1.5) / 2, 0);
@@ -252,13 +364,13 @@ function makeExitGate(cx, cz, nextMap, nextLabel) {
   part(grp, 2.0, 0.5, 2.0, 0xd4a017,  w / 2 + 0.6, h + 1.5, 0, { em: 0x5a3800 });
   part(grp, w + 3.2, 1.4, 2.0, 0x2a1212, 0, h + 0.6, 0);
   part(grp, w + 1.6, 0.4, 2.2, 0xd4a017, 0, h + 1.4, 0, { em: 0x6a4200 });
-  flame(cx - w / 2 - 0.6, h + 1.8, cz, 1.5, [0xffa020, 0xfff080]);
-  flame(cx + w / 2 + 0.6, h + 1.8, cz, 1.5, [0xffa020, 0xfff080]);
+  flame(cx - w / 2 - 0.6, ty + h + 1.8, cz, 1.5, [0xffa020, 0xfff080]);
+  flame(cx + w / 2 + 0.6, ty + h + 1.8, cz, 1.5, [0xffa020, 0xfff080]);
 
   // Feixe vertical visível de longe
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(1.2, 2.4, 55, 8, 1, true),
-    MT(0xff3010, { basic: true, tr: 0.22, add: true, dbl: true, nofog: true })
+    MT(0x40ff90, { basic: true, tr: 0.35, add: true, dbl: true, nofog: true })
   );
   beam.position.y = 27.5;
   grp.add(beam);
@@ -266,22 +378,23 @@ function makeExitGate(cx, cz, nextMap, nextLabel) {
   // Barreira vermelha (trancado) e vórtice dourado/esmeralda (destrancado)
   const lockPl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), MT(0xff2200, { basic: true, tr: 0.45, add: true, dbl: true }));
   lockPl.position.y = h / 2;
+  lockPl.visible = false;
   grp.add(lockPl);
 
   const openPl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), MT(0x30ff90, { basic: true, tr: 0.55, add: true, dbl: true }));
   openPl.position.y = h / 2;
-  openPl.visible = false;
+  openPl.visible = true;
   grp.add(openPl);
 
   const ring = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.28, 5, 14), MT(0xffd24a, { basic: true }));
   ring.position.y = h / 2;
-  ring.visible = false;
+  ring.visible = true;
   grp.add(ring);
 
   addW(grp);
-  const col = { x1: cx - w / 2 - 1, z1: cz - 1.2, x2: cx + w / 2 + 1, z2: cz + 1.2, active: true };
+  const col = { x1: cx - w / 2 - 1, z1: cz - 1.2, x2: cx + w / 2 + 1, z2: cz + 1.2, active: false };
   World.colliders.push(col);
-  World.exitGate = { x: cx, z: cz, r: 7.5, unlocked: false, nextMap, nextLabel, grp, lockPl, openPl, beam, ring, col };
+  World.exitGate = { x: cx, z: cz, r: 7.5, unlocked: true, nextMap, nextLabel, grp, lockPl, openPl, beam, ring, col };
 }
 function unlockExitGate() {
   const eg = World.exitGate;
@@ -304,17 +417,82 @@ function addSkyPortal(x, y, z) {
   World.skyPortal = ring;
 }
 
+function addDistantChurch(x, y, z, s) {
+  s = s || 1;
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  g.scale.setScalar(s);
+  const dark = { basic: true, nofog: true };
+  // Nave principal + alas
+  part(g, 42, 34, 24, 0x1a0912, 0, 17, 0, dark);
+  part(g, 64, 22, 18, 0x15070e, 0, 11, 2, dark);
+  // Torres gêmeas
+  part(g, 11, 56, 11, 0x200b16, -15, 28, 6, dark);
+  part(g, 11, 56, 11, 0x200b16,  15, 28, 6, dark);
+  // Agulhas (spires)
+  const spGeo = new THREE.ConeGeometry(7.2, 26, 4);
+  const spMat = MT(0x280d1a, dark);
+  const spL = new THREE.Mesh(spGeo, spMat); spL.position.set(-15, 69, 6); spL.rotation.y = Math.PI / 4; g.add(spL);
+  const spR = new THREE.Mesh(spGeo, spMat); spR.position.set( 15, 69, 6); spR.rotation.y = Math.PI / 4; g.add(spR);
+  // Pináculo central + Cruz luminosa
+  part(g, 14, 48, 14, 0x220c18, 0, 34, -2, dark);
+  const spC = new THREE.Mesh(new THREE.ConeGeometry(9.5, 32, 4), spMat);
+  spC.position.set(0, 74, -2); spC.rotation.y = Math.PI / 4; g.add(spC);
+  part(g, 1.8, 16, 1.8, 0xd4a017, 0, 94, -2, dark);
+  part(g, 10, 1.8, 1.8, 0xd4a017, 0, 96, -2, dark);
+  // Rosácea brilhante e portal
+  const rose = new THREE.Mesh(new THREE.CircleGeometry(5.5, 12), MT(0xb82048, dark));
+  rose.position.set(0, 26, 12.2); g.add(rose);
+  part(g, 8, 14, 1, 0x501020, 0, 7, 12.1, dark);
+  addW(g);
+  return g;
+}
+
+function addOuterHills(x1, z1, x2, z2, tex, hillFn, segStep) {
+  World.pendingFloors.push({ x1, z1, x2, z2, tex, y: -0.35, tile: 16, segStep: segStep || 12, customFn: hillFn });
+}
+
+function hillWall(x1, z1, x2, z2, h, tex) {
+  const w = Math.abs(x2 - x1), d = Math.abs(z2 - z1);
+  const len = Math.max(w, d);
+  const n = Math.max(1, Math.ceil(len / 8));
+  for (let i = 0; i < n; i++) {
+    const t0 = i / n, t1 = (i + 1) / n;
+    const cx1 = w >= d ? x1 + (x2 - x1) * t0 : x1;
+    const cx2 = w >= d ? x1 + (x2 - x1) * t1 : x2;
+    const cz1 = d > w ? z1 + (z2 - z1) * t0 : z1;
+    const cz2 = d > w ? z1 + (z2 - z1) * t1 : z2;
+    const ga = getGroundY(cx1, cz1), gb = getGroundY(cx2, cz2), gm = getGroundY((cx1 + cx2) * 0.5, (cz1 + cz2) * 0.5);
+    const y0 = Math.min(ga, gm, gb) - 3.0;
+    const yTop = Math.max(ga, gm, gb) + h;
+    wbox(cx1, cz1, cx2, cz2, yTop - y0, tex, { y0, walkable: false });
+  }
+}
+
 /* ============================================================
    MAPA A1: EP. 1 · ÁREA 1 — BAIRRO ALTO (L-loop não-linear, ~195x180)
    ============================================================ */
 function buildMapA1() {
-  wfloor(-120, -200, 200, 60, 'hellfloor', -0.25, 16);
+  setTerrain((x, z) => 12.5 + 3.0 * Math.sin(x * 0.045 + 0.4) * Math.cos(z * 0.045) + 2.0 * Math.sin((x - z) * 0.032) + (z + 70) * 0.035);
+  addOuterHills(-260, -280, 300, 140, 'hellfloor', (x, z) => {
+    const base = getGroundY(x, z);
+    const dx = x < -45 ? (-45 - x) : (x > 140 ? (x - 140) : 0);
+    const dz = z < -150 ? (-150 - z) : (z > 20 ? (z - 20) : 0);
+    const out = Math.hypot(dx, dz);
+    if (out < 2) return base - 0.5;
+    // Morros altos ao redor, mas abrindo um vale para a Ultra-Igreja ao norte (-Z)
+    const ridge = (Math.sin(x * 0.032) * Math.cos(z * 0.035) + 1) * 9.5 + Math.sin((x + z) * 0.02) * 4;
+    const valleyN = z < -155 ? smoothstep(-155, -240, z) * Math.max(0, 1 - Math.abs(x) / 95) * 18 : 0;
+    return base + Math.min(1, out / 30) * ridge - valleyN;
+  }, 12);
+  addDistantChurch(-10, -16, -290, 0.72);
   // 1. Bairro Sul (Spawn + Casa de Nivaldo) — saída apenas pelo Leste!
   wfloor(-45, -55, 45, 20, 'dirt', 0, 8);
   hall(-45, -55, 45, 20, { h: 7, t: 2, wall: 'brick', skip: ['e'] });
   house(-24, -4, 11, 10, 'e', { burn: true });
-  wbox(-29, -9, -27, -6.5, 1, 'wood', { tile: 2 });
-  wbox(-25, -2, -23, -0.2, 1.1, 'wood', { tile: 2 });
+  const hyNiv = getGroundY(-24, -4);
+  wbox(-29, -8.6, -27, -6.5, 1, 'wood', { y0: hyNiv + 0.22, tile: 2 });
+  wbox(-25, -2, -23, -0.2, 1.1, 'wood', { y0: hyNiv + 0.22, tile: 2 });
   house(20, -10, 10, 9, 'w');
   house(-26, -34, 11, 10, 'e', { burn: true });
   house(16, -38, 10, 9, 's');
@@ -322,8 +500,9 @@ function buildMapA1() {
   // 2. Beco dos Lavradores (Ala Leste: x 45..140, z -55..20)
   wfloor(45, -55, 140, 20, 'dirt', 0, 8);
   wfloor(82, -48, 132, 12, 'crops', 0.04, 6);
-  hall(45, -55, 140, 20, { h: 7, t: 2, wall: 'brick', skip: ['w', 'n'] });
-  wbox(44, -20, 46, 20, 7, 'brick'); // parede divisória sul deixando passagem em z=-55..-20
+  hall(45, -55, 140, 20, { h: 7, t: 2, wall: 'brick', skip: ['w', 'n', 's'] });
+  hillWall(46, 19, 141, 21, 7, 'brick');
+  hillWall(44, -20, 46, 19, 7, 'brick'); // parede divisória sul deixando passagem em z=-55..-20
   house(68, -4, 12, 10, 'n', { burn: true });
   house(114, -18, 12, 11, 'w');
   house(116, -42, 11, 9, 'w', { burn: true });
@@ -332,8 +511,9 @@ function buildMapA1() {
   // 3. Praça do Poço (Ala Nordeste: x 45..140, z -150..-55)
   wfloor(45, -150, 140, -55, 'dirt', 0, 8);
   wfloor(74, -120, 112, -84, 'cobble', 0.02, 5);
-  hall(45, -150, 140, -55, { h: 7.5, t: 2, wall: 'brick', skip: ['s', 'w'] });
-  wbox(139, -56, 141, -54, 7.5, 'brick'); // fecha junção do muro leste entre Beco e Praça
+  hall(45, -150, 140, -55, { h: 7.5, t: 2, wall: 'brick', skip: ['s', 'w', 'n'] });
+  hillWall(46, -151, 141, -149, 7.5, 'brick');
+  hillWall(139, -56, 141, -54, 7.5, 'brick'); // fecha junção do muro leste entre Beco e Praça
   fountain(93, -102);
   house(122, -78, 14, 14, 'w', { burn: true, h: 6 });
   house(120, -128, 14, 12, 'w');
@@ -343,7 +523,7 @@ function buildMapA1() {
   // 4. Largo do Portão (Ala Noroeste: x -45..45, z -150..-55)
   wfloor(-45, -150, 45, -55, 'dirt', 0, 8);
   wfloor(-28, -145, 2, -95, 'cobble', 0.02, 5);
-  hall(-45, -150, 45, -55, { h: 8, t: 2, wall: 'brick', skip: ['e'] });
+  hall(-45, -150, 45, -55, { h: 8, t: 2, wall: 'brick', skip: ['e', 's'] });
   house(-28, -82, 12, 11, 'e', { burn: true });
   house(22, -88, 12, 11, 'w');
   house(24, -126, 12, 12, 'w', { burn: true });
@@ -361,14 +541,23 @@ function buildMapA1() {
    MAPA A2: EP. 1 · ÁREA 2 — CAMPOS DA PERDIÇÃO (Ramificado O/L/N, ~260x200)
    ============================================================ */
 function buildMapA2() {
-  wfloor(-180, -220, 180, 60, 'hellfloor', -0.25, 16);
+  setTerrain((x, z) => 6.5 + 2.6 * Math.sin(x * 0.04) * Math.cos(z * 0.045) + 1.4 * Math.cos(x * 0.06) + (z + 80) * 0.035);
+  addOuterHills(-280, -290, 280, 130, 'hellfloor', (x, z) => {
+    const base = getGroundY(x, z);
+    const out = Math.max(0, Math.abs(x) - 135, z < -185 ? (-185 - z) : (z > 20 ? z - 20 : 0));
+    if (out < 2) return base - 0.5;
+    const ridge = (Math.sin(x * 0.035) * Math.cos(z * 0.035) + 1) * 7.5;
+    const valleyN = z < -190 ? smoothstep(-190, -260, z) * Math.max(0, 1 - Math.abs(x) / 100) * 14 : 0;
+    return base + Math.min(1, out / 30) * ridge - valleyN;
+  }, 12);
+  addDistantChurch(0, -8, -265, 1.0);
   // 1. Encruzilhada Central
   wfloor(-45, -80, 45, 20, 'dirt', 0, 8);
   wfloor(-38, -70, -12, -18, 'crops', 0.04, 6);
   wfloor(12, -70, 38, -18, 'crops', 0.04, 6);
   hall(-45, -80, 45, 20, { h: 7, t: 2, wall: 'brick', skip: ['w', 'e'], openings: [{ side: 'n', c: 0, w: 14 }] });
-  wbox(-46, -1, -44, 21, 7, 'brick');
-  wbox(44, -1, 46, 21, 7, 'brick');
+  hillWall(-46, 1, -44, 19, 7, 'brick');
+  hillWall(44, 1, 46, 19, 7, 'brick');
   house(-26, -44, 11, 10, 'e', { burn: true });
   house(26, -46, 11, 10, 'w');
 
@@ -391,16 +580,17 @@ function buildMapA2() {
   scarecrow(74, -64); scarecrow(118, -92);
 
   // 4. Colina Norte — Estrada dos Corvos (x -105..105, z -185..-80)
-  wfloor(-105, -185, 105, -80, 'dirt', 0, 8);
+  wfloor(-105, -185, 105, -120, 'dirt', 0, 8);
+  wfloor(-45, -120, 45, -80, 'dirt', 0, 8);
   wfloor(-14, -185, 14, -80, 'cobble', 0.02, 5);
-  hall(-105, -185, 105, -80, { h: 8, t: 2, wall: 'stone', skip: ['s'], openings: [] });
+  hall(-105, -185, 105, -120, { h: 8, t: 2, wall: 'stone', skip: ['s'], openings: [] });
   house(-72, -138, 14, 12, 'e', { burn: true, h: 6 });
   house(72, -138, 14, 12, 'w', { burn: true, h: 6 });
   house(-32, -156, 11, 10, 'e');
   house(32, -156, 11, 10, 'w');
   makeExitGate(0, -177, 'a3', 'SUBÚRBIO EXTERIOR');
 
-  [[-22, -26], [22, -26], [-72, -32], [-112, -74], [64, -46], [94, -36], [-48, -120], [48, -120], [0, -126]].forEach(p => hay(p[0], p[1]));
+  [[-22, -26], [22, -26], [-72, -32], [-112, -74], [64, -46], [94, -36], [-48, -116], [48, -116], [0, -126]].forEach(p => hay(p[0], p[1]));
   [[-6, -18], [8, -56], [-56, -54], [-118, -14], [60, -82], [122, -22], [-18, -110], [18, -144], [-58, -166], [58, -166]].forEach(p => deadTree(p[0], p[1]));
   [[0, -10], [-60, -18], [-90, -64], [60, -18], [90, -62], [-20, -128], [20, -128], [0, -158]].forEach(p => barrelFire(p[0], p[1]));
   addSkyPortal(0, 150, -110);
@@ -410,13 +600,22 @@ function buildMapA2() {
    MAPA A3: EP. 1 · ÁREA 3 — SUBÚRBIO EXTERIOR (Cidade fortificada, ~260x200)
    ============================================================ */
 function buildMapA3() {
-  wfloor(-180, -230, 180, 60, 'hellfloor', -0.25, 16);
+  setTerrain((x, z) => 2.8 + 1.3 * Math.sin(x * 0.045) * Math.cos(z * 0.04) + (z + 90) * 0.022);
+  addOuterHills(-260, -280, 260, 120, 'hellfloor', (x, z) => {
+    const base = getGroundY(x, z);
+    const out = Math.max(0, Math.abs(x) - 130, z < -195 ? (-195 - z) : (z > 20 ? z - 20 : 0));
+    if (out < 2) return base - 0.5;
+    const ridge = (Math.sin(x * 0.03) * Math.cos(z * 0.03) + 1) * 4.5;
+    const valleyN = z < -200 ? smoothstep(-200, -260, z) * Math.max(0, 1 - Math.abs(x) / 100) * 8 : 0;
+    return base + Math.min(1, out / 30) * ridge - valleyN;
+  }, 12);
+  addDistantChurch(0, -3, -245, 1.35);
   // 1. Mercado em Ruínas
   wfloor(-45, -75, 45, 20, 'dirt', 0, 8);
   wfloor(-12, -75, 12, 20, 'cobble', 0.02, 5);
   hall(-45, -75, 45, 20, { h: 8, t: 2, wall: 'brick', skip: ['w', 'e'], openings: [{ side: 'n', c: 0, w: 14 }] });
-  wbox(-46, -16, -44, 21, 8, 'brick');
-  wbox(44, -16, 46, 21, 8, 'brick');
+  hillWall(-46, -14, -44, 19, 8, 'brick');
+  hillWall(44, -14, 46, 19, 8, 'brick');
   house(-28, -22, 12, 10, 'e', { burn: true });
   house(28, -26, 12, 10, 'w');
 
@@ -435,12 +634,13 @@ function buildMapA3() {
   house(68, -108, 12, 10, 's', { wall: 'stone', h: 6 });
 
   // 4. Bastião Norte (x -105..105, z -195..-115)
-  wfloor(-105, -195, 105, -115, 'cobble', 0, 6);
-  hall(-105, -195, 105, -115, { h: 9, t: 2, wall: 'stone', skip: ['s'] });
+  wfloor(-105, -195, 105, -130, 'cobble', 0, 6);
+  wfloor(-45, -130, 45, -75, 'cobble', 0, 6);
+  hall(-105, -195, 105, -130, { h: 9, t: 2, wall: 'stone', skip: ['s'] });
   house(-66, -154, 15, 14, 'e', { wall: 'stone', h: 7, burn: true });
   house(66, -154, 15, 14, 'w', { wall: 'stone', h: 7, burn: true });
-  wbox(-24, -148, -18, -142, 5, 'stone', { tile: 2 });
-  wbox(18, -148, 24, -142, 5, 'stone', { tile: 2 });
+  wbox(-24, -148, -18, -142, 5, 'stone', { y0: getGroundY(-21, -145), tile: 2 });
+  wbox(18, -148, 24, -142, 5, 'stone', { y0: getGroundY(21, -145), tile: 2 });
   makeExitGate(0, -187, 'a4', 'CASARÕES DOS SUPER-RICOS');
 
   [[-12, -16], [12, -16], [-12, -52], [12, -52], [62, -46], [62, -88], [-22, -135], [22, -135], [-22, -170], [22, -170]].forEach(p => lamp(p[0], p[1]));
@@ -453,12 +653,19 @@ function buildMapA3() {
    MAPA A4: EP. 2 · ÁREA 4 — CASARÕES DOS SUPER-RICOS (~280x210)
    ============================================================ */
 function buildMapA4() {
-  wfloor(-200, -240, 200, 60, 'hellfloor', -0.25, 16);
+  setTerrain((x, z) => 0.9 + 0.55 * Math.sin(x * 0.035) * Math.cos(z * 0.035) + (z + 100) * 0.009);
+  addOuterHills(-240, -260, 240, 100, 'hellfloor', (x, z) => {
+    const base = getGroundY(x, z);
+    const out = Math.max(0, Math.abs(x) - 140, z < -200 ? (-200 - z) : (z > 20 ? z - 20 : 0));
+    if (out < 2) return base - 0.5;
+    return base + Math.min(1, out / 30) * (Math.sin(x * 0.03) * Math.cos(z * 0.03) + 1) * 2.5;
+  }, 14);
+  addDistantChurch(0, 0, -230, 1.75);
   // 1. Praça da Fonte
   wfloor(-55, -90, 55, 20, 'cobble', 0, 6);
   hall(-55, -90, 55, 20, { h: 9, t: 2, wall: 'stone', skip: ['w', 'e'], openings: [{ side: 'n', c: 0, w: 16 }] });
-  wbox(-56, -21, -54, 21, 9, 'stone');
-  wbox(54, -21, 56, 21, 9, 'stone');
+  hillWall(-56, -19, -54, 19, 9, 'stone');
+  hillWall(54, -19, 56, 19, 9, 'stone');
   fountain(0, -34);
   house(-36, -18, 16, 14, 'e', { wall: 'stone', h: 7, floor: 'marble', burn: true });
   house(36, -18, 16, 14, 'w', { wall: 'stone', h: 7, floor: 'marble', burn: true });
@@ -479,8 +686,9 @@ function buildMapA4() {
   fountain(78, -80);
 
   // 4. Terraço Nobre (x -110..110, z -200..-130)
-  wfloor(-110, -200, 110, -130, 'cobble', 0, 6);
-  hall(-110, -200, 110, -130, { h: 9.5, t: 2, wall: 'stone', skip: ['s'] });
+  wfloor(-110, -200, 110, -140, 'cobble', 0, 6);
+  wfloor(-55, -140, 55, -90, 'cobble', 0, 6);
+  hall(-110, -200, 110, -140, { h: 9.5, t: 2, wall: 'stone', skip: ['s'] });
   house(-68, -166, 18, 16, 'e', { wall: 'stone', h: 7.5, floor: 'marble', burn: true });
   house(68, -166, 18, 16, 'w', { wall: 'stone', h: 7.5, floor: 'marble', burn: true });
   makeExitGate(0, -192, 'a5', 'AVENIDA DO HORROR');
@@ -496,11 +704,12 @@ function buildMapA4() {
    ============================================================ */
 function buildMapA5() {
   wfloor(-200, -250, 200, 60, 'hellfloor', -0.25, 16);
+  addDistantChurch(0, 0, -245, 2.3);
   // 1. Avenida Destruída
   wfloor(-48, -90, 48, 20, 'cobble', 0, 6);
   hall(-48, -90, 48, 20, { h: 9, t: 2, wall: 'stone', skip: ['w', 'e'], openings: [{ side: 'n', c: 0, w: 14 }] });
-  wbox(-49, -26, -47, 21, 9, 'stone');
-  wbox(47, -26, 49, 21, 9, 'stone');
+  wbox(-49, -24, -47, 19, 9, 'stone');
+  wbox(47, -24, 49, 19, 9, 'stone');
   // Obelisco central
   wbox(-2.5, -42.5, 2.5, -37.5, 1.4, 'stone', { tile: 2 });
   wbox(-1.1, -41.1, 1.1, -38.9, 12, 'church', { y0: 1.4, tile: 2 });
@@ -521,8 +730,9 @@ function buildMapA5() {
   house(70, -86, 14, 14, 'e', { wall: 'stone', h: 7, floor: 'marble' });
 
   // 4. Esplanada da Ultra-Igreja (x -110..110, z -210..-135)
-  wfloor(-110, -210, 110, -135, 'cobble', 0, 6);
-  hall(-110, -210, 110, -135, { h: 10, t: 2, wall: 'stone', skip: ['s'] });
+  wfloor(-110, -210, 110, -145, 'cobble', 0, 6);
+  wfloor(-48, -145, 48, -90, 'cobble', 0, 6);
+  hall(-110, -210, 110, -145, { h: 10, t: 2, wall: 'stone', skip: ['s'] });
   [-152, -178].forEach(z => [-20, 20].forEach(x => {
     wbox(x - 1, z - 1, x + 1, z + 1, 9, 'church', { tile: 2 });
     flame(x, 9, z, 1.3);
@@ -544,10 +754,10 @@ function buildMapA6Gate() {
   // Pátio Principal
   wfloor(-55, -170, 55, 20, 'cobble', 0, 6);
   hall(-55, -170, 55, 20, { h: 9.5, t: 2, wall: 'stone', skip: ['w', 'e'], heights: { n: 26 }, openings: [{ side: 'n', c: 0, w: 12, oh: 12 }] });
-  wbox(-56, -26, -54, 21, 9.5, 'stone');
-  wbox(54, -26, 56, 21, 9.5, 'stone');
-  wbox(-56, -171, -54, -124, 9.5, 'stone');
-  wbox(54, -171, 56, -124, 9.5, 'stone');
+  wbox(-56, -24, -54, 19, 9.5, 'stone');
+  wbox(54, -24, 56, 19, 9.5, 'stone');
+  wbox(-56, -169, -54, -126, 9.5, 'stone');
+  wbox(54, -169, 56, -126, 9.5, 'stone');
   makeGate('door', 0, -169, 12, 'x', 12, 'door');
 
   // Claustro Oeste & Claustro Leste (alas laterais)
@@ -569,8 +779,8 @@ function buildMapA6Gate() {
 
   // Mega-Estrutura da Ultra-Igreja
   wbox(-30, -173, 30, -167, 16, 'church', { y0: 26, tile: 4, collide: false });
-  wbox(-55, -173, -34, -167, 74, 'church', { tile: 4, collide: false });
-  wbox(34, -173, 55, -167, 74, 'church', { tile: 4, collide: false });
+  wbox(-55, -173, -34, -167, 48, 'church', { y0: 26, tile: 4, collide: false });
+  wbox(34, -173, 55, -167, 48, 'church', { y0: 26, tile: 4, collide: false });
   wbox(-50, -172, -38, -168, 16, 'church', { y0: 74, tile: 3, collide: false });
   wbox(38, -172, 50, -168, 16, 'church', { y0: 74, tile: 3, collide: false });
   [-44, 44].forEach(tx => {
@@ -632,9 +842,13 @@ function buildMapA6Nave() {
 
   // Transepto Oeste & Transepto Leste (catedral em formato de cruz)
   wfloor(-66, -78, -28, -42, 'marble', 0, 8);
-  hall(-66, -78, -28, -42, { h: 17, t: 2, wall: 'church', skip: ['e'], ceil: 'dark' });
+  hall(-66, -78, -28, -42, { h: 17, t: 2, wall: 'church', skip: ['e', 'n', 's'], ceil: 'dark' });
+  wbox(-67, -79, -29, -77, 17, 'church');
+  wbox(-67, -43, -29, -41, 17, 'church');
   wfloor(28, -78, 66, -42, 'marble', 0, 8);
-  hall(28, -78, 66, -42, { h: 17, t: 2, wall: 'church', skip: ['w'], ceil: 'dark' });
+  hall(28, -78, 66, -42, { h: 17, t: 2, wall: 'church', skip: ['w', 'n', 's'], ceil: 'dark' });
+  wbox(29, -79, 67, -77, 17, 'church');
+  wbox(29, -43, 67, -41, 17, 'church');
 
   // Pilares & Bancos
   [-22, -40, -58, -78, -98, -118, -134].forEach(z => [-15, 15].forEach(x => wbox(x - 0.9, z - 0.9, x + 0.9, z + 0.9, 19, 'church', { tile: 3 })));
@@ -644,8 +858,8 @@ function buildMapA6Nave() {
   }
 
   // Escadaria subterrânea oculta sob o centro do altar (x: -3..3, z: -148.5..-136)
-  wbox(-3.4, -148.6, -3.0, -136.0, 4.2, 'crypt', { y0: -4.2, tile: 2, collide: false });
-  wbox(3.0, -148.6, 3.4, -136.0, 4.2, 'crypt', { y0: -4.2, tile: 2, collide: false });
+  wbox(-3.4, -148.5, -3.0, -136.0, 4.2, 'crypt', { y0: -4.2, tile: 2, collide: false });
+  wbox(3.0, -148.5, 3.4, -136.0, 4.2, 'crypt', { y0: -4.2, tile: 2, collide: false });
   wbox(-3.4, -148.9, 3.4, -148.5, 4.2, 'crypt', { y0: -4.2, tile: 2, collide: false });
   for (let i = 0; i < 10; i++) {
     const z1 = -136.0 - (i + 1) * 1.0, z2 = -136.0 - i * 1.0;
@@ -708,9 +922,9 @@ function buildMapA6Nave() {
 
   // parede que Galius vai explodir
   World.breakWall = wbox(-29, -112, -27, -92, 19, 'church', { tile: 3 });
-  wfloor(-64, -118, -28, -86, 'hellfloor', 0.02, 6);
+  wfloor(-64, -118, -29, -86, 'hellfloor', 0, 6);
   wceil(-64, -118, -28, -86, 'dark', 19, 8);
-  hall(-64, -118, -29, -86, { h: 19, t: 2, wall: 'crypt', skip: ['e'] });
+  hall(-64, -118, -30, -86, { h: 19, t: 2, wall: 'crypt', skip: ['e'] });
 
   const hatchBeam = new THREE.Mesh(new THREE.BoxGeometry(5.2, 12, 11.5), MT(0x40ffd0, { basic: true, tr: 0.16, add: true, dbl: true }));
   hatchBeam.position.set(0, 4.5, -142.2);
@@ -739,7 +953,7 @@ function buildMapA6Crypt() {
   hall(-14, -28, 14, 0, { h: 6.5, t: 1, wall: 'crypt', ceil: 'dark', openings: [{ side: 'e', c: -14, w: 6 }] });
   // Corredor 1 (Leste: x 14..36, z -17..-11)
   fl(14, -17, 36, -11); wceil(14, -17, 36, -11, 'dark', 6.5, 8);
-  wbox(14, -18, 36, -17, 6.5, 'crypt'); wbox(14, -11, 36, -10, 6.5, 'crypt');
+  wbox(14.5, -18, 35.5, -17, 6.5, 'crypt'); wbox(14.5, -11, 35.5, -10, 6.5, 'crypt');
   makeGate('g_c1', 14, -14, 6, 'z', 6.5, 'barrier');
 
   // 2. Sala B: Salão dos Mortos (x 36..80, z -42..6) -> saída Norte (x 58)
@@ -752,7 +966,7 @@ function buildMapA6Crypt() {
 
   // Corredor 2 (Norte: x 55..61, z -64..-42)
   fl(55, -64, 61, -42); wceil(55, -64, 61, -42, 'dark', 6.5, 8);
-  wbox(54, -64, 55, -42, 6.5, 'crypt'); wbox(61, -64, 62, -42, 6.5, 'crypt');
+  wbox(54, -63.5, 55, -42.5, 6.5, 'crypt'); wbox(61, -63.5, 62, -42.5, 6.5, 'crypt');
 
   // 3. Sala C: Galeria dos Ossos (x 38..78, z -108..-64) -> saída Oeste (z -86)
   fl(38, -108, 78, -64);
@@ -763,7 +977,7 @@ function buildMapA6Crypt() {
 
   // Corredor 3 (Oeste: x 16..38, z -89..-83)
   fl(16, -89, 38, -83); wceil(16, -89, 38, -83, 'dark', 6.5, 8);
-  wbox(16, -90, 38, -89, 6.5, 'crypt'); wbox(16, -83, 38, -82, 6.5, 'crypt');
+  wbox(16.5, -90, 37.5, -89, 6.5, 'crypt'); wbox(16.5, -83, 37.5, -82, 6.5, 'crypt');
 
   // 4. Câmara Sacra de Romulus III (x -22..16, z -106..-66)
   fl(-22, -106, 16, -66);
@@ -790,105 +1004,135 @@ const SPAWNS = {
   a1: [
     // Bairro Sul
     ['campones', -8, -16], ['campones', 12, -14], ['campones', -30, -14], ['campones', 20, -28], ['campones', -10, -40],
-    ['diabrete', 0, -26, 3], ['diabrete', -18, -44, 3.5],
+    ['campones', -22, -24], ['campones', 4, -22], ['campones', 26, -16], ['campones', -16, -34], ['campones', 8, -38],
+    ['diabrete', 0, -26, 3], ['diabrete', -18, -44, 3.5], ['diabrete', 16, -32, 3.2], ['diabrete', -28, -28, 3.8],
     // Beco dos Lavradores (Leste)
     ['campones', 62, -16], ['campones', 88, -10], ['campones', 112, -28], ['campones', 96, -42], ['campones', 126, -12],
-    ['diabrete', 76, -24, 3], ['diabrete', 116, -34, 3.5], ['diabrete', 92, -6, 3],
+    ['campones', 72, -32], ['campones', 102, -18], ['campones', 120, -24], ['campones', 82, -38],
+    ['diabrete', 76, -24, 3], ['diabrete', 116, -34, 3.5], ['diabrete', 92, -6, 3], ['diabrete', 104, -40, 3.5], ['guarda', 110, -18],
     // Praça do Poço (Nordeste)
     ['campones', 74, -84], ['campones', 110, -84], ['campones', 92, -122], ['campones', 62, -112],
-    ['diabrete', 92, -92, 3.5], ['diabrete', 118, -110, 3], ['gargula', 92, -108, 4],
+    ['campones', 82, -96], ['campones', 104, -104], ['campones', 68, -98], ['campones', 116, -94],
+    ['diabrete', 92, -92, 3.5], ['diabrete', 118, -110, 3], ['diabrete', 76, -114, 3.2], ['gargula', 92, -108, 4], ['gargula', 108, -90, 4.5],
+    ['guarda', 86, -116], ['guarda', 102, -116],
     // Largo do Portão (Noroeste)
-    ['campones', 12, -96], ['campones', -22, -108], ['diabrete', 0, -118, 3.5],
-    ['guarda', -15, -126], ['guarda', 10, -130], ['guarda', -28, -132]
+    ['campones', 12, -96], ['campones', -22, -108], ['campones', -6, -98], ['campones', 20, -112], ['campones', -18, -92],
+    ['diabrete', 0, -118, 3.5], ['diabrete', -24, -120, 3.2], ['diabrete', 18, -122, 3.5],
+    ['guarda', -15, -126], ['guarda', 10, -130], ['guarda', -28, -132], ['guarda', -2, -134], ['gargula', -12, -112, 4.5]
   ],
   a2: [
     // Encruzilhada Central
-    ['campones', -12, -18], ['campones', 14, -22], ['campones', 0, -48], ['diabrete', -16, -54, 3], ['diabrete', 16, -54, 3],
+    ['campones', -12, -18], ['campones', 14, -22], ['campones', 0, -48], ['campones', -22, -34], ['campones', 22, -34], ['campones', 0, -30],
+    ['diabrete', -16, -54, 3], ['diabrete', 16, -54, 3], ['diabrete', 0, -38, 3.5], ['guarda', -10, -44], ['guarda', 10, -44],
     // Ala Oeste
     ['campones', -66, -34], ['campones', -88, -50], ['campones', -112, -70], ['campones', -78, -96],
-    ['diabrete', -94, -36, 3.5], ['diabrete', -68, -64, 3], ['gargula', -96, -68, 4.5], ['guarda', -106, -98],
+    ['campones', -76, -46], ['campones', -100, -60], ['campones', -90, -82], ['campones', -68, -80],
+    ['diabrete', -94, -36, 3.5], ['diabrete', -68, -64, 3], ['diabrete', -106, -82, 3.2], ['gargula', -96, -68, 4.5], ['gargula', -78, -56, 4.5],
+    ['guarda', -106, -98], ['guarda', -84, -104],
     // Ala Leste (Celeiro da Foice)
     ['campones', 68, -42], ['campones', 92, -56], ['campones', 114, -80], ['campones', 78, -98],
-    ['diabrete', 90, -34, 3], ['diabrete', 112, -48, 3.5], ['gargula', 96, -72, 4.5], ['guarda', 96, -104],
+    ['campones', 78, -50], ['campones', 104, -66], ['campones', 88, -84], ['campones', 110, -94],
+    ['diabrete', 90, -34, 3], ['diabrete', 112, -48, 3.5], ['diabrete', 76, -72, 3.2], ['gargula', 96, -72, 4.5], ['gargula', 108, -60, 4.5],
+    ['guarda', 96, -104], ['guarda', 82, -92],
     // Colina Norte
-    ['campones', -40, -128], ['campones', 40, -128], ['diabrete', -22, -148, 3.5], ['diabrete', 22, -148, 3.5],
-    ['gargula', 0, -138, 5], ['gargula', -54, -158, 4.5], ['gargula', 54, -158, 4.5],
-    ['guarda', -12, -160], ['guarda', 12, -160], ['guarda', 0, -168]
+    ['campones', -40, -128], ['campones', 40, -128], ['campones', -20, -134], ['campones', 20, -134], ['campones', 0, -150],
+    ['diabrete', -22, -148, 3.5], ['diabrete', 22, -148, 3.5], ['diabrete', -38, -146, 3.2], ['diabrete', 38, -146, 3.2],
+    ['gargula', 0, -138, 5], ['gargula', -54, -158, 4.5], ['gargula', 54, -158, 4.5], ['gargula', -28, -162, 4.8], ['gargula', 28, -162, 4.8],
+    ['guarda', -12, -160], ['guarda', 12, -160], ['guarda', 0, -168], ['guarda', -26, -154], ['guarda', 26, -154]
   ],
   a3: [
     // Mercado em Ruínas
-    ['campones', -14, -22], ['campones', 14, -22], ['diabrete', 0, -42, 3], ['guarda', -12, -58], ['guarda', 12, -58],
+    ['campones', -14, -22], ['campones', 14, -22], ['campones', -20, -38], ['campones', 20, -38], ['campones', 0, -28],
+    ['diabrete', 0, -42, 3], ['diabrete', -18, -48, 3.2], ['diabrete', 18, -48, 3.2],
+    ['guarda', -12, -58], ['guarda', 12, -58], ['guarda', 0, -52],
     // Ala Oeste (Vila Incendiada)
-    ['campones', -72, -44], ['campones', -96, -66], ['campones', -78, -98],
-    ['diabrete', -88, -48, 3.5], ['diabrete', -108, -82, 3], ['guarda', -84, -112], ['gargula', -90, -74, 4.5],
+    ['campones', -72, -44], ['campones', -96, -66], ['campones', -78, -98], ['campones', -84, -56], ['campones', -102, -92],
+    ['diabrete', -88, -48, 3.5], ['diabrete', -108, -82, 3], ['diabrete', -72, -78, 3.2],
+    ['guarda', -84, -112], ['guarda', -96, -104], ['guarda', -74, -90],
+    ['gargula', -90, -74, 4.5], ['gargula', -104, -64, 4.5], ['demonio', -92, -98],
     // Ala Leste (Quartel dos Guardas)
     ['guarda', 68, -42], ['guarda', 92, -62], ['guarda', 104, -88], ['guarda', 76, -108],
-    ['diabrete', 82, -46, 3], ['gargula', 96, -72, 4.5], ['campones', 66, -78],
+    ['guarda', 82, -52], ['guarda', 98, -76], ['guarda', 68, -92],
+    ['diabrete', 82, -46, 3], ['diabrete', 96, -98, 3.2], ['gargula', 96, -72, 4.5], ['gargula', 78, -64, 4.5],
+    ['campones', 66, -78], ['campones', 88, -104], ['demonio', 92, -88],
     // Bastião Norte
-    ['guarda', -32, -140], ['guarda', 32, -140], ['guarda', -14, -168], ['guarda', 14, -168],
-    ['diabrete', -50, -156, 3.5], ['diabrete', 50, -156, 3.5],
+    ['guarda', -32, -140], ['guarda', 32, -140], ['guarda', -14, -168], ['guarda', 14, -168], ['guarda', 0, -156],
+    ['diabrete', -50, -156, 3.5], ['diabrete', 50, -156, 3.5], ['diabrete', -24, -148, 3.2], ['diabrete', 24, -148, 3.2],
     ['gargula', 0, -146, 5], ['gargula', -40, -172, 4.5], ['gargula', 40, -172, 4.5],
-    ['demonio', -18, -176], ['demonio', 18, -176]
+    ['demonio', -18, -176], ['demonio', 18, -176], ['demonio', -34, -164], ['demonio', 34, -164]
   ],
   a4: [
     // Praça da Fonte
-    ['campones', -18, -22], ['campones', 18, -22], ['guarda', -22, -50], ['guarda', 22, -50], ['gargula', 0, -44, 4.5],
+    ['campones', -18, -22], ['campones', 18, -22], ['campones', 0, -32], ['guarda', -22, -50], ['guarda', 22, -50],
+    ['guarda', -12, -38], ['guarda', 12, -38], ['diabrete', -24, -36, 3.2], ['diabrete', 24, -36, 3.2], ['gargula', 0, -44, 4.5],
     // Ala Oeste (Mansão do Duque)
-    ['guarda', -76, -54], ['guarda', -94, -104], ['demonio', -102, -74], ['demonio', -84, -88], ['demonio', -110, -118],
-    ['gargula', -88, -62, 4.5], ['gargula', -104, -96, 4.5], ['diabrete', -72, -114, 3],
+    ['guarda', -76, -54], ['guarda', -94, -104], ['guarda', -84, -72], ['guarda', -106, -90],
+    ['demonio', -102, -74], ['demonio', -84, -88], ['demonio', -110, -118], ['demonio', -78, -102],
+    ['gargula', -88, -62, 4.5], ['gargula', -104, -96, 4.5], ['diabrete', -72, -114, 3], ['diabrete', -94, -68, 3.2], ['padre', -96, -116],
     // Ala Leste (Vilas & Jardins)
-    ['guarda', 76, -54], ['guarda', 94, -104], ['demonio', 102, -74], ['demonio', 84, -88], ['demonio', 110, -118],
-    ['gargula', 88, -62, 4.5], ['gargula', 104, -96, 4.5], ['padre', 96, -116],
+    ['guarda', 76, -54], ['guarda', 94, -104], ['guarda', 84, -72], ['guarda', 106, -90],
+    ['demonio', 102, -74], ['demonio', 84, -88], ['demonio', 110, -118], ['demonio', 78, -102],
+    ['gargula', 88, -62, 4.5], ['gargula', 104, -96, 4.5], ['diabrete', 72, -114, 3], ['diabrete', 94, -68, 3.2], ['padre', 96, -116],
     // Terraço Nobre
-    ['demonio', -36, -156], ['demonio', 36, -156], ['demonio', 0, -174],
-    ['guarda', -20, -168], ['guarda', 20, -168], ['padre', -48, -180], ['padre', 48, -180],
-    ['gargula', 0, -152, 5], ['gargula', -50, -166, 4.5], ['gargula', 50, -166, 4.5]
+    ['demonio', -36, -156], ['demonio', 36, -156], ['demonio', 0, -174], ['demonio', -22, -152], ['demonio', 22, -152],
+    ['guarda', -20, -168], ['guarda', 20, -168], ['guarda', -42, -170], ['guarda', 42, -170],
+    ['padre', -48, -180], ['padre', 48, -180], ['padre', 0, -182],
+    ['gargula', 0, -152, 5], ['gargula', -50, -166, 4.5], ['gargula', 50, -166, 4.5], ['gargula', -26, -176, 4.5], ['gargula', 26, -176, 4.5]
   ],
   a5: [
     // Avenida Destruída
-    ['diabrete', -12, -24, 3], ['diabrete', 12, -24, 3], ['guarda', -18, -56], ['guarda', 18, -56], ['demonio', 0, -64],
+    ['diabrete', -12, -24, 3], ['diabrete', 12, -24, 3], ['diabrete', -22, -40, 3.2], ['diabrete', 22, -40, 3.2],
+    ['guarda', -18, -56], ['guarda', 18, -56], ['guarda', -8, -42], ['guarda', 8, -42],
+    ['demonio', 0, -64], ['demonio', -16, -68], ['demonio', 16, -68],
     // Ala Oeste (Beco das Gárgulas)
-    ['gargula', -76, -56, 4.5], ['gargula', -104, -82, 5], ['gargula', -88, -116, 4.5],
-    ['demonio', -96, -64], ['demonio', -96, -108], ['guarda', -72, -96], ['diabrete', -114, -90, 3.5],
+    ['gargula', -76, -56, 4.5], ['gargula', -104, -82, 5], ['gargula', -88, -116, 4.5], ['gargula', -96, -72, 4.8],
+    ['demonio', -96, -64], ['demonio', -96, -108], ['demonio', -80, -84], ['demonio', -108, -96],
+    ['guarda', -72, -96], ['guarda', -84, -106], ['diabrete', -114, -90, 3.5], ['padre', -102, -114],
     // Ala Leste (Ninho dos Padres)
-    ['padre', 78, -58], ['padre', 104, -86], ['padre', 92, -118],
-    ['demonio', 96, -64], ['demonio', 96, -108], ['guarda', 72, -96], ['gargula', 88, -96, 4.5],
+    ['padre', 78, -58], ['padre', 104, -86], ['padre', 92, -118], ['padre', 84, -74],
+    ['demonio', 96, -64], ['demonio', 96, -108], ['demonio', 80, -84], ['demonio', 108, -96],
+    ['guarda', 72, -96], ['guarda', 84, -106], ['gargula', 88, -96, 4.5], ['gargula', 106, -70, 4.5], ['diabrete', 112, -90, 3.5],
     // Esplanada da Ultra-Igreja
-    ['demonio', -38, -164], ['demonio', 38, -164], ['demonio', 0, -184],
-    ['padre', -26, -186], ['padre', 26, -186], ['guarda', -54, -184], ['guarda', 54, -184],
-    ['gargula', -18, -168, 5], ['gargula', 18, -168, 5]
+    ['demonio', -38, -164], ['demonio', 38, -164], ['demonio', 0, -184], ['demonio', -22, -174], ['demonio', 22, -174],
+    ['padre', -26, -186], ['padre', 26, -186], ['padre', -44, -176], ['padre', 44, -176],
+    ['guarda', -54, -184], ['guarda', 54, -184], ['guarda', -14, -190], ['guarda', 14, -190],
+    ['gargula', -18, -168, 5], ['gargula', 18, -168, 5], ['gargula', -40, -190, 4.8], ['gargula', 40, -190, 4.8]
   ],
   a6_gate: [
     // Pátio + Claustros (Maximus spawna após eliminar todos os inimigos)
-    ['guarda', -16, -34], ['guarda', 16, -34], ['padre', -26, -62], ['padre', 26, -62],
-    ['demonio', -84, -70], ['padre', -76, -92], ['gargula', -86, -80, 5],
-    ['demonio', 84, -70], ['padre', 76, -92], ['gargula', 86, -80, 5],
-    ['guarda', -18, -118], ['guarda', 18, -118], ['gargula', 0, -110, 5]
+    ['guarda', -16, -34], ['guarda', 16, -34], ['guarda', -24, -48], ['guarda', 24, -48],
+    ['padre', -26, -62], ['padre', 26, -62], ['diabrete', -12, -52, 3.2], ['diabrete', 12, -52, 3.2],
+    ['demonio', -84, -70], ['demonio', -76, -82], ['padre', -76, -92], ['gargula', -86, -80, 5], ['guarda', -92, -88],
+    ['demonio', 84, -70], ['demonio', 76, -82], ['padre', 76, -92], ['gargula', 86, -80, 5], ['guarda', 92, -88],
+    ['guarda', -18, -118], ['guarda', 18, -118], ['demonio', -10, -106], ['demonio', 10, -106], ['gargula', 0, -110, 5]
   ],
   a6_maximus: [
     ['maximus', 0, -148]
   ],
   a6_nave: [
-    ['demonio', -10, -28], ['demonio', 10, -32], ['diabrete', -6, -24, 3], ['diabrete', 6, -24, 3],
-    ['demonio', -46, -60], ['gargula', -50, -56, 5], ['padre', -54, -66],
-    ['demonio', 46, -60], ['gargula', 50, -56, 5], ['padre', 54, -66],
-    ['demonio', 0, -92], ['gargula', -14, -84, 5], ['gargula', 14, -84, 5],
-    ['padre', -16, -118], ['padre', 16, -118], ['padre', -12, -132], ['padre', 12, -132]
+    ['demonio', -10, -28], ['demonio', 10, -32], ['demonio', 0, -40],
+    ['diabrete', -6, -24, 3], ['diabrete', 6, -24, 3], ['diabrete', -14, -36, 3.2], ['diabrete', 14, -36, 3.2],
+    ['demonio', -46, -60], ['demonio', -52, -72], ['gargula', -50, -56, 5], ['padre', -54, -66], ['guarda', -42, -68],
+    ['demonio', 46, -60], ['demonio', 52, -72], ['gargula', 50, -56, 5], ['padre', 54, -66], ['guarda', 42, -68],
+    ['demonio', 0, -92], ['demonio', -18, -98], ['demonio', 18, -98],
+    ['gargula', -14, -84, 5], ['gargula', 14, -84, 5], ['gargula', 0, -104, 5],
+    ['padre', -16, -118], ['padre', 16, -118], ['padre', -12, -132], ['padre', 12, -132], ['guarda', -22, -126], ['guarda', 22, -126]
   ],
   a6_galius1: [['galius1', -48, -102]],
   a6_crypt1: [
-    ['diabrete', -6, -10, 3], ['diabrete', 6, -14, 3], ['diabrete', 0, -22, 3],
-    ['campones', -8, -18], ['campones', 8, -8], ['campones', 0, -12]
+    ['diabrete', -6, -10, 3], ['diabrete', 6, -14, 3], ['diabrete', 0, -22, 3], ['diabrete', -8, -20, 3.2], ['diabrete', 8, -20, 3.2],
+    ['campones', -8, -18], ['campones', 8, -8], ['campones', 0, -12], ['campones', -4, -24], ['campones', 4, -24]
   ],
   a6_crypt2: [
-    ['padre', 48, -6], ['padre', 68, -6], ['padre', 58, -34],
-    ['guarda', 46, -20], ['guarda', 70, -20], ['guarda', 58, -14],
-    ['campones', 52, -28], ['campones', 64, -28]
+    ['padre', 48, -6], ['padre', 68, -6], ['padre', 58, -34], ['padre', 58, -22],
+    ['guarda', 46, -20], ['guarda', 70, -20], ['guarda', 58, -14], ['guarda', 50, -12], ['guarda', 66, -12],
+    ['campones', 52, -28], ['campones', 64, -28], ['diabrete', 58, -8, 3.2]
   ],
   a6_crypt3: [
-    ['demonio', 48, -76], ['demonio', 68, -76],
-    ['padre', 48, -96], ['padre', 68, -96],
-    ['gargula', 58, -84, 4], ['diabrete', 52, -70, 3], ['diabrete', 64, -70, 3]
+    ['demonio', 48, -76], ['demonio', 68, -76], ['demonio', 58, -88],
+    ['padre', 48, -96], ['padre', 68, -96], ['padre', 58, -100],
+    ['gargula', 58, -84, 4], ['gargula', 50, -90, 4.2], ['gargula', 66, -90, 4.2],
+    ['diabrete', 52, -70, 3], ['diabrete', 64, -70, 3], ['guarda', 58, -74]
   ],
   a6_galius2: [['galius2', 0, -96]]
 };
@@ -958,6 +1202,10 @@ function buildMap(mapId) {
   World.colliders.length = 0;
   World.triggers.length = 0;
   World.flames.length = 0;
+  World.terrainY = null;
+  World.terrainBaseFn = null;
+  World.pads.length = 0;
+  World.pendingFloors.length = 0;
   World.gates = {};
   World.exitGate = null;
   World.breakWall = null;
@@ -972,6 +1220,7 @@ function buildMap(mapId) {
 
   World.currentMap = MAP_BUILDERS[mapId] ? mapId : 'a1';
   MAP_BUILDERS[World.currentMap]();
+  flushTerrain();
 }
 
 function buildWorld(scene) {

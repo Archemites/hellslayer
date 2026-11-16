@@ -288,7 +288,7 @@
   /* ---------------- colisão + plataformas (altura Y) ---------------- */
   function groundAt(x, z, y, r) {
     const pit = World.altar && World.altar.pit;
-    let gy = (World.altar && World.altar.open && pit && x > pit.x1 && x < pit.x2 && z > pit.z1 && z < pit.z2) ? -3.5 : 0;
+    let gy = (World.altar && World.altar.open && pit && x > pit.x1 && x < pit.x2 && z > pit.z1 && z < pit.z2) ? -3.5 : getGroundY(x, z);
     const cs = World.colliders;
     const rad = (r || 0.7) * 0.85;
     for (let i = 0; i < cs.length; i++) {
@@ -363,24 +363,30 @@
   }
 
   /* ---------------- partículas / gore ---------------- */
-  const parts = [], decals = [];
+  const parts = [], gibs = [], decals = [];
   const PGEO = new THREE.BoxGeometry(1, 1, 1);
-  const MAXP = 680, MAX_DECALS = 160;
+  const MAXP = 680;
+  let goreDuration = 20;
+  function setGoreDuration(sec) {
+    const n = Number(sec);
+    goreDuration = (!Number.isFinite(n) || n >= 61 || n <= 0) ? Infinity : Math.max(1, n);
+  }
   let decalLayer = 0;
   const BLOOD_COLS = [0xd80818, 0xa80610, 0x7a040a, 0x520206];
   const GIB_COLS = [0x820c14, 0x5c060c, 0x420408, 0xd8ccb8];
 
   function spawnBloodDecal(x, z, size) {
-    if (decals.length >= MAX_DECALS) { const o = decals.shift(); scene.remove(o.m); }
+    const maxD = goreDuration === Infinity ? 1200 : 320;
+    while (decals.length >= maxD) { const o = decals.shift(); scene.remove(o.m); }
     const col = BLOOD_COLS[(Math.random() * 3) | 0];
     const m = new THREE.Mesh(PGEO, MT(col, { basic: false }));
     const sx = size * rnd(0.8, 1.35), sz = size * rnd(0.8, 1.35);
     m.scale.set(sx, 0.016, sz);
     m.rotation.y = rnd(0, Math.PI * 2);
     decalLayer = (decalLayer + 1) % 12;
-    m.position.set(x, 0.02 + decalLayer * 0.0015, z);
+    m.position.set(x, getGroundY(x, z) + 0.03 + decalLayer * 0.0015, z);
     scene.add(m);
-    decals.push({ m, life: rnd(16, 26), sx, sz });
+    decals.push({ m, age: 0, sx, sz });
   }
 
   function burst(x, y, z, color, n, spd, life, size, grav, basic) {
@@ -429,8 +435,9 @@
 
     // Pedaços físicos de carne, órgãos e ossos girando no ar
     const gibN = isBig ? 24 : 10;
+    const maxG = goreDuration === Infinity ? 1000 : 400;
     for (let i = 0; i < gibN; i++) {
-      if (parts.length >= MAXP) { const o = parts.shift(); scene.remove(o.m); }
+      while (gibs.length >= maxG) { const o = gibs.shift(); scene.remove(o.m); }
       const isBone = i % 5 === 4;
       const col = isBone ? GIB_COLS[3] : GIB_COLS[(Math.random() * 3) | 0];
       const m = new THREE.Mesh(PGEO, MT(col, { basic: false }));
@@ -445,11 +452,11 @@
       const vx = Math.cos(a) * sp * 0.75 + (kx || 0) * rnd(3, 7);
       const vz = Math.sin(a) * sp * 0.75 + (kz || 0) * rnd(3, 7);
       const vy = rnd(3.5, 9.5) * (isBig ? 1.15 : 1);
-      parts.push({
-        m, type: 'gib', sz: Math.max(sx, sz),
+      gibs.push({
+        m, sz: Math.max(sx, sz), sx, sy, sz0: sz,
         v: new V3(vx, vy, vz),
         rv: new V3(rnd(-14, 14), rnd(-14, 14), rnd(-14, 14)),
-        life: rnd(7, 11), g: 24, dripT: 0, bounces: 0
+        age: 0, g: 24, dripT: 0, bounces: 0
       });
     }
   }
@@ -469,11 +476,25 @@
           p.m.lookAt(_tmpV);
           p.m.scale.set(p.sz, p.sz, Math.min(0.95, Math.max(p.sz, spd * 0.045)));
         }
-        if (p.m.position.y <= 0.04) {
+        if (p.m.position.y <= getGroundY(p.m.position.x, p.m.position.z) + 0.04) {
           spawnBloodDecal(p.m.position.x, p.m.position.z, p.sz * rnd(2.0, 3.6));
           scene.remove(p.m); parts.splice(i, 1); continue;
         }
-      } else if (p.type === 'gib') {
+      } else {
+        p.m.position.addScaledVector(p.v, dt);
+        const gy = getGroundY(p.m.position.x, p.m.position.z);
+        if (p.m.position.y < gy + 0.05) { p.m.position.y = gy + 0.05; p.v.y *= -0.3; p.v.x *= 0.6; p.v.z *= 0.6; }
+      }
+      if (p.life <= 0) { scene.remove(p.m); parts.splice(i, 1); }
+    }
+    const dur = goreDuration;
+    const fadeWindow = dur === Infinity ? 0 : Math.min(1.5, dur * 0.3);
+    for (let i = gibs.length - 1; i >= 0; i--) {
+      const p = gibs[i];
+      p.age += dt;
+      const gy = getGroundY(p.m.position.x, p.m.position.z);
+      if (p.m.position.y > gy + 0.07 || p.v.y > 0 || p.v.x * p.v.x + p.v.z * p.v.z > 0.01) {
+        p.v.y -= p.g * dt;
         p.m.position.addScaledVector(p.v, dt);
         p.m.rotation.x += p.rv.x * dt;
         p.m.rotation.y += p.rv.y * dt;
@@ -490,45 +511,63 @@
             parts.push({ m: dm, type: 'blood', sz: dsz, v: new V3(p.v.x * 0.25 + rnd(-1, 1), p.v.y * 0.2, p.v.z * 0.25 + rnd(-1, 1)), life: 0.7, g: 24 });
           }
         }
-        if (p.m.position.y < 0.07) {
-          p.m.position.y = 0.07;
+        const gy2 = getGroundY(p.m.position.x, p.m.position.z);
+        if (p.m.position.y < gy2 + 0.07) {
+          p.m.position.y = gy2 + 0.07;
           if (p.v.y < -2.2) {
             spawnBloodDecal(p.m.position.x, p.m.position.z, p.sz * rnd(1.3, 2.2));
             p.bounces++;
-            if (p.bounces <= 2) bloodSpurt(p.m.position.x, 0.12, p.m.position.z, p.v.x, p.v.z, 3.5, 3, 1.5);
+            if (p.bounces <= 2) bloodSpurt(p.m.position.x, gy2 + 0.12, p.m.position.z, p.v.x, p.v.z, 3.5, 3, 1.5);
           }
           p.v.y *= -0.4; p.v.x *= 0.65; p.v.z *= 0.65;
           p.rv.multiplyScalar(0.55);
           if (Math.abs(p.v.y) < 0.4) p.v.y = 0;
         }
-      } else {
-        p.m.position.addScaledVector(p.v, dt);
-        if (p.m.position.y < 0.05) { p.m.position.y = 0.05; p.v.y *= -0.3; p.v.x *= 0.6; p.v.z *= 0.6; }
       }
-      if (p.life <= 0) { scene.remove(p.m); parts.splice(i, 1); }
+      if (dur !== Infinity) {
+        const rem = dur - p.age;
+        if (rem <= 0) { scene.remove(p.m); gibs.splice(i, 1); continue; }
+        if (rem < fadeWindow) {
+          const k = Math.max(0.01, rem / fadeWindow);
+          p.m.scale.set(p.sx * k, p.sy * k, p.sz0 * k);
+        } else {
+          p.m.scale.set(p.sx, p.sy, p.sz0);
+        }
+      } else {
+        p.m.scale.set(p.sx, p.sy, p.sz0);
+      }
     }
     for (let i = decals.length - 1; i >= 0; i--) {
       const d = decals[i];
-      d.life -= dt;
-      if (d.life < 2.0) {
-        const k = Math.max(0.01, d.life / 2.0);
-        d.m.scale.set(d.sx * k, 0.016, d.sz * k);
+      d.age += dt;
+      if (dur !== Infinity) {
+        const rem = dur - d.age;
+        if (rem <= 0) { scene.remove(d.m); decals.splice(i, 1); continue; }
+        if (rem < fadeWindow) {
+          const k = Math.max(0.01, rem / fadeWindow);
+          d.m.scale.set(d.sx * k, 0.016, d.sz * k);
+        } else {
+          d.m.scale.set(d.sx, 0.016, d.sz);
+        }
+      } else {
+        d.m.scale.set(d.sx, 0.016, d.sz);
       }
-      if (d.life <= 0) { scene.remove(d.m); decals.splice(i, 1); }
     }
   }
   function clearParts() {
     parts.forEach(p => scene.remove(p.m)); parts.length = 0;
+    gibs.forEach(p => scene.remove(p.m)); gibs.length = 0;
     decals.forEach(d => scene.remove(d.m)); decals.length = 0;
   }
 
   /* ---------------- anéis de choque ---------------- */
   const rings = [];
   function spawnRing(x, z, maxR, speed, dmg, color, owner) {
+    const gy = getGroundY(x, z);
     const m = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 28), MT(color || 0xff5020, { basic: true, tr: 0.7, add: true, dbl: true }));
-    m.rotation.x = -Math.PI / 2; m.position.set(x, 0.2, z);
+    m.rotation.x = -Math.PI / 2; m.position.set(x, gy + 0.2, z);
     scene.add(m);
-    rings.push({ x, z, r: 1, max: maxR, speed, dmg, m, hit: false, owner });
+    rings.push({ x, z, y: gy, r: 1, max: maxR, speed, dmg, m, hit: false, owner });
   }
   function updateRings(dt) {
     for (let i = rings.length - 1; i >= 0; i--) {
@@ -537,7 +576,7 @@
       q.m.scale.setScalar(q.r);
       if (q.owner === 'e' && !q.hit && !P.dead) {
         const d = Math.hypot(P.pos.x - q.x, P.pos.z - q.z);
-        if (Math.abs(d - q.r) < 1.6 && P.pos.y < 1.2) { q.hit = true; hurtPlayer(q.dmg, q.x, q.z, 14); }
+        if (Math.abs(d - q.r) < 1.6 && P.pos.y < q.y + 1.2) { q.hit = true; hurtPlayer(q.dmg, q.x, q.z, 14); }
       }
       if (q.r >= q.max) { scene.remove(q.m); q.m.geometry.dispose(); rings.splice(i, 1); }
     }
@@ -578,7 +617,8 @@
         p.m.position.addScaledVector(p.v, sdt);
         const pp = p.m.position;
         if (p.kind === 'hex' || p.kind === 'fire' || p.kind === 'brick' || p.kind === 'boulder') { p.m.rotation.x += dt * 6; p.m.rotation.y += dt * 7; }
-        if (pp.y < 0.1 || pp.y > 30 || pointInWall(pp.x, pp.z)) { killProj(i, true); dead = true; break; }
+        const gy = getGroundY(pp.x, pp.z);
+        if (pp.y < gy + 0.1 || pp.y > gy + 45 || pointInWall(pp.x, pp.z)) { killProj(i, true); dead = true; break; }
         if (p.owner === 'e') {
           if (!P.dead && pp.distanceTo(new V3(P.pos.x, P.pos.y + 1.2, P.pos.z)) < p.r + 0.8) {
             hurtPlayer(p.dmg, pp.x - p.v.x, pp.z - p.v.z, 4);
@@ -624,7 +664,8 @@
     const T = ETYPES[type];
     const rig = BUILD[T.model]();
     const g = rig.root;
-    g.position.set(x, T.flying ? (y || T.hover) : 0, z);
+    const gy = getGroundY(x, z);
+    g.position.set(x, T.flying ? gy + (y || T.hover) : gy, z);
     g.rotation.y = rnd(0, 6.28);
     scene.add(g);
     const e = {
@@ -875,13 +916,17 @@
       const moved = Math.hypot(pos.x - px0, pos.z - pz0);
       if (moved < spd * dt * 0.4 && e.st > 0.1) {
         e.state = 'move'; e.chargeCd = T.charge.cd; e.stun = tall ? 1.5 : 0.8; S.shakeBig = 0.6; SFX.play('boom');
-        burst(pos.x, 2, pos.z, 0x6a5a4a, 14, 8, 0.7, 0.35, 15, false);
+        burst(pos.x, pos.y + 2, pos.z, 0x6a5a4a, 14, 8, 0.7, 0.35, 15, false);
       }
     }
     if (T.flying && !e.kneel) {
       const swoop = T.model === 'gargula' && (e.state === 'wind' || dist < 4.2);
-      const ty = swoop ? Math.max(0.8, P.pos.y + 1.1) : (T.hover + Math.sin(e.anim * 2 + e.strafe) * 0.5);
+      const baseGy = getGroundY(pos.x, pos.z);
+      const ty = swoop ? Math.max(baseGy + 0.8, P.pos.y + 1.1) : (baseGy + T.hover + Math.sin(e.anim * 2 + e.strafe) * 0.5);
       pos.y += (ty - pos.y) * Math.min(1, dt * (swoop ? 6 : 2));
+    } else if (!T.flying && !e.downed && !e.kneel) {
+      const gy = groundAt(pos.x, pos.z, pos.y + 1.0, e.r);
+      pos.y += (gy - pos.y) * Math.min(1, dt * 16);
     }
     g.rotation.y = e.yaw;
     // Galius p2 enfurece
@@ -930,7 +975,7 @@
   window.__HSAPI = {
     $, rnd, clamp, V3, lerpAngle, resolveCircle, groundAt, pointInWall, los, burst, spawnRing, spawnProj, spawnEnemy, removeEnemy,
     clearRoomEnemies, aliveInRoom, hurtPlayer, dmgEnemy, killEnemy, addFaith, updateEnemy, updateParts, updateRings, updateProjs,
-    clearParts, clearProjs, ETYPES, AMMO_MAX, keys, scene, camera, renderer, amb, sun, plight, sky, vmDir, vmScene, vmCam, resize, renderScene,
+    clearParts, clearProjs, setGoreDuration, ETYPES, AMMO_MAX, keys, scene, camera, renderer, amb, sun, plight, sky, vmDir, vmScene, vmCam, resize, renderScene,
     setMouse: (v) => { mouseL = v; }, getMouse: () => mouseL, curW: () => curW, setCurW: (v) => { curW = v; }, wcd
   };
   // As funções abaixo são definidas na parte 2 (story) e referenciadas aqui

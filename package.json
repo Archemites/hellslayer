@@ -1,0 +1,39 @@
+{
+  "name": "hellslayer",
+  "version": "0.1.0",
+  "description": "HELLSLAYER — Beta 1",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable && powershell -NoProfile -Command \"Copy-Item 'dist\\HELLSLAYER.exe' 'HELLSLAYER.exe' -Force\""
+  },
+  "build": {
+    "appId": "com.hellslayer.game",
+    "productName": "HELLSLAYER",
+    "directories": {
+      "output": "dist"
+    },
+    "portable": {
+      "artifactName": "HELLSLAYER.exe"
+    },
+    "files": [
+      "index.html",
+      "style.css",
+      "electron/**/*",
+      "js/**/*",
+      "vendor/**/*",
+      "fonts/**/*",
+      "soundeffect/**/*",
+      "soundtrack/**/*"
+    ],
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    }
+  },
+  "private": true,
+  "devDependencies": {
+    "electron": "^45.3.3",
+    "electron-builder": "^26.18.0"
+  }
+}
