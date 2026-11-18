@@ -23,7 +23,9 @@ window.ThrashMusic = (() => {
   let noiseBuf = null;
   let player = null;
   let loadStarted = false;
+  let loadFailed = false;
   const fonts = {};
+  const ALL_PRESET_KEYS = Object.keys(PRESETS);
 
   let guitarBus = null;
   let bassBus = null;
@@ -48,34 +50,45 @@ window.ThrashMusic = (() => {
 
   const SOFT_CURVE = makeSoftCurve(4, 2048);
 
-  function loadScript(url, onload) {
+  function loadScript(url, onload, onerror) {
     const s = document.createElement('script');
     s.src = url;
     s.async = true;
     s.onload = onload;
-    s.onerror = () => {};
+    s.onerror = onerror || (() => {});
     document.head.appendChild(s);
+  }
+
+  function syncLoadedFonts() {
+    if (!ctx) return;
+    if (!player && typeof WebAudioFontPlayer === 'function') {
+      player = new WebAudioFontPlayer();
+    }
+    if (!player) return;
+    for (const key of ALL_PRESET_KEYS) {
+      if (fonts[key]) continue;
+      const data = window[PRESETS[key].varName];
+      if (data) {
+        try {
+          player.adjustPreset(ctx, data);
+          fonts[key] = data;
+        } catch (e) {}
+      }
+    }
+  }
+
+  function areAllFontsReady() {
+    return !!(player && ALL_PRESET_KEYS.every((k) => fonts[k]));
   }
 
   function loadOnlineMidiFonts() {
     if (loadStarted) return;
     loadStarted = true;
-    loadScript(CDN_PLAYER, () => {
-      if (typeof WebAudioFontPlayer !== 'function') return;
-      player = new WebAudioFontPlayer();
-      for (const key in PRESETS) {
-        const p = PRESETS[key];
-        loadScript(CDN_SOUND + p.file, () => {
-          const data = window[p.varName];
-          if (data && ctx && player) {
-            try {
-              player.adjustPreset(ctx, data);
-              fonts[key] = data;
-            } catch (e) {}
-          }
-        });
-      }
-    });
+    const onErr = () => { loadFailed = true; };
+    loadScript(CDN_PLAYER, syncLoadedFonts, onErr);
+    for (const key of ALL_PRESET_KEYS) {
+      loadScript(CDN_SOUND + PRESETS[key].file, syncLoadedFonts, onErr);
+    }
   }
 
   function buildAudioChains() {
@@ -140,6 +153,10 @@ window.ThrashMusic = (() => {
     buildAudioChains();
     nextT = ctx.currentTime + 0.1;
     loadOnlineMidiFonts();
+    syncLoadedFonts();
+    setTimeout(() => {
+      if (!areAllFontsReady()) loadFailed = true;
+    }, 6000);
   }
 
   function midiToFreq(m) {
@@ -639,12 +656,19 @@ window.ThrashMusic = (() => {
   function sched(intensity, muted) {
     if (!ctx || muted) {
       if (ctx) nextT = ctx.currentTime + 0.1;
-      return;
+      return false;
     }
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => {});
       nextT = ctx.currentTime + 0.05;
-      return;
+      return false;
+    }
+    if (!areAllFontsReady() && !loadFailed) {
+      syncLoadedFonts();
+      if (!areAllFontsReady()) {
+        nextT = ctx.currentTime + 0.05;
+        return false;
+      }
     }
     const track = getActiveTrack();
     const bpm = track.baseBpm + intensity * track.combatBoost;
@@ -663,6 +687,7 @@ window.ThrashMusic = (() => {
       step = (step + 1) % track.steps.length;
       count++;
     }
+    return true;
   }
 
   function setTrack(id) {
@@ -684,7 +709,11 @@ window.ThrashMusic = (() => {
   }
 
   function isOnlineMidiReady() {
-    return !!(player && fonts.guitarDist && fonts.kick && fonts.snare);
+    return areAllFontsReady();
+  }
+
+  if (typeof document !== 'undefined' && document.head) {
+    loadOnlineMidiFonts();
   }
 
   return { init, sched, setTrack, getTrack, listTracks, resetSong, isOnlineMidiReady };

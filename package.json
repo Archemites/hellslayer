@@ -24,7 +24,8 @@
       "vendor/**/*",
       "fonts/**/*",
       "soundeffect/**/*",
-      "soundtrack/**/*"
+      "soundtrack/**/*",
+      "assets/**/*"
     ],
     "win": {
       "target": "portable",

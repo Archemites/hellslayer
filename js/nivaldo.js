@@ -305,8 +305,8 @@
       belt: TM('darkLeather', 0xffffff),
       cuff: TM('darkLeather', 0xd6d6d6),
       hairVC: TM('hair', 0xffffff, { vc: true }),
-      beard: TM('hair', 0x24170e),
-      brow: TM('hair', 0x1a100a),
+      beard: TM('hair', 0x101013),
+      brow: TM('hair', 0x0b0b0d),
       sole: MT(0x22170f),
       welt: MT(0x4e3220),
       brass: MT(0xa8843e, { em: 0x1a1000 }),
@@ -580,7 +580,7 @@
       box(head, 0.05, 0.14, 0.08, M.beard, s * 0.205, 0.215, 0.015);
     }
     // Mullet cacheado (centenas de cachos mesclados em 1 malha)
-    const HC = [0x24170e, 0x1a110a, 0x2e1e12, 0x140c07, 0x332216];
+    const HC = [0x101013, 0x0a0a0c, 0x16161a, 0x070709, 0x1c1c20];
     const R = rng(4242);
     const hair = new Acc();
     const icos = [0.05, 0.06, 0.07, 0.08].map((r) => new THREE.IcosahedronGeometry(r, 0));

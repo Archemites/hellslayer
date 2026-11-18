@@ -21,12 +21,13 @@
     pitch: 0.38,
     dist: 4.2,
     height: 2.3,
+    clipT: 1,
     target: new V3(),
     pos: new V3(),
     lookScratch: new V3()
   };
   function isThirdPersonActive() {
-    return !P.dead && (TP_CAM.userMode || !!S.glory || (S.cutscene > 0 && (S.csKind === 'door' || S.csKind === 'rip' || S.csKind === 'maximusDeath' || S.csKind === 'maximusIntro' || S.csKind === 'galiusIntro' || S.csKind === 'tomb')));
+    return !P.dead && (TP_CAM.userMode || !!S.glory || !!S.impale || !!S.galiusBite || (S.cutscene > 0 && (S.csKind === 'door' || S.csKind === 'rip' || S.csKind === 'maximusDeath' || S.csKind === 'maximusIntro' || S.csKind === 'galiusIntro' || S.csKind === 'tomb')));
   }
   function toggleThirdPerson() {
     TP_CAM.userMode = !TP_CAM.userMode;
@@ -838,10 +839,89 @@
     N.legR.visible = true;
     if (N.rosary) N.rosary.root.visible = !!P.hasRosary;
     N.root.position.copy(P.pos);
+    N.root.rotation.order = 'XYZ';
     N.root.rotation.set(0, P.yaw + Math.PI, 0);
     resetNivaldoPose();
 
-    if (S.glory) {
+    if (S.galiusBite) {
+      const gb = S.galiusBite;
+      const tt = gb.t;
+      const twitch = Math.sin(tt * 22) * 0.12 + Math.sin(tt * 14) * 0.08;
+      N.root.rotation.order = 'YXZ';
+      if (gb.phase === 'fly') {
+        N.root.rotation.set(-0.35 - gb.tumble, gb.bodyYaw, Math.sin(gb.tumble * 0.5) * 0.35);
+        N.torsoGroup.rotation.x = -0.15;
+        N.head.rotation.x = -0.45;
+        N.armL.rotation.set(-0.9 + twitch, 0, 1.15);
+        N.armR.rotation.set(-0.9 - twitch, 0, -1.15);
+        N.forearmL.rotation.x = -0.5; N.forearmR.rotation.x = -0.5;
+        N.legL.rotation.x = -0.55; N.kneeL.rotation.x = 0.7;
+        N.legR.rotation.x = 0.35; N.kneeR.rotation.x = 0.5;
+      } else if (gb.phase === 'land') {
+        const gu = sm01((gb.landT - 0.25) / 0.30);
+        const bounce = Math.max(0, 1 - gb.landT * 4) * Math.sin(gb.landT * 40) * 0.08;
+        N.root.rotation.set(-1.45 * (1 - gu) + bounce, gb.bodyYaw, 0);
+        N.armL.rotation.set(-0.3 * (1 - gu), 0, 0.9 * (1 - gu));
+        N.armR.rotation.set(-0.3 * (1 - gu), 0, -0.9 * (1 - gu));
+        N.legL.rotation.x = -0.3 * (1 - gu); N.legR.rotation.x = 0.2 * (1 - gu);
+        N.head.rotation.x = -0.35 * (1 - gu);
+      } else {
+        const biteShake = gb.phase === 'bite' ? Math.sin(tt * 26) * 0.14 : 0;
+        N.root.rotation.set(0.18 + biteShake, gb.bodyYaw, Math.sin(tt * 11) * 0.08);
+        N.torsoGroup.rotation.x = 0.18;
+        N.chestGroup.rotation.x = 0.15;
+        N.head.rotation.x = gb.phase === 'bite' ? -0.55 + biteShake * 1.4 : 0.35;
+        N.head.rotation.z = Math.sin(tt * 15) * 0.18;
+        N.armL.rotation.set(-0.85 + twitch, 0, 0.55);
+        N.armR.rotation.set(-0.85 - twitch, 0, -0.55);
+        N.forearmL.rotation.x = -0.65; N.forearmR.rotation.x = -0.65;
+        N.legL.rotation.x = 0.20 + Math.sin(tt * 14) * 0.25;
+        N.kneeL.rotation.x = 0.35;
+        N.legR.rotation.x = -0.15 - Math.sin(tt * 14 + 1.1) * 0.25;
+        N.kneeR.rotation.x = 0.35;
+      }
+    } else if (S.impale) {
+      // Empalado na espada de Sérgio Maximo: corpo mole, braços soltos, depois arremessado em parafuso
+      const im = S.impale;
+      const tt = im.t;
+      const spinK = im.phase === 'spin' ? clamp(im.spinW / 15, 0, 1) : 0;
+      const twitch = Math.sin(tt * 21) * 0.10 + Math.sin(tt * 13.3) * 0.06;
+      N.root.rotation.order = 'YXZ';
+      if (im.phase === 'fly') {
+        N.root.rotation.set(-0.35 - im.tumble, im.bodyYaw, Math.sin(im.tumble * 0.5) * 0.35);
+        N.torsoGroup.rotation.x = -0.15;
+        N.head.rotation.x = -0.45;
+        N.armL.rotation.set(-0.9 + twitch, 0, 1.15);
+        N.armR.rotation.set(-0.9 - twitch, 0, -1.15);
+        N.forearmL.rotation.x = -0.5; N.forearmR.rotation.x = -0.5;
+        N.legL.rotation.x = -0.55; N.kneeL.rotation.x = 0.7;
+        N.legR.rotation.x = 0.35; N.kneeR.rotation.x = 0.5;
+      } else if (im.phase === 'land') {
+        const gu = sm01((im.landT - 0.28) / 0.32);
+        const bounce = Math.max(0, 1 - im.landT * 4) * Math.sin(im.landT * 40) * 0.08;
+        N.root.rotation.set(-1.45 * (1 - gu) + bounce, im.bodyYaw, 0);
+        N.armL.rotation.set(-0.3 * (1 - gu), 0, 0.9 * (1 - gu));
+        N.armR.rotation.set(-0.3 * (1 - gu), 0, -0.9 * (1 - gu));
+        N.legL.rotation.x = -0.3 * (1 - gu); N.legR.rotation.x = 0.2 * (1 - gu);
+        N.head.rotation.x = -0.35 * (1 - gu);
+      } else {
+        const grab = sm01(tt / 0.35);
+        N.root.rotation.set(0.12 + 0.18 * grab - spinK * 0.32, im.bodyYaw, Math.sin(tt * 9) * 0.05 * grab);
+        N.torsoGroup.rotation.x = 0.22 * grab;
+        N.chestGroup.rotation.x = 0.18 * grab;
+        N.head.rotation.x = 0.55 * (1 - spinK) - 0.5 * spinK + twitch * 0.4;
+        N.head.rotation.z = Math.sin(tt * 7) * 0.12;
+        N.shoulderL.rotation.set(0, 0, 0.1 + spinK * 0.5);
+        N.shoulderR.rotation.set(0, 0, -0.1 - spinK * 0.5);
+        N.armL.rotation.set(0.35 + twitch - spinK * 1.2, 0, 0.30 + spinK * 1.15);
+        N.armR.rotation.set(0.35 - twitch - spinK * 1.2, 0, -0.30 - spinK * 1.15);
+        N.forearmL.rotation.x = -0.35 - spinK * 0.4; N.forearmR.rotation.x = -0.35 - spinK * 0.4;
+        N.legL.rotation.x = 0.12 + Math.sin(tt * 10) * 0.12 - spinK * 0.7;
+        N.kneeL.rotation.x = 0.25 + spinK * 0.5;
+        N.legR.rotation.x = -0.08 - Math.sin(tt * 10 + 1.2) * 0.12 - spinK * 0.5;
+        N.kneeR.rotation.x = 0.30 + spinK * 0.4;
+      }
+    } else if (S.glory) {
       const gk = S.glory;
       const p = clamp(gk.t / gk.dur, 0, 1);
       const hitP = gk.hitAt / gk.dur;
@@ -2061,14 +2141,14 @@
       const ry = _aimOrigin.y + _aimDir.y * t;
       const rz = _aimOrigin.z + _aimDir.z * t;
       const gy = A.groundAt(rx, rz, ry, 0.2);
-      if (ry <= gy + 0.08 || A.pointInWall(rx, rz)) {
+      if (ry <= gy + 0.08 || A.pointInWall(rx, rz, ry)) {
         let lo = prevT, hi = t;
         for (let k = 0; k < 4; k++) {
           const mid = (lo + hi) * 0.5;
           const mx = _aimOrigin.x + _aimDir.x * mid;
           const my = _aimOrigin.y + _aimDir.y * mid;
           const mz = _aimOrigin.z + _aimDir.z * mid;
-          if (my <= A.groundAt(mx, mz, my, 0.2) + 0.08 || A.pointInWall(mx, mz)) hi = mid;
+          if (my <= A.groundAt(mx, mz, my, 0.2) + 0.08 || A.pointInWall(mx, mz, my)) hi = mid;
           else lo = mid;
         }
         bestD = hi;
@@ -2134,6 +2214,7 @@
   };
   function say(text, who, dur) {
     if (!MSG_COLORS[who]) return;
+    if (who === 'NIVALDO' && !(S.cutscene > 0)) return;
     const whoEl = el('msgWho');
     whoEl.textContent = who + ':';
     whoEl.style.color = MSG_COLORS[who];
@@ -2147,6 +2228,7 @@
   }
   const QUIPS = ['O alicerce do inferno tá fofo.', 'Amém… e AMASSOU.', 'Isso aqui é obra de Deus!', 'Vou rebocar essa tua cara!', 'Desceu pelo ralo, capeta.', 'Super-Fé na marreta!', 'Cimento e oração!', 'Me aguarda, Testus.', 'Hoje o inferno ganha uma reforma.', 'Trabalho bem feito.'];
   function quip() {
+    if (!(S.cutscene > 0)) return;
     if (!SAVE.quips || S.quipCd > 0 || Math.random() > 0.2) return;
     S.quipCd = 12;
     say(QUIPS[Math.floor(Math.random() * QUIPS.length)], 'NIVALDO', 2.2);
@@ -2477,7 +2559,7 @@
     }
     if (c.state === 'out') {
       c.pos.addScaledVector(c.dir, 52 * dt);
-      if (c.t > 0.55 || A.pointInWall(c.pos.x, c.pos.z) || c.pos.y < 0.3 || !World.isPosInRender(c.pos.x, c.pos.z)) {
+      if (c.t > 0.55 || A.pointInWall(c.pos.x, c.pos.z, c.pos.y) || c.pos.y < 0.3 || !World.isPosInRender(c.pos.x, c.pos.z)) {
         c.state = 'back'; burst(c.pos.x, c.pos.y, c.pos.z, 0xffe080, 6, 6, 0.3, 0.14, 6);
       }
     } else {
@@ -3444,38 +3526,38 @@
     }
 
     // Cauda do Mullet anos 80 atrás do pescoço e ombros
-    c.fillStyle = '#160b05';
+    c.fillStyle = '#09090b';
     c.fillRect(4, 14, 4, 18); c.fillRect(24, 14, 4, 18);
     c.fillRect(3, 21, 5, 11); c.fillRect(24, 21, 5, 11);
-    c.fillStyle = '#2e1a0d';
+    c.fillStyle = '#18181d';
     c.fillRect(5, 18, 2, 13); c.fillRect(25, 18, 2, 13);
     c.fillRect(2, 26, 3, 6); c.fillRect(27, 26, 3, 6);
 
     // Pescoço / ombros
-    c.fillStyle = '#442816'; c.fillRect(10, 27, 12, 5);
-    c.fillStyle = '#2e160a'; c.fillRect(6, 29, 20, 3);
+    c.fillStyle = '#22120b'; c.fillRect(10, 27, 12, 5);
+    c.fillStyle = '#160b06'; c.fillRect(6, 29, 20, 3);
 
     // Cabeça e rosto
-    c.fillStyle = '#5a3820';
+    c.fillStyle = '#2e180e';
     c.fillRect(7, 5, 18, 22);
     c.fillRect(6, 9, 20, 14);
     c.fillRect(9, 26, 14, 2);
     // Orelhas
-    c.fillStyle = '#4a2c18';
+    c.fillStyle = '#22120b';
     c.fillRect(4, 12, 2, 7); c.fillRect(26, 12, 2, 7);
     // Cabelo Mullet (topete volumoso + costeletas)
-    c.fillStyle = '#1f1008';
+    c.fillStyle = '#0c0c0f';
     c.fillRect(7, 3, 18, 5);
     c.fillRect(9, 2, 14, 2);
     c.fillRect(6, 5, 2, 10); c.fillRect(24, 5, 2, 10);
-    c.fillStyle = '#382112';
+    c.fillStyle = '#1c1c22';
     c.fillRect(10, 3, 6, 2); c.fillRect(17, 4, 6, 2);
     // Iluminação da testa
-    c.fillStyle = '#6e4628';
+    c.fillStyle = '#3d2114';
     c.fillRect(8, 8, 16, 3);
 
     // Sobrancelhas (variam por expressão)
-    c.fillStyle = '#1a0c06';
+    c.fillStyle = '#0a0a0c';
     if (evil) {
       // Cara de mau (V bem inclinado)
       c.fillRect(8, 10, 3, 1); c.fillRect(10, 11, 3, 2); c.fillRect(13, 12, 2, 1);
@@ -3490,7 +3572,7 @@
     }
 
     // Nariz
-    c.fillStyle = '#3c2010';
+    c.fillStyle = '#1c0d07';
     c.fillRect(15, 15, 2, 5);
     c.fillRect(14, 19, 4, 2);
 
@@ -3517,7 +3599,7 @@
       c.fillStyle = '#f0e6d0'; c.fillRect(12, 22, 8, 1);
     } else {
       c.fillRect(11, 23, 10, 2);
-      c.fillStyle = '#6e4628'; c.fillRect(12, 23, 8, 1);
+      c.fillStyle = '#3a1f14'; c.fillRect(12, 23, 8, 1);
     }
 
     // Ferimentos por HP (lvl)
@@ -4039,14 +4121,19 @@
   }
 
   function setCinemaUI(active, mainTitle, subTitle, variant) {
+    const isCinema = !!active;
+    if (isCinema !== !!S._cinemaAudioDucked) {
+      S._cinemaAudioDucked = isCinema;
+      if (SFX.setCutscene) SFX.setCutscene(isCinema);
+    }
     const hud = el('hud');
     const bars = el('cinemaBars');
     const card = el('bossTitleCard');
-    if (hud) hud.classList.toggle('cinema', !!active);
-    if (bars) bars.classList.toggle('on', !!active);
+    if (hud) hud.classList.toggle('cinema', isCinema);
+    if (bars) bars.classList.toggle('on', isCinema);
     if (card) {
       card.classList.toggle('galius', variant === 'galius');
-      if (active && mainTitle) {
+      if (isCinema && mainTitle) {
         setText('bossTitleMain', mainTitle);
         setText('bossTitleSub', subTitle || '');
         card.classList.add('on');
@@ -4173,9 +4260,272 @@
     TP_CAM.angle = 0.72;
   }
 
+  /* ---------------- Sérgio Maximo: EMPALAR → GIRAR → ARREMESSAR ---------------- */
+  function impaleHurt(amt, lethal) {
+    const d = A.getDifficulty().dmgMul;
+    P.hp -= amt * d * (P.faithMode > 0 ? 0.5 : 1);
+    if (!lethal && P.hp < 1) P.hp = 1;
+    P.hurtFlash = 1;
+    P.shake = Math.max(P.shake, 0.8);
+    SFX.play('hurt');
+    S.style = Math.max(0, S.style - 25);
+    if (P.hp <= 0) { P.hp = 0; return true; }
+    return false;
+  }
+  function startImpale(e) {
+    if (P.dead || P.god || S.cutscene > 0 || S.glory || S.impale) return false;
+    if (P.dashT > 0 || P.invuln > 0) return false;
+    const bp = e.g.position;
+    const dx = P.pos.x - bp.x, dz = P.pos.z - bp.z;
+    S.impale = {
+      boss: e, t: 0, phase: 'hold', yaw0: e.yaw, spinA: 0, spinW: 0,
+      r0: clamp(Math.hypot(dx, dz), 1.6, 3.6), bodyYaw: e.yaw + Math.PI, tumble: 0,
+      vy: 0, hx: 0, hz: 0, flyT: 0, landT: 0, said: false, spinHit: false, bleedT: 0, wallHit: false
+    };
+    S.cutscene = 5; S.csKind = 'impale'; S.csT = 0;
+    P.vel.set(0, 0, 0); P.dashT = 0; P.slamming = false;
+    P.yaw = e.yaw; P.pitch = 0;
+    e.state = 'mImpaled';
+    SFX.play('hit'); SFX.play('slam');
+    S.hitStop = 0.07 * (SAVE.hitstop != null ? SAVE.hitstop : 1);
+    S.shakeBig = Math.max(S.shakeBig || 0, 0.8);
+    burst(P.pos.x, P.pos.y + 1.4, P.pos.z, 0xb01010, 26, 10, 0.6, 0.3, 14);
+    impaleHurt(18, false);
+    return true;
+  }
+  function endImpale() {
+    const im = S.impale;
+    S.impale = null; S.cutscene = 0; S.csKind = null; S.csT = 0;
+    P.vel.set(0, 0, 0); P.invuln = Math.max(P.invuln, 0.8); P.onGround = true;
+    const e = im && im.boss;
+    if (e && !e.dead) {
+      const bp = e.g.position;
+      P.yaw = Math.atan2(-(bp.x - P.pos.x), -(bp.z - P.pos.z));
+      if (e.state === 'mImpaled') { e.state = 'move'; e.cd = 0.9; e.recover = 0; }
+      e.impCd = 7;
+    }
+  }
+  function updateImpale(dt) {
+    const im = S.impale;
+    if (!im) { S.cutscene = 0; return; }
+    const e = im.boss;
+    if (P.dead || !e || e.dead) { endImpale(); return; }
+    S.cutscene = 5;
+    im.t += dt;
+    P.vel.set(0, 0, 0); P.pitch = 0;
+    const bp = e.g.position;
+    const t = im.t;
+    if (im.phase === 'hold' || im.phase === 'spin') {
+      const T_RISE = 0.40, T_SPIN = 1.30;
+      let rad = 1.65, lift = 1.1;
+      if (t < T_RISE) {
+        const u = sm01(t / T_RISE);
+        rad = im.r0 + (1.65 - im.r0) * u;
+        lift = 0.55 * u;
+      } else if (t < T_SPIN) {
+        rad = 1.65; lift = 0.55 + 0.55 * sm01((t - T_RISE) / (T_SPIN - T_RISE));
+      }
+      if (t >= 0.55 && !im.said) {
+        im.said = true;
+        say('"Espetado como um porco, Nivaldo! HAHAHA!"', 'SÉRGIO MAXIMO', 2.6);
+      }
+      if (t >= T_SPIN) {
+        if (im.phase !== 'spin') {
+          im.phase = 'spin';
+          SFX.play('roar');
+          if (!im.spinHit) { im.spinHit = true; if (impaleHurt(10, false)) { endImpale(); die(); return; } }
+        }
+        im.spinW = Math.min(15, 2 + (t - T_SPIN) * 10);
+        im.spinA += im.spinW * dt;
+        e.yaw = im.yaw0 + im.spinA;
+        e.savedYaw = e.yaw;
+        e.g.rotation.y = e.yaw;
+        S.shakeBig = Math.max(S.shakeBig || 0, 0.18 + im.spinW * 0.02);
+      }
+      rad = rad + (im.phase === 'spin' ? Math.min(0.5, im.spinW * 0.03) : 0);
+      const dX = Math.sin(e.yaw), dZ = Math.cos(e.yaw);
+      P.pos.set(bp.x + dX * rad, bp.y + lift, bp.z + dZ * rad);
+      im.bodyYaw = e.yaw + Math.PI;
+      im.bleedT -= dt;
+      if (im.bleedT <= 0) {
+        im.bleedT = im.phase === 'spin' ? 0.05 : 0.14;
+        burst(P.pos.x, P.pos.y + 1.2, P.pos.z, 0xb01010, im.phase === 'spin' ? 5 : 3, im.phase === 'spin' ? 9 : 4, 0.5, 0.2, 12);
+      }
+      if (im.phase === 'spin' && im.spinA >= Math.PI * 6) {
+        // ARREMESSO: segue a direção da espada no instante da soltura
+        im.phase = 'fly'; im.flyT = 0; im.tumble = 0;
+        im.hx = dX * 38; im.hz = dZ * 38; im.vy = 10.5;
+        SFX.play('slam'); SFX.play('swing');
+        S.shakeBig = Math.max(S.shakeBig || 0, 1.0);
+        spawnRing(bp.x, bp.z, 12, 22, 0, 0xff2020, 'e');
+        burst(P.pos.x, P.pos.y + 1.2, P.pos.z, 0xb01010, 34, 12, 0.7, 0.3, 14);
+        e.state = 'mImpaleMiss'; e.st = 0.95; e.hit = true;
+      }
+    } else if (im.phase === 'fly') {
+      im.flyT += dt;
+      im.vy -= 26 * dt;
+      const ex = P.pos.x + im.hx * dt, ez = P.pos.z + im.hz * dt;
+      P.pos.x = ex; P.pos.z = ez; P.pos.y += im.vy * dt;
+      resolveCircle(P.pos, P.r, P.pos.y);
+      if (Math.hypot(P.pos.x - ex, P.pos.z - ez) > 0.04 && !im.wallHit) {
+        im.wallHit = true; im.hx *= 0.1; im.hz *= 0.1;
+        SFX.play('slam'); S.shakeBig = Math.max(S.shakeBig || 0, 0.9);
+        burst(P.pos.x, P.pos.y + 1.2, P.pos.z, 0x6a5a4a, 20, 9, 0.6, 0.3, 10, false);
+      }
+      im.tumble += dt * 14;
+      im.bleedT -= dt;
+      if (im.bleedT <= 0) { im.bleedT = 0.04; burst(P.pos.x, P.pos.y + 1.0, P.pos.z, 0xb01010, 3, 5, 0.5, 0.2, 12); }
+      const gy = A.groundAt(P.pos.x, P.pos.z, P.pos.y + 1.0, P.r);
+      if ((P.pos.y <= gy && im.vy < 0) || im.flyT > 2.2) {
+        P.pos.y = gy; im.phase = 'land'; im.landT = 0;
+        SFX.play('slam'); SFX.play('boom');
+        S.shakeBig = Math.max(S.shakeBig || 0, 1.0);
+        P.landImpact = 1.0;
+        burst(P.pos.x, gy + 0.3, P.pos.z, 0x6a5a4a, 24, 10, 0.7, 0.35, 10, false);
+        burst(P.pos.x, gy + 0.5, P.pos.z, 0xb01010, 20, 9, 0.6, 0.3, 14);
+        if (impaleHurt(24, true)) { endImpale(); die(); return; }
+      }
+    } else if (im.phase === 'land') {
+      im.landT += dt;
+      P.pos.y = A.groundAt(P.pos.x, P.pos.z, P.pos.y + 1.0, P.r);
+      if (im.landT >= 0.62) endImpale();
+    }
+  }
+
+  /* ---------------- Galius: AGARRAR (5s perto) → MORDER CABEÇA → ARREMESSAR ---------------- */
+  function startGaliusBite(e) {
+    if (P.dead || P.god || S.cutscene > 0 || S.glory || S.impale || S.galiusBite) return false;
+    const bp = e.g.position;
+    const dx = P.pos.x - bp.x, dz = P.pos.z - bp.z;
+    e.yaw = Math.atan2(dx, dz);
+    e.savedYaw = e.yaw;
+    e.g.rotation.y = e.yaw;
+    S.galiusBite = {
+      boss: e, t: 0, phase: 'grab',
+      r0: clamp(Math.hypot(dx, dz), 2.0, 5.5), bodyYaw: e.yaw + Math.PI, tumble: 0,
+      vy: 0, hx: 0, hz: 0, flyT: 0, landT: 0,
+      bite1: false, bite2: false, bleedT: 0, wallHit: false
+    };
+    S.cutscene = 6; S.csKind = 'galiusBite'; S.csT = 0;
+    P.vel.set(0, 0, 0); P.dashT = 0; P.slamming = false;
+    P.yaw = e.yaw; P.pitch = 0;
+    e.state = 'galiusBite'; e.bitePhase = 'grab'; e.biteT = 0;
+    SFX.play('roar'); SFX.play('hit');
+    S.shakeBig = Math.max(S.shakeBig || 0, 0.8);
+    say('Galius agarrou Nivaldo!', 'NIVALDO', 2.2);
+    return true;
+  }
+  function endGaliusBite() {
+    const gb = S.galiusBite;
+    S.galiusBite = null; S.cutscene = 0; S.csKind = null; S.csT = 0;
+    P.vel.set(0, 0, 0); P.invuln = Math.max(P.invuln, 0.9); P.onGround = true;
+    const e = gb && gb.boss;
+    if (e && !e.dead) {
+      const bp = e.g.position;
+      P.yaw = Math.atan2(-(bp.x - P.pos.x), -(bp.z - P.pos.z));
+      if (e.state === 'galiusBite') { e.state = 'move'; e.cd = 1.0; e.recover = 0; }
+      e.biteCd = 10;
+    }
+  }
+  function updateGaliusBite(dt) {
+    const gb = S.galiusBite;
+    if (!gb) { S.cutscene = 0; return; }
+    const e = gb.boss;
+    if (P.dead || !e || e.dead || e.downed) { endGaliusBite(); return; }
+    S.cutscene = 6;
+    gb.t += dt;
+    e.biteT = (e.biteT || 0) + dt;
+    P.vel.set(0, 0, 0); P.pitch = 0;
+    const bp = e.g.position;
+    const t = gb.t;
+    const dX = Math.sin(e.yaw), dZ = Math.cos(e.yaw);
+    if (gb.phase === 'grab' || gb.phase === 'bite' || gb.phase === 'windThrow') {
+      const T_REACH = 0.35, T_LIFT = 1.00, T_BITE = 1.85, T_THROW = 1.99;
+      if (t < T_REACH) {
+        const u = sm01(t / T_REACH);
+        const rad = gb.r0 + (4.2 - gb.r0) * u;
+        P.pos.set(bp.x + dX * rad, bp.y, bp.z + dZ * rad);
+      } else if (t < T_LIFT) {
+        const u = sm01((t - T_REACH) / (T_LIFT - T_REACH));
+        const rad = 4.2 + (1.85 - 4.2) * u;
+        const lift = 7.1 * u;
+        P.pos.set(bp.x + dX * rad, bp.y + lift, bp.z + dZ * rad);
+      } else if (t < T_BITE) {
+        if (gb.phase !== 'bite') {
+          gb.phase = 'bite'; e.bitePhase = 'bite';
+        }
+        P.pos.set(bp.x + dX * 1.85, bp.y + 7.1, bp.z + dZ * 1.85);
+        if (t >= 1.12 && !gb.bite1) {
+          gb.bite1 = true;
+          SFX.play('hit'); SFX.play('gush');
+          S.shakeBig = Math.max(S.shakeBig || 0, 1.0);
+          burst(P.pos.x, P.pos.y + 1.65, P.pos.z, 0xb01010, 26, 10, 0.6, 0.3, 14);
+          if (impaleHurt(16, false)) { endGaliusBite(); die(); return; }
+        }
+        if (t >= 1.52 && !gb.bite2) {
+          gb.bite2 = true;
+          SFX.play('hit'); SFX.play('gush');
+          S.shakeBig = Math.max(S.shakeBig || 0, 1.1);
+          burst(P.pos.x, P.pos.y + 1.65, P.pos.z, 0xb01010, 30, 11, 0.65, 0.3, 14);
+          if (impaleHurt(16, false)) { endGaliusBite(); die(); return; }
+        }
+      } else if (t < T_THROW) {
+        if (gb.phase !== 'windThrow') {
+          gb.phase = 'windThrow'; e.bitePhase = 'throw'; e.biteT = 0;
+        }
+        const u = sm01((t - T_BITE) / (T_THROW - T_BITE));
+        P.pos.set(bp.x + dX * (1.85 + u * 1.8), bp.y + 7.1 - u * 0.8, bp.z + dZ * (1.85 + u * 1.8));
+      } else {
+        // ARREMESSO PARA LONGE!
+        gb.phase = 'fly'; gb.flyT = 0; gb.tumble = 0;
+        gb.hx = dX * 40; gb.hz = dZ * 40; gb.vy = 12.0;
+        SFX.play('slam'); SFX.play('swing');
+        S.shakeBig = Math.max(S.shakeBig || 0, 1.1);
+        spawnRing(bp.x, bp.z, 12, 22, 0, 0xff2020, 'e');
+        burst(P.pos.x, P.pos.y + 1.4, P.pos.z, 0xb01010, 34, 12, 0.7, 0.3, 14);
+      }
+      gb.bodyYaw = e.yaw + Math.PI;
+      gb.bleedT -= dt;
+      if (gb.bleedT <= 0 && gb.phase === 'bite') {
+        gb.bleedT = 0.08;
+        burst(P.pos.x, P.pos.y + 1.65, P.pos.z, 0xb01010, 4, 6, 0.5, 0.2, 12);
+      }
+    } else if (gb.phase === 'fly') {
+      gb.flyT += dt;
+      gb.vy -= 26 * dt;
+      const ex = P.pos.x + gb.hx * dt, ez = P.pos.z + gb.hz * dt;
+      P.pos.x = ex; P.pos.z = ez; P.pos.y += gb.vy * dt;
+      resolveCircle(P.pos, P.r, P.pos.y);
+      if (Math.hypot(P.pos.x - ex, P.pos.z - ez) > 0.04 && !gb.wallHit) {
+        gb.wallHit = true; gb.hx *= 0.1; gb.hz *= 0.1;
+        SFX.play('slam'); S.shakeBig = Math.max(S.shakeBig || 0, 0.9);
+        burst(P.pos.x, P.pos.y + 1.2, P.pos.z, 0x6a5a4a, 20, 9, 0.6, 0.3, 10, false);
+      }
+      gb.tumble += dt * 14;
+      gb.bleedT -= dt;
+      if (gb.bleedT <= 0) { gb.bleedT = 0.05; burst(P.pos.x, P.pos.y + 1.3, P.pos.z, 0xb01010, 3, 5, 0.5, 0.2, 12); }
+      const gy = A.groundAt(P.pos.x, P.pos.z, P.pos.y + 1.0, P.r);
+      if ((P.pos.y <= gy && gb.vy < 0) || gb.flyT > 2.2) {
+        P.pos.y = gy; gb.phase = 'land'; gb.landT = 0;
+        SFX.play('slam'); SFX.play('boom');
+        S.shakeBig = Math.max(S.shakeBig || 0, 1.0);
+        P.landImpact = 1.0;
+        burst(P.pos.x, gy + 0.3, P.pos.z, 0x6a5a4a, 24, 10, 0.7, 0.35, 10, false);
+        burst(P.pos.x, gy + 0.5, P.pos.z, 0xb01010, 20, 9, 0.6, 0.3, 14);
+        if (impaleHurt(18, true)) { endGaliusBite(); die(); return; }
+      }
+    } else if (gb.phase === 'land') {
+      gb.landT += dt;
+      P.pos.y = A.groundAt(P.pos.x, P.pos.z, P.pos.y + 1.0, P.r);
+      if (gb.landT >= 0.55) endGaliusBite();
+    }
+  }
+
   function updateCutscene(dt) {
     if (S.cutscene <= 0) return;
     S.cutscene -= dt; S.csT += dt;
+    if (S.csKind === 'impale') { updateImpale(dt); return; }
+    if (S.csKind === 'galiusBite') { updateGaliusBite(dt); return; }
     if (S.csKind === 'maximusPhaseTrans') {
       P.vel.set(0, 0, 0);
       if (S.cutscene <= 0.35) setCinemaUI(false);
@@ -5306,6 +5656,7 @@
     releaseGrab();
     endGlory(); P.wantGlory = false; P.invuln = 0;
     P.slamming = false; P.slamCd = 0; P.slamJumpT = 0; P.slamJumpBufT = 0; P.wasJumpDown = false;
+    P.fireCd = 0;
     P.pos.set(S.checkpoint.x, getGroundY(S.checkpoint.x, S.checkpoint.z), S.checkpoint.z); P.yaw = S.checkpoint.yaw; P.pitch = 0;
     resetCamera();
     World.updateChunks(P.pos.x, P.pos.z, true);
@@ -5319,7 +5670,7 @@
     if (S.cross.state !== 'held') crossRemove();
     S.cutscene = 0; S.rip = false; S.ripTarget = null; S.ripStandPos = null;
     S.cinemaBoss = null; S.csCamStart = null; setCinemaUI(false);
-    TP_CAM.active = false; NIVALDO_3P.root.visible = false;
+    TP_CAM.active = false; NIVALDO_3P.root.visible = false; S.impale = null; S.galiusBite = null;
     if (S.corpse) { scene.remove(S.corpse); S.corpse = null; }
     if (S.maximusSpirit) { scene.remove(S.maximusSpirit); S.maximusSpirit = null; }
     S.maximusRig = null; S.maximusCorpse = null;
@@ -5350,6 +5701,29 @@
     return !!keys[code];
   }
 
+  function updateFireHazard(dt) {
+    if (P.fireCd > 0) P.fireCd = Math.max(0, P.fireCd - dt);
+    if (P.dead || P.god || S.cutscene > 0 || S.glory || P.dashT > 0 || P.invuln > 0) return;
+    if (P.fireCd > 0 || !World.flames || !World.flames.length) return;
+    const px = P.pos.x, py = P.pos.y, pz = P.pos.z, pr = P.r;
+    for (let i = 0; i < World.flames.length; i++) {
+      const f = World.flames[i];
+      if (!f || !f.g || (f.chunk && !f.chunk.active)) continue;
+      const fp = f.g.position;
+      const s = f.s || 1;
+      if (py + 3.2 <= fp.y || py >= fp.y + 1.35 * s) continue;
+      const hitR = pr + Math.max(0.45, 0.55 * s);
+      const dx = px - fp.x, dz = pz - fp.z;
+      if (dx * dx + dz * dz <= hitR * hitR) {
+        P.fireCd = 0.45;
+        hurtPlayer(12, fp.x, fp.z, 6);
+        SFX.play('fire');
+        burst(px, Math.max(py + 0.9, fp.y + 0.4), pz, 0xff6a10, 8, 5, 0.35, 0.16, 6, false);
+        break;
+      }
+    }
+  }
+
   function updatePlayer(dt) {
     if (P.invuln > 0) P.invuln = Math.max(0, P.invuln - dt);
     if (S.glory) {
@@ -5362,6 +5736,12 @@
         mouseGuard.pendingY = 0;
       }
       P.vel.set(0, 0, 0);
+      return;
+    }
+    if (S.impale || S.galiusBite) {
+      mouseGuard.pendingX = 0; mouseGuard.pendingY = 0;
+      P.vel.set(0, 0, 0);
+      if (P.hurtFlash > 0) P.hurtFlash = Math.max(0, P.hurtFlash - dt * 1.4);
       return;
     }
     const input = !P.dead && S.cutscene <= 0;
@@ -5464,7 +5844,14 @@
     const prevY = P.pos.y;
     P.vel.y -= 30 * dt;
     P.pos.x += P.vel.x * dt; P.pos.z += P.vel.z * dt; P.pos.y += P.vel.y * dt;
-    resolveCircle(P.pos, P.r, P.pos.y);
+    if (P.vel.y > 0 && A.ceilingAt) {
+      const ceilY = A.ceilingAt(P.pos.x, P.pos.z, P.pos.y, prevY, P.r, 3.35);
+      if (ceilY < Infinity) {
+        P.pos.y = ceilY - 3.35;
+        P.vel.y = 0;
+      }
+    }
+    resolveCircle(P.pos, P.r, P.pos.y, 3.35);
 
     // Cair em cima de qualquer inimigo machuca/mata (stomp dobra o dano base da queda)
     if (P.vel.y < -2.0 && !P.dead) {
@@ -5537,6 +5924,7 @@
       const fk = SAVE.screenFlash != null ? SAVE.screenFlash : 1;
       el('flash').style.opacity = P.flashV * fk;
     }
+    updateFireHazard(dt);
   }
 
   /* ---------------- câmera / ambiente ---------------- */
@@ -5567,7 +5955,7 @@
 
   const mouseGuard = { warmup: 0, lockAt: 0, pendingX: 0, pendingY: 0 };
   const CAM = {
-    x: 0, y: 3.10, z: 6, yaw: 0, pitch: 0, roll: 0, fov: 75,
+    x: 0, y: 2.08, z: 6, yaw: 0, pitch: 0, roll: 0, fov: 75,
     bobAmt: 0, landDip: 0, landVel: 0, shakePhase: 0, init: false
   };
   function resetCamera() {
@@ -5776,6 +6164,7 @@
       camera.position.set(cPos.x + sx * shakeMult, cPos.y + sy * shakeMult, cPos.z);
       camera.lookAt(cLook);
     } else if (tpActive) {
+      if (!TP_CAM.active) TP_CAM.clipT = 1;
       TP_CAM.active = true;
       let dist = 4.2, heightOff = 1.9;
       TP_CAM.target.set(P.pos.x, P.pos.y + 1.80, P.pos.z);
@@ -5790,7 +6179,7 @@
         const desiredZ = TP_CAM.target.z + Math.cos(TP_CAM.angle) * horizDist;
         const desiredY = TP_CAM.target.y + Math.sin(TP_CAM.pitch) * dist;
         TP_CAM.pos.set(desiredX, desiredY, desiredZ);
-      } else if (TP_CAM.userMode) {
+      } else if (TP_CAM.userMode && !S.impale && !S.galiusBite) {
         const shoulderDist = 4.8;
         const shoulderRight = 1.15;
         const fx = -Math.sin(TP_CAM.angle);
@@ -5804,6 +6193,7 @@
           P.pos.y + 2.25 + CAM.landDip * bobK * 0.5,
           P.pos.z + rz * shoulderRight
         );
+        A.clipCameraRay(P.pos.x, TP_CAM.target.y, P.pos.z, TP_CAM.target.x, TP_CAM.target.y, TP_CAM.target.z, 0.35, TP_CAM.target);
         TP_CAM.pos.set(
           TP_CAM.target.x - fx * horizDist,
           TP_CAM.target.y + camOffY,
@@ -5812,7 +6202,25 @@
       } else {
         const camYaw = P.yaw + 0.58;
         TP_CAM.angle = wrapAngle(A.lerpAngle(TP_CAM.angle, camYaw, Math.min(1, dt * 10)));
-        if (S.csKind === 'maximusDeath') {
+        if (S.galiusBite) {
+          const gb = S.galiusBite, gbp = gb.boss.g.position;
+          if (gb.phase === 'fly' || gb.phase === 'land') {
+            dist = 6.8; heightOff = 2.0;
+            TP_CAM.target.set(P.pos.x, P.pos.y + 1.2, P.pos.z);
+          } else {
+            dist = 8.4; heightOff = 2.6;
+            TP_CAM.target.set((P.pos.x + gbp.x) * 0.5, gbp.y + 6.4, (P.pos.z + gbp.z) * 0.5);
+          }
+        } else if (S.impale) {
+          const im = S.impale, ibp = im.boss.g.position;
+          if (im.phase === 'fly' || im.phase === 'land') {
+            dist = 6.6; heightOff = 2.0;
+            TP_CAM.target.set(P.pos.x, P.pos.y + 1.2, P.pos.z);
+          } else {
+            dist = 6.4; heightOff = 2.1;
+            TP_CAM.target.set((P.pos.x + ibp.x) * 0.5, ibp.y + 1.7, (P.pos.z + ibp.z) * 0.5);
+          }
+        } else if (S.csKind === 'maximusDeath') {
           dist = 5.6;
           heightOff = 2.2;
           const mp = S.maximusPos || { x: 0, y: 0, z: -148 };
@@ -5835,11 +6243,17 @@
         const desiredY = TP_CAM.target.y + heightOff;
         TP_CAM.pos.set(desiredX, desiredY, desiredZ);
       }
-      resolveCircle(TP_CAM.pos, 0.5, TP_CAM.pos.y);
+      const hitT = A.clipCameraRay(TP_CAM.target.x, TP_CAM.target.y, TP_CAM.target.z, TP_CAM.pos.x, TP_CAM.pos.y, TP_CAM.pos.z, 0.42);
+      TP_CAM.clipT = hitT < TP_CAM.clipT ? hitT : damp(TP_CAM.clipT, hitT, 10, dt);
+      if (TP_CAM.clipT < 1) {
+        TP_CAM.pos.lerpVectors(TP_CAM.target, TP_CAM.pos, TP_CAM.clipT);
+      }
+      resolveCircle(TP_CAM.pos, 0.35, TP_CAM.pos.y, 0.4);
       const gy = A.groundAt(TP_CAM.pos.x, TP_CAM.pos.z, TP_CAM.pos.y, 0.4);
       TP_CAM.pos.y = Math.max(TP_CAM.pos.y, gy + 0.55);
-      TP_CAM.pos.x += sx * 0.7;
-      TP_CAM.pos.y += sy * 0.7;
+      if (sx !== 0 || sy !== 0) {
+        A.clipCameraRay(TP_CAM.target.x, TP_CAM.target.y, TP_CAM.target.z, TP_CAM.pos.x + sx * 0.7, TP_CAM.pos.y + sy * 0.7, TP_CAM.pos.z, 0.35, TP_CAM.pos);
+      }
       camera.position.copy(TP_CAM.pos);
       camera.lookAt(TP_CAM.target);
     } else {
@@ -5854,11 +6268,14 @@
       const cy = Math.cos(CAM.yaw), syaw = Math.sin(CAM.yaw);
       const camFwd = P.dead ? 0 : 0.18;
       const baseY = P.dead ? P.pos.y + 0.6 : CAM.y + CAM.landDip * bobK + bobY;
-      camera.position.set(
+      const fpPos = TP_CAM.lookScratch.set(
         CAM.x - syaw * camFwd + cy * (bobX + sx),
         baseY + sy,
         CAM.z - cy * camFwd - syaw * (bobX + sx)
       );
+      A.clipCameraRay(CAM.x, baseY, CAM.z, fpPos.x, fpPos.y, fpPos.z, 0.45, fpPos);
+      resolveCircle(fpPos, 0.45, fpPos.y, 0.4);
+      camera.position.copy(fpPos);
       camera.rotation.set(CAM.pitch, CAM.yaw, CAM.roll + sr);
     }
 
@@ -5992,66 +6409,54 @@
   /* ---------------- cena viva da tela de título (flyby + caos) ---------------- */
   const TITLE_SHOTS = [
     {
-      label: 'ÀS MARGENS DO INFERNO · ZONA DEVASTADA',
+      label: 'ÀS MARGENS DO INFERNO · BAIRRO SUL',
       dur: 9.5,
-      from: new V3(-18, 8.5, 4),
-      to:   new V3(16, 6.2, -56),
-      lookFrom: new V3(-4, 2.2, -26),
-      lookTo:   new V3(-6, 2.0, -48)
+      from: new V3(-18, 9.5, 8),
+      to:   new V3(18, 8.0, -44),
+      lookFrom: new V3(-4, 2.4, -18),
+      lookTo:   new V3(-4, 2.4, -36)
     },
     {
-      label: 'DESCENDO AO HORROR · PRAÇA PROFANADA',
+      label: 'BECO DOS LAVRADORES · TERRAS QUEIMADAS',
+      dur: 9.0,
+      from: new V3(56, 9.5, 8),
+      to:   new V3(122, 8.5, -42),
+      lookFrom: new V3(90, 2.4, -16),
+      lookTo:   new V3(100, 2.4, -28)
+    },
+    {
+      label: 'PRAÇA DO POÇO · CERCO DEMONÍACO',
       dur: 9.5,
-      from: new V3(-26, 9.5, -92),
-      to:   new V3(24, 7.5, -148),
-      lookFrom: new V3(0, 2.8, -118),
-      lookTo:   new V3(-4, 2.4, -128)
+      from: new V3(62, 10.5, -68),
+      to:   new V3(124, 9.5, -134),
+      lookFrom: new V3(93, 3.0, -102),
+      lookTo:   new V3(93, 2.8, -104)
     },
     {
-      label: 'PORTÕES DA ULTRA-IGREJA · GUARDA REAL',
-      dur: 8.5,
-      from: new V3(-28, 10.5, -172),
-      to:   new V3(26, 12.0, -184),
-      lookFrom: new V3(0, 4.5, -202),
-      lookTo:   new V3(0, 6.5, -208)
-    },
-    {
-      label: 'ULTRA-IGREJA · NAVE CORROMPIDA',
-      dur: 9.5,
-      from: new V3(-12, 8.0, -226),
-      to:   new V3(12, 6.5, -278),
-      lookFrom: new V3(2, 3.2, -258),
-      lookTo:   new V3(0, 5.5, -294)
-    },
-    {
-      label: 'CATACUMBAS · SALÃO DOS MORTOS',
-      dur: 8.5,
-      from: new V3(286, 4.8, -48),
-      to:   new V3(314, 4.4, -76),
-      lookFrom: new V3(302, 2.0, -64),
-      lookTo:   new V3(296, 2.0, -66)
+      label: 'LARGO DO PORTÃO · RUMO À ULTRA-IGREJA',
+      dur: 9.0,
+      from: new V3(-26, 10.5, -70),
+      to:   new V3(16, 11.5, -122),
+      lookFrom: new V3(-6, 3.2, -118),
+      lookTo:   new V3(-12, 4.5, -148)
     }
   ];
 
   const TITLE_SPAWNS = [
-    // Bairro Alto
+    // Bairro Sul
     ['campones', -8, -18], ['campones', 8, -22], ['campones', -12, -36], ['campones', 12, -40],
     ['guarda', -2, -28], ['guarda', 6, -46], ['demonio', -4, -42],
-    ['diabrete', -10, -26, 4.0], ['diabrete', 10, -34, 4.2], ['gargula', 0, -50, 5.0],
-    // Cidade Baixa
-    ['guarda', -12, -110], ['guarda', 14, -116], ['guarda', -8, -132],
-    ['demonio', -16, -122], ['demonio', 16, -128], ['padre', -6, -106], ['padre', 8, -136],
-    ['gargula', -10, -118, 5.2], ['gargula', 12, -124, 5.0], ['diabrete', 0, -112, 4.2],
-    // Portões da Ultra-Igreja
-    ['maximus', 0, -195], ['guarda', -10, -190], ['guarda', 10, -190], ['demonio', -16, -196], ['demonio', 16, -196],
-    ['gargula', -12, -186, 5.5], ['gargula', 12, -186, 5.5],
-    // Nave da Ultra-Igreja
-    ['demonio', -6, -248], ['demonio', 6, -256], ['padre', -10, -266], ['padre', 10, -268],
-    ['guarda', -4, -260], ['guarda', 4, -244], ['gargula', -8, -254, 5.5], ['gargula', 8, -264, 5.5],
-    ['diabrete', 0, -250, 4.0], ['diabrete', 0, -272, 4.2],
-    // Catacumbas
-    ['padre', 294, -56], ['padre', 306, -68], ['guarda', 298, -62], ['guarda', 304, -58],
-    ['campones', 292, -66], ['campones', 308, -60], ['diabrete', 300, -64, 3.6]
+    ['diabrete', -10, -26, 4.0], ['diabrete', 10, -34, 4.2], ['gargula', 0, -48, 5.0],
+    // Beco dos Lavradores
+    ['campones', 76, -18], ['campones', 104, -30], ['guarda', 84, -24], ['guarda', 100, -16],
+    ['demonio', 92, -34], ['diabrete', 88, -12, 4.2], ['gargula', 106, -26, 5.2],
+    // Praça do Poço
+    ['guarda', 82, -96], ['guarda', 104, -108], ['guarda', 88, -116],
+    ['demonio', 78, -106], ['demonio', 108, -96], ['padre', 93, -86], ['padre', 93, -118],
+    ['gargula', 84, -102, 5.2], ['gargula', 102, -102, 5.0], ['diabrete', 93, -98, 4.2],
+    // Largo do Portão
+    ['maximus', -8, -126], ['guarda', -18, -114], ['guarda', 6, -118], ['demonio', -20, -132], ['demonio', 10, -132],
+    ['gargula', -12, -110, 5.5], ['gargula', 4, -112, 5.5], ['diabrete', -6, -120, 4.0]
   ];
 
   let titleTime = 0, titleShotIdx = 0, titleShotT = 0;
@@ -6145,8 +6550,11 @@
     e.kv.multiplyScalar(Math.max(0, 1 - dt * 5));
     resolveCircle(pos, e.r);
 
+    const gy = getGroundY(pos.x, pos.z);
     if (T.flying) {
-      pos.y = (T.hover || 3.8) + Math.sin(e.anim * 2.6 + e.homeX) * 0.65;
+      pos.y = gy + (T.hover || 3.8) + Math.sin(e.anim * 2.6 + e.homeX) * 0.65;
+    } else {
+      pos.y = gy;
     }
     e.yaw = A.lerpAngle(e.yaw, e.wanderAng, Math.min(1, dt * 7));
     e.g.rotation.y = e.yaw;
@@ -6225,15 +6633,18 @@
     const s = u * u * (3 - 2 * u); // smoothstep
 
     camera.position.lerpVectors(cur.from, cur.to, s);
-    camera.position.y += Math.sin(titleTime * 1.6) * 0.28;
+    const camGround = getGroundY(camera.position.x, camera.position.z);
+    camera.position.y += camGround + Math.sin(titleTime * 1.6) * 0.28;
+    camera.position.y = Math.max(camera.position.y, camGround + 2.5);
     titleLook.lerpVectors(cur.lookFrom, cur.lookTo, s);
-    titleLook.y += Math.cos(titleTime * 1.2) * 0.2;
+    const lookGround = getGroundY(titleLook.x, titleLook.z);
+    titleLook.y += lookGround + Math.cos(titleTime * 1.2) * 0.2;
     camera.lookAt(titleLook);
     if (Math.abs(camera.fov - 72) > 0.1) { camera.fov = 72; camera.updateProjectionMatrix(); }
     World.updateChunks(camera.position.x, camera.position.z, false);
 
     const tagEl = el('titleCamLabel');
-    if (tagEl && tagEl.__v !== cur.label) { tagEl.__v = cur.label; tagEl.textContent = cur.label; }
+    if (tagEl && tagEl.__v !== 'By Lyssa Deimos - 2026') { tagEl.__v = 'By Lyssa Deimos - 2026'; tagEl.textContent = 'By Lyssa Deimos - 2026'; }
 
     const { E, near, far } = getFogTargets(envAt(camera.position.x, camera.position.z));
     const camFar = Math.max(90, far * 1.35);
@@ -6267,7 +6678,8 @@
       p.life -= dt;
       p.m.position.addScaledVector(p.v, dt);
       p.m.rotation.x += dt * 6; p.m.rotation.y += dt * 7;
-      let hit = p.life <= 0 || p.m.position.y < 0.2 || A.pointInWall(p.m.position.x, p.m.position.z) || !World.isPosInRender(p.m.position.x, p.m.position.z);
+      const pGround = getGroundY(p.m.position.x, p.m.position.z);
+      let hit = p.life <= 0 || p.m.position.y < pGround + 0.2 || A.pointInWall(p.m.position.x, p.m.position.z, p.m.position.y) || !World.isPosInRender(p.m.position.x, p.m.position.z);
       if (!hit) {
         for (const e of enemies) {
           if (e.room === 'title_demo' && e.inRender && dist2(p.m.position.x, p.m.position.z, e.g.position.x, e.g.position.z) < e.r + 0.45) {
@@ -6699,9 +7111,17 @@
   applySettingsToEngine(SAVE);
   spawnMapPickups('a1');
   buildSlots(); updateSlots();
-  A.bind({ die, say, quip, spawnPickup });
+  A.bind({ die, say, quip, spawnPickup, startImpale, startGaliusBite });
   P.wantDash = false; P.wantUse = false;
   initTitleShowcase();
+  SFX.init();
+  const unlockAudioOnce = () => {
+    try { SFX.init(); } catch (e) {}
+    window.removeEventListener('pointerdown', unlockAudioOnce);
+    window.removeEventListener('keydown', unlockAudioOnce);
+  };
+  window.addEventListener('pointerdown', unlockAudioOnce, { once: true, passive: true });
+  window.addEventListener('keydown', unlockAudioOnce, { once: true, passive: true });
   refreshRecordUI();
 
   function formatGoreDur(v) {

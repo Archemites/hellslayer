@@ -4,8 +4,13 @@
    ============================================================ */
 const SFX = (() => {
   let ctx = null, master = null, noiseBuf = null, muted = false, userVol = 0.55, goreVol = 0.55, userMusicVol = 0.5, screamsEnabled = true;
-  let musicCtx = null, musicMaster = null, schedWorker = null;
+  let musicCtx = null, musicMaster = null, musicFadeGain = null, schedWorker = null;
   let intensity = 0, step = 0, nextT = 0, timer = null;
+  const MUSIC_INIT_FADE_IN = 1.8;
+  const MUSIC_FADE_OUT = 0.7;
+  const MUSIC_FADE_IN = 1.2;
+  let fadeMode = 'idle', fadeStartT = 0, fadeDur = 0, fadeStartVal = 0, fadeTarget = 0;
+  let pendingTrack = null, cutsceneDucked = false, initialFadeDone = false;
   const SAMPLE_URLS = {
     gore0: 'soundeffect/gore/gore-explode.mp3',
     gore1: 'soundeffect/gore/gore-gush.mp3',
@@ -71,6 +76,49 @@ const SFX = (() => {
     if (musicMaster) musicMaster.gain.value = muted ? 0 : userVol * userMusicVol;
   }
 
+  function getCurrentFadeVal(now) {
+    if (fadeMode === 'idle' || fadeDur <= 0) return fadeTarget;
+    const t = Math.max(0, Math.min(1, (now - fadeStartT) / fadeDur));
+    return fadeStartVal + (fadeTarget - fadeStartVal) * t;
+  }
+
+  function startMusicFade(target, dur, mode) {
+    if (!musicCtx || !musicFadeGain) return;
+    const now = musicCtx.currentTime;
+    const cur = getCurrentFadeVal(now);
+    fadeStartVal = cur;
+    fadeTarget = target;
+    fadeStartT = now;
+    fadeDur = Math.max(0.01, dur);
+    fadeMode = mode;
+    const g = musicFadeGain.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(cur, now);
+    g.linearRampToValueAtTime(target, now + fadeDur);
+  }
+
+  function stepMusicFade() {
+    if (!musicCtx || fadeMode === 'idle') return;
+    if (musicCtx.currentTime < fadeStartT + fadeDur) return;
+    if (fadeMode === 'out') {
+      if (pendingTrack && window.ThrashMusic && window.ThrashMusic.setTrack) {
+        window.ThrashMusic.setTrack(pendingTrack);
+        pendingTrack = null;
+      }
+      if (!cutsceneDucked) {
+        startMusicFade(1, MUSIC_FADE_IN, 'in');
+      } else {
+        fadeMode = 'idle';
+        fadeTarget = 0;
+        fadeStartVal = 0;
+      }
+    } else if (fadeMode === 'in') {
+      fadeMode = 'idle';
+      fadeTarget = 1;
+      fadeStartVal = 1;
+    }
+  }
+
   function startMusicScheduler() {
     if (schedWorker || timer) return;
     try {
@@ -115,11 +163,18 @@ const SFX = (() => {
     musicMaster = musicCtx.createGain();
     updateMusicGain();
     musicMaster.connect(musicCtx.destination);
+    musicFadeGain = musicCtx.createGain();
+    musicFadeGain.gain.value = 0;
+    fadeMode = 'idle';
+    fadeStartVal = 0;
+    fadeTarget = 0;
+    fadeDur = 0;
+    musicFadeGain.connect(musicMaster);
     const musicNoiseBuf = musicCtx.createBuffer(1, musicCtx.sampleRate, musicCtx.sampleRate);
     const md = musicNoiseBuf.getChannelData(0);
     for (let i = 0; i < md.length; i++) md[i] = Math.random() * 2 - 1;
 
-    if (window.ThrashMusic) window.ThrashMusic.init(musicCtx, musicMaster, musicNoiseBuf);
+    if (window.ThrashMusic) window.ThrashMusic.init(musicCtx, musicFadeGain, musicNoiseBuf);
     nextT = musicCtx.currentTime + 0.1;
     startMusicScheduler();
   }
@@ -205,8 +260,19 @@ const SFX = (() => {
 
   // ---------- música ----------
   function sched() {
+    stepMusicFade();
     if (window.ThrashMusic) {
-      window.ThrashMusic.sched(intensity, muted);
+      const active = window.ThrashMusic.sched(intensity, muted);
+      if (active && !initialFadeDone) {
+        initialFadeDone = true;
+        if (pendingTrack && window.ThrashMusic.setTrack) {
+          window.ThrashMusic.setTrack(pendingTrack);
+          pendingTrack = null;
+        }
+        if (!cutsceneDucked && fadeMode === 'idle') {
+          startMusicFade(1, MUSIC_INIT_FADE_IN, 'in');
+        }
+      }
       return;
     }
     if (!ctx || muted) { if (ctx) nextT = ctx.currentTime + 0.1; }
@@ -293,7 +359,36 @@ const SFX = (() => {
 
   function play(name, arg) { if (ctx && !muted && FX[name]) FX[name](arg); }
   function setIntensity(v) { intensity = v; }
-  function setTrack(id) { if (window.ThrashMusic && window.ThrashMusic.setTrack) window.ThrashMusic.setTrack(id); }
+  function setTrack(id) {
+    if (!window.ThrashMusic || !window.ThrashMusic.setTrack) return;
+    const cur = getTrack();
+    if (pendingTrack === id || (!pendingTrack && cur === id)) return;
+    if (!musicCtx || !initialFadeDone) {
+      window.ThrashMusic.setTrack(id);
+      return;
+    }
+    pendingTrack = id;
+    if (fadeMode !== 'out') {
+      startMusicFade(0, MUSIC_FADE_OUT, 'out');
+    }
+  }
+  function setCutscene(active) {
+    const next = !!active;
+    if (next === cutsceneDucked) return;
+    cutsceneDucked = next;
+    if (!musicCtx || !musicFadeGain) return;
+    if (cutsceneDucked) {
+      startMusicFade(0, MUSIC_FADE_OUT, 'out');
+    } else {
+      if (pendingTrack && window.ThrashMusic && window.ThrashMusic.setTrack) {
+        window.ThrashMusic.setTrack(pendingTrack);
+        pendingTrack = null;
+      }
+      if (initialFadeDone) {
+        startMusicFade(1, MUSIC_FADE_IN, 'in');
+      }
+    }
+  }
   function getTrack() { return (window.ThrashMusic && window.ThrashMusic.getTrack) ? window.ThrashMusic.getTrack() : null; }
   function toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : userVol; updateMusicGain(); return muted; }
   function setMuted(on) { muted = !!on; if (master) master.gain.value = muted ? 0 : userVol; updateMusicGain(); return muted; }
@@ -307,5 +402,5 @@ const SFX = (() => {
   function setScreams(on) { screamsEnabled = !!on; }
   function getScreams() { return screamsEnabled; }
 
-  return { init, play, setIntensity, setTrack, getTrack, toggleMute, setMuted, isMuted, setVolume, getVolume, setMusicVolume, getMusicVolume, setGoreVolume, getGoreVolume, setScreams, getScreams };
+  return { init, play, setIntensity, setTrack, setCutscene, getTrack, toggleMute, setMuted, isMuted, setVolume, getVolume, setMusicVolume, getMusicVolume, setGoreVolume, getGoreVolume, setScreams, getScreams };
 })();

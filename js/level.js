@@ -14,9 +14,9 @@ const World = {
   chunks: new Map(),
   scene: null, group: null, currentMap: 'a1',
   colliders: [], dynamicColliders: [], colliderGrid: new Map(), _queryStamp: 0,
-  triggers: [], gates: {}, flames: [], anim: [], meshes: [],
+  triggers: [], gates: {}, flames: [], anim: [], meshes: [], pillars: [],
   distantMeshes: [], detailMode: 'high', onFlameEmber: null,
-  terrainY: null, terrainBaseFn: null, pads: [], pendingFloors: [],
+  terrainY: null, terrainBaseFn: null, pads: [], pendingFloors: [], houseRects: [],
   exitGate: null, breakWall: null, hatch: null, altar: null, portal: null,
   altarCross: null, ghost: null, crossPickup: null, doorMesh: null, skyPortal: null,
   addTrigger(t) {
@@ -236,12 +236,31 @@ function wbox(x1, z1, x2, z2, h, tex, o) {
     col = {
       x1: Math.min(x1, x2), z1: Math.min(z1, z2),
       x2: Math.max(x1, x2), z2: Math.max(z1, z2),
-      y0, yMax: y0 + h, walkable, active: true
+      y0, yMax: y0 + h, walkable, overhead: !!o.overhead, active: true
     };
     World.colliders.push(col);
   }
   m.userData.col = col;
   return m;
+}
+
+// Pilastra quebrável (Sérgio Maximo e Galius destroem ao passar). Não é fundida em mesh estática.
+function wpillar(x1, z1, x2, z2, h, tex, o) {
+  o = o || {};
+  const m = wbox(x1, z1, x2, z2, h, tex, o);
+  m.userData.noMerge = true;
+  const col = m.userData.col;
+  if (col) col.pillar = true;
+  const rub = wbox(x1 - 0.5, z1 - 0.5, x2 + 0.5, z2 + 0.5, 0.45, 'stone', { collide: false, tile: 2, y0: o.y0 || 0 });
+  rub.userData.noMerge = true;
+  rub.visible = false;
+  const p = {
+    mesh: m, col, rubble: rub, flame: null, broken: false, h,
+    x1: Math.min(x1, x2), z1: Math.min(z1, z2), x2: Math.max(x1, x2), z2: Math.max(z1, z2),
+    x: (x1 + x2) / 2, z: (z1 + z2) / 2, y0: o.y0 || 0
+  };
+  World.pillars.push(p);
+  return p;
 }
 
 function wterrainPatch(sx1, sz1, sx2, sz2, minX, maxZ, tex, yLift, tile, step, fn, mat, renderOrder) {
@@ -425,8 +444,8 @@ function hall(x1, z1, x2, z2, o) {
           const gMin = Math.min(ga, gm, gb), gMax = Math.max(ga, gm, gb);
           const cy0 = isLintel ? (gm + y0) : (gMin - 3.0);
           const ch = isLintel ? hh : (gMax + hh - cy0);
-          if (S.ax === 'x') wbox(ca, S.f - t / 2, cb, S.f + t / 2, ch, tex, { y0: cy0, collide, walkable: false });
-          else wbox(S.f - t / 2, ca, S.f + t / 2, cb, ch, tex, { y0: cy0, collide, walkable: false });
+          if (S.ax === 'x') wbox(ca, S.f - t / 2, cb, S.f + t / 2, ch, tex, { y0: cy0, collide, walkable: false, overhead: isLintel });
+          else wbox(S.f - t / 2, ca, S.f + t / 2, cb, ch, tex, { y0: cy0, collide, walkable: false, overhead: isLintel });
         }
         return;
       }
@@ -436,8 +455,8 @@ function hall(x1, z1, x2, z2, o) {
       if (len > CHUNK_SIZE) {
         if (collide) {
           const col = S.ax === 'x'
-            ? { x1: Math.min(sa, sb), z1: S.f - t / 2, x2: Math.max(sa, sb), z2: S.f + t / 2, y0: cy0, yMax: cy0 + ch, walkable: false, active: true }
-            : { x1: S.f - t / 2, z1: Math.min(sa, sb), x2: S.f + t / 2, z2: Math.max(sa, sb), y0: cy0, yMax: cy0 + ch, walkable: false, active: true };
+            ? { x1: Math.min(sa, sb), z1: S.f - t / 2, x2: Math.max(sa, sb), z2: S.f + t / 2, y0: cy0, yMax: cy0 + ch, walkable: false, overhead: isLintel, active: true }
+            : { x1: S.f - t / 2, z1: Math.min(sa, sb), x2: S.f + t / 2, z2: Math.max(sa, sb), y0: cy0, yMax: cy0 + ch, walkable: false, overhead: isLintel, active: true };
           World.colliders.push(col);
         }
         const nSegs = Math.max(1, Math.ceil(len / CHUNK_SIZE));
@@ -449,13 +468,13 @@ function hall(x1, z1, x2, z2, o) {
         }
         return;
       }
-      if (S.ax === 'x') wbox(sa, S.f - t / 2, sb, S.f + t / 2, ch, tex, { y0: cy0, collide, walkable: false });
-      else wbox(S.f - t / 2, sa, S.f + t / 2, sb, ch, tex, { y0: cy0, collide, walkable: false });
+      if (S.ax === 'x') wbox(sa, S.f - t / 2, sb, S.f + t / 2, ch, tex, { y0: cy0, collide, walkable: false, overhead: isLintel });
+      else wbox(S.f - t / 2, sa, S.f + t / 2, sb, ch, tex, { y0: cy0, collide, walkable: false, overhead: isLintel });
     };
     let cur = S.a;
     for (const p of list) {
       if (p.a > cur) seg(cur, p.a, 0, H, true, false);
-      if (p.oh < H) seg(p.a, p.b, p.oh, H - p.oh, false, true);
+      if (p.oh < H) seg(p.a, p.b, p.oh, H - p.oh, o.lintelCollide !== false, true);
       cur = p.b;
     }
     if (cur < S.b) seg(cur, S.b, 0, H, true, false);
@@ -463,46 +482,861 @@ function hall(x1, z1, x2, z2, o) {
   if (o.ceil) wceil(x1, z1, x2, z2, o.ceil, baseY + h, 8);
   if (o.roof) {
     const w = x2 - x1, d = z2 - z1, m = Math.max(w, d);
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(m * 0.78, o.roofH || 3, 4), TX.mat('roof'));
+    const roofH = o.roofH || 3;
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(m * 0.78, roofH, 4), TX.mat('roof'));
     roof.rotation.y = Math.PI / 4;
     roof.scale.set(w / m, 1, d / m);
     const rcx = (x1 + x2) / 2, rcz = (z1 + z2) / 2;
-    roof.position.set(rcx, baseY + h + (o.roofH || 3) / 2, rcz);
+    roof.position.set(rcx, baseY + h + roofH / 2, rcz);
     addW(roof, rcx, rcz);
-    if (o.burn) flame(rcx, baseY + h + (o.roofH || 3) - 0.2, rcz, 2.2);
+    const tiers = Math.max(6, Math.ceil(roofH / 0.32));
+    const stepH = roofH / tiers;
+    for (let i = 0; i < tiers; i++) {
+      const shrink = (i / tiers) * 0.5;
+      const hw = Math.max(0.5, (w * 0.5 + 0.35) * (1 - shrink * 1.6));
+      const hd = Math.max(0.5, (d * 0.5 + 0.35) * (1 - shrink * 1.6));
+      World.colliders.push({
+        x1: rcx - hw, z1: rcz - hd, x2: rcx + hw, z2: rcz + hd,
+        y0: (i === 0) ? (baseY + h - 0.25) : (baseY + h + i * stepH),
+        yMax: baseY + h + (i + 1) * stepH,
+        walkable: true, overhead: true, active: true
+      });
+    }
+    if (o.burn) {
+      const peakScale = Math.max(2.6, Math.min(4.6, m * 0.25));
+      flame(rcx, baseY + h + roofH - 0.35, rcz, peakScale, null, { smoke: true });
+      const spots = [
+        [-0.22, -0.18, 0.72],
+        [0.24, -0.2, 0.68],
+        [-0.2, 0.24, 0.65],
+        [0.21, 0.2, 0.7]
+      ];
+      for (let i = 0; i < spots.length; i++) {
+        const sp = spots[i];
+        const fx = rcx + sp[0] * w, fz = rcz + sp[1] * d;
+        const slopeH = Math.max(0, 1 - 2 * Math.max(Math.abs(sp[0]), Math.abs(sp[1])));
+        const fy = baseY + h + roofH * slopeH - 0.3;
+        flame(fx, fy, fz, peakScale * sp[2], null, { smoke: i < 2 });
+      }
+    }
+  }
+}
+
+function gablePrismGeo(span, height, thick, tile) {
+  const hs = span * 0.5, ht = thick * 0.5, t = tile || 4;
+  const sLen = Math.hypot(hs, height);
+  const nx = height / sLen, ny = hs / sLen;
+  const pos = [
+    -hs, 0, ht,   hs, 0, ht,    0, height, ht,
+     hs, 0, -ht, -hs, 0, -ht,   0, height, -ht,
+    -hs, 0, -ht, -hs, 0, ht,    0, height, ht,
+    -hs, 0, -ht,  0, height, ht, 0, height, -ht,
+     hs, 0, ht,   hs, 0, -ht,   0, height, -ht,
+     hs, 0, ht,   0, height, -ht, 0, height, ht,
+    -hs, 0, -ht,  hs, 0, -ht,   hs, 0, ht,
+    -hs, 0, -ht,  hs, 0, ht,   -hs, 0, ht
+  ];
+  const nrm = [
+    0, 0, 1,   0, 0, 1,   0, 0, 1,
+    0, 0, -1,  0, 0, -1,  0, 0, -1,
+    -nx, ny, 0, -nx, ny, 0, -nx, ny, 0,
+    -nx, ny, 0, -nx, ny, 0, -nx, ny, 0,
+    nx, ny, 0,  nx, ny, 0,  nx, ny, 0,
+    nx, ny, 0,  nx, ny, 0,  nx, ny, 0,
+    0, -1, 0,   0, -1, 0,   0, -1, 0,
+    0, -1, 0,   0, -1, 0,   0, -1, 0
+  ];
+  const uv = [
+    0, 0,  span / t, 0,  hs / t, height / t,
+    0, 0,  span / t, 0,  hs / t, height / t,
+    0, 0,  thick / t, 0,  thick / t, sLen / t,
+    0, 0,  thick / t, sLen / t,  0, sLen / t,
+    0, 0,  thick / t, 0,  thick / t, sLen / t,
+    0, 0,  thick / t, sLen / t,  0, sLen / t,
+    0, 0,  span / t, 0,  span / t, thick / t,
+    0, 0,  span / t, thick / t,  0, thick / t
+  ];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
+
+function addHouseWindow(wx, wy, wz, axis, winW, winH, trimTex, burn) {
+  const paneMat = MT(burn ? 0x160a05 : 0x26180d, { emissive: burn ? 0x180702 : 0x2a1808 });
+  const fT = 0.16, fD = 0.22;
+  if (axis === 'x') {
+    const pane = new THREE.Mesh(new THREE.BoxGeometry(winW, winH, 0.12), paneMat);
+    pane.position.set(wx, wy, wz);
+    addW(pane, wx, wz);
+    wbox(wx - winW / 2 - fT, wz - fD / 2, wx + winW / 2 + fT, wz + fD / 2, fT + 0.04, trimTex, { y0: wy - winH / 2 - fT, collide: false, tile: 2 });
+    wbox(wx - winW / 2 - fT, wz - fD / 2, wx + winW / 2 + fT, wz + fD / 2, fT, trimTex, { y0: wy + winH / 2, collide: false, tile: 2 });
+    wbox(wx - winW / 2 - fT, wz - fD / 2, wx - winW / 2, wz + fD / 2, winH, trimTex, { y0: wy - winH / 2, collide: false, tile: 2 });
+    wbox(wx + winW / 2, wz - fD / 2, wx + winW / 2 + fT, wz + fD / 2, winH, trimTex, { y0: wy - winH / 2, collide: false, tile: 2 });
+    wbox(wx - 0.06, wz - fD / 2, wx + 0.06, wz + fD / 2, winH, trimTex, { y0: wy - winH / 2, collide: false, tile: 2 });
+    wbox(wx - winW / 2, wz - fD / 2, wx + winW / 2, wz + fD / 2, 0.10, trimTex, { y0: wy - 0.05, collide: false, tile: 2 });
+  } else {
+    const pane = new THREE.Mesh(new THREE.BoxGeometry(0.12, winH, winW), paneMat);
+    pane.position.set(wx, wy, wz);
+    addW(pane, wx, wz);
+    wbox(wx - fD / 2, wz - winW / 2 - fT, wx + fD / 2, wz + winW / 2 + fT, fT + 0.04, trimTex, { y0: wy - winH / 2 - fT, collide: false, tile: 2 });
+    wbox(wx - fD / 2, wz - winW / 2 - fT, wx + fD / 2, wz + winW / 2 + fT, fT, trimTex, { y0: wy + winH / 2, collide: false, tile: 2 });
+    wbox(wx - fD / 2, wz - winW / 2 - fT, wx + fD / 2, wz - winW / 2, winH, trimTex, { y0: wy - winH / 2, collide: false, tile: 2 });
+    wbox(wx - fD / 2, wz + winW / 2, wx + fD / 2, wz + winW / 2 + fT, winH, trimTex, { y0: wy - winH / 2, collide: false, tile: 2 });
+    wbox(wx - fD / 2, wz - 0.06, wx + fD / 2, wz + 0.06, winH, trimTex, { y0: wy - winH / 2, collide: false, tile: 2 });
+    wbox(wx - fD / 2, wz - winW / 2, wx + fD / 2, wz + winW / 2, 0.10, trimTex, { y0: wy - 0.05, collide: false, tile: 2 });
   }
 }
 
 function house(cx, cz, w, d, face, o) {
   o = o || {};
+  const h = Math.max(4.8, o.h || 4.8);
+  const big = h > 5.5;
+  const t = 0.7;
+  const wallTex = o.wall || 'brick';
+  const trimTex = wallTex === 'church' ? 'church' : (wallTex === 'stone' ? 'stone' : 'wood');
+  const plinthTex = wallTex === 'church' ? 'church' : 'stone';
   const doorC = (face === 'e' || face === 'w') ? cz : cx;
-  const big = (o.h || 4.5) > 5;
+  const doorW = big ? 4.2 : 3.2;
+  const oh = big ? 4.6 : 3.85;
   const sink = World.terrainY ? 2.5 : 0.2;
   const floorRise = 0.22;
   const hy = World.terrainY ? addPad(cx, cz, w / 2 + 1.5, d / 2 + 1.5, 5.5) : 0;
-  hall(cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, {
-    h: o.h || 4.5, t: 0.7, wall: o.wall || 'brick', roof: true, burn: o.burn, roofH: big ? 4 : 3,
+  const x1 = cx - w / 2, x2 = cx + w / 2, z1 = cz - d / 2, z2 = cz + d / 2;
+  World.houseRects.push({ x1, z1, x2, z2, cx, cz, face });
+
+  // Paredes principais + verga da porta com colisão (overhead)
+  hall(x1, z1, x2, z2, {
+    h, t, wall: wallTex, roof: false, lintelCollide: true,
     y0: hy, sink: World.terrainY ? 2.5 : 0,
-    openings: [{ side: face, c: doorC, w: big ? 4 : 3, oh: big ? 5 : 3.4 }]
+    openings: [{ side: face, c: doorC, w: doorW, oh }]
   });
-  wbox(cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, sink + floorRise, o.floor || 'wood', {
-    y0: hy - sink,
-    tile: 4,
-    walkable: true
+
+  // Piso interno caminhável
+  wbox(x1, z1, x2, z2, sink + floorRise, o.floor || 'wood', {
+    y0: hy - sink, tile: 4, walkable: true
+  });
+
+  // Rodapé de pedra ao redor da base (respeitando a abertura da porta)
+  const ph = 0.58 + sink, py0 = hy - sink, pOut = t / 2 + 0.14;
+  if (face !== 'n') wbox(x1 - pOut, z1 - pOut, x2 + pOut, z1 + t / 2, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+  else {
+    wbox(x1 - pOut, z1 - pOut, doorC - doorW / 2, z1 + t / 2, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+    wbox(doorC + doorW / 2, z1 - pOut, x2 + pOut, z1 + t / 2, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+  }
+  if (face !== 's') wbox(x1 - pOut, z2 - t / 2, x2 + pOut, z2 + pOut, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+  else {
+    wbox(x1 - pOut, z2 - t / 2, doorC - doorW / 2, z2 + pOut, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+    wbox(doorC + doorW / 2, z2 - t / 2, x2 + pOut, z2 + pOut, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+  }
+  if (face !== 'w') wbox(x1 - pOut, z1 - pOut, x1 + t / 2, z2 + pOut, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+  else {
+    wbox(x1 - pOut, z1 - pOut, x1 + t / 2, doorC - doorW / 2, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+    wbox(x1 - pOut, doorC + doorW / 2, x1 + t / 2, z2 + pOut, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+  }
+  if (face !== 'e') wbox(x2 - t / 2, z1 - pOut, x2 + pOut, z2 + pOut, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+  else {
+    wbox(x2 - t / 2, z1 - pOut, x2 + pOut, doorC - doorW / 2, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+    wbox(x2 - t / 2, doorC + doorW / 2, x2 + pOut, z2 + pOut, ph, plinthTex, { y0: py0, collide: false, tile: 2 });
+  }
+
+  // Pilastras de canto + vigas horizontais de acabamento
+  const cR = 0.44;
+  [[x1, z1], [x2, z1], [x1, z2], [x2, z2]].forEach(([px, pz]) => {
+    wbox(px - cR, pz - cR, px + cR, pz + cR, h + 0.05, trimTex, { y0: hy, collide: false, tile: 2 });
+  });
+  const bOut = t / 2 + 0.12;
+  const beamAt = (by, bh) => {
+    wbox(x1 - bOut, z1 - bOut, x2 + bOut, z1 + bOut, bh, trimTex, { y0: by, collide: false, tile: 2 });
+    wbox(x1 - bOut, z2 - bOut, x2 + bOut, z2 + bOut, bh, trimTex, { y0: by, collide: false, tile: 2 });
+    wbox(x1 - bOut, z1 - bOut, x1 + bOut, z2 + bOut, bh, trimTex, { y0: by, collide: false, tile: 2 });
+    wbox(x2 - bOut, z1 - bOut, x2 + bOut, z2 + bOut, bh, trimTex, { y0: by, collide: false, tile: 2 });
+  };
+  beamAt(hy + h - 0.34, 0.34);
+  if (h >= 6.0) beamAt(hy + oh, 0.26);
+
+  // Portal da porta (ombreiras, verga reforçada e soleira)
+  const jW = 0.30, jOut = t / 2 + 0.16, lH = 0.40;
+  if (face === 'n' || face === 's') {
+    const fz = face === 'n' ? z1 : z2;
+    const stepDir = face === 'n' ? -1 : 1;
+    wbox(doorC - doorW / 2 - jW, fz - jOut, doorC - doorW / 2 + 0.06, fz + jOut, oh, trimTex, { y0: hy, collide: false, tile: 2 });
+    wbox(doorC + doorW / 2 - 0.06, fz - jOut, doorC + doorW / 2 + jW, fz + jOut, oh, trimTex, { y0: hy, collide: false, tile: 2 });
+    wbox(doorC - doorW / 2 - jW - 0.1, fz - jOut - 0.04, doorC + doorW / 2 + jW + 0.1, fz + jOut + 0.04, lH, trimTex, { y0: hy + oh - 0.04, collide: false, tile: 2 });
+    wbox(doorC - doorW / 2 - 0.1, fz + (stepDir > 0 ? 0 : -0.85), doorC + doorW / 2 + 0.1, fz + (stepDir > 0 ? 0.85 : 0), floorRise + 0.04, plinthTex, { y0: hy - 0.04, collide: false, tile: 2 });
+  } else {
+    const fx = face === 'w' ? x1 : x2;
+    const stepDir = face === 'w' ? -1 : 1;
+    wbox(fx - jOut, doorC - doorW / 2 - jW, fx + jOut, doorC - doorW / 2 + 0.06, oh, trimTex, { y0: hy, collide: false, tile: 2 });
+    wbox(fx - jOut, doorC + doorW / 2 - 0.06, fx + jOut, doorC + doorW / 2 + jW, oh, trimTex, { y0: hy, collide: false, tile: 2 });
+    wbox(fx - jOut - 0.04, doorC - doorW / 2 - jW - 0.1, fx + jOut + 0.04, doorC + doorW / 2 + jW + 0.1, lH, trimTex, { y0: hy + oh - 0.04, collide: false, tile: 2 });
+    wbox(fx + (stepDir > 0 ? 0 : -0.85), doorC - doorW / 2 - 0.1, fx + (stepDir > 0 ? 0.85 : 0), doorC + doorW / 2 + 0.1, floorRise + 0.04, plinthTex, { y0: hy - 0.04, collide: false, tile: 2 });
+  }
+
+  // Janelas medievais nas fachadas
+  const winY = hy + (big ? 2.55 : 2.35), winW = 1.5, winH = 1.65;
+  const placeSideWindows = (side) => {
+    const len = (side === 'n' || side === 's') ? w : d;
+    const cPos = (side === 'n' || side === 's') ? cx : cz;
+    const isDoorSide = side === face;
+    if (isDoorSide) {
+      if (len >= 13) {
+        const off = doorW / 2 + (len / 2 - doorW / 2) * 0.52;
+        if (side === 'n' || side === 's') {
+          const wz = side === 'n' ? z1 - t / 2 - 0.02 : z2 + t / 2 + 0.02;
+          addHouseWindow(cPos - off, winY, wz, 'x', winW, winH, trimTex, o.burn);
+          addHouseWindow(cPos + off, winY, wz, 'x', winW, winH, trimTex, o.burn);
+        } else {
+          const wx = side === 'w' ? x1 - t / 2 - 0.02 : x2 + t / 2 + 0.02;
+          addHouseWindow(wx, winY, cPos - off, 'z', winW, winH, trimTex, o.burn);
+          addHouseWindow(wx, winY, cPos + off, 'z', winW, winH, trimTex, o.burn);
+        }
+      }
+      return;
+    }
+    const offsets = len >= 13 ? [-len * 0.24, len * 0.24] : [0];
+    for (const off of offsets) {
+      if (side === 'n' || side === 's') {
+        const wz = side === 'n' ? z1 - t / 2 - 0.02 : z2 + t / 2 + 0.02;
+        addHouseWindow(cPos + off, winY, wz, 'x', winW, winH, trimTex, o.burn);
+      } else {
+        const wx = side === 'w' ? x1 - t / 2 - 0.02 : x2 + t / 2 + 0.02;
+        addHouseWindow(wx, winY, cPos + off, 'z', winW, winH, trimTex, o.burn);
+      }
+    }
+  };
+  placeSideWindows('n'); placeSideWindows('s'); placeSideWindows('w'); placeSideWindows('e');
+
+  // Telhado de duas águas com beiral, oitões, cumeeira, chaminé e colisão em degraus caminháveis
+  const wallTop = hy + h;
+  const roofH = big ? 4.0 : 3.0;
+  const eaveOut = 0.55;
+  const ridgeAlongX = (face === 'e' || face === 'w');
+  const wallSpan = ridgeAlongX ? d : w;
+  const wallLen = ridgeAlongX ? w : d;
+  const gableHalf = wallSpan * 0.5 + t * 0.5;
+  const ridgeLen = wallLen + t + eaveOut * 2;
+  const ridgeHalf = ridgeLen * 0.5;
+  const sStart = -0.12;
+  const sEnd = gableHalf + eaveOut;
+  const sMid = (sStart + sEnd) * 0.5;
+  const yMid = wallTop + roofH * (1 - sMid / gableHalf);
+  const slopeAng = Math.atan2(roofH, gableHalf);
+  const slopeLen = (sEnd - sStart) / Math.cos(slopeAng);
+  const roofThick = 0.30;
+
+  if (ridgeAlongX) {
+    const sN = new THREE.Mesh(tiledBox(ridgeLen, roofThick, slopeLen, 4), TX.mat('roof'));
+    sN.rotation.x = -slopeAng;
+    sN.position.set(cx, yMid, cz - sMid);
+    addW(sN, cx, cz);
+
+    const sS = new THREE.Mesh(tiledBox(ridgeLen, roofThick, slopeLen, 4), TX.mat('roof'));
+    sS.rotation.x = slopeAng;
+    sS.position.set(cx, yMid, cz + sMid);
+    addW(sS, cx, cz);
+
+    const ridge = new THREE.Mesh(tiledBox(ridgeLen + 0.16, 0.34, 0.42, 2), TX.mat(trimTex));
+    ridge.position.set(cx, wallTop + roofH + 0.04, cz);
+    addW(ridge, cx, cz);
+
+    const gGeo = gablePrismGeo(d + t, roofH, t, 4);
+    const gW = new THREE.Mesh(gGeo, TX.mat(wallTex));
+    gW.rotation.y = Math.PI / 2;
+    gW.position.set(x1, wallTop, cz);
+    addW(gW, x1, cz);
+
+    const gE = new THREE.Mesh(gGeo.clone(), TX.mat(wallTex));
+    gE.rotation.y = Math.PI / 2;
+    gE.position.set(x2, wallTop, cz);
+    addW(gE, x2, cz);
+  } else {
+    const sW = new THREE.Mesh(tiledBox(slopeLen, roofThick, ridgeLen, 4), TX.mat('roof'));
+    sW.rotation.z = slopeAng;
+    sW.position.set(cx - sMid, yMid, cz);
+    addW(sW, cx, cz);
+
+    const sE = new THREE.Mesh(tiledBox(slopeLen, roofThick, ridgeLen, 4), TX.mat('roof'));
+    sE.rotation.z = -slopeAng;
+    sE.position.set(cx + sMid, yMid, cz);
+    addW(sE, cx, cz);
+
+    const ridge = new THREE.Mesh(tiledBox(0.42, 0.34, ridgeLen + 0.16, 2), TX.mat(trimTex));
+    ridge.position.set(cx, wallTop + roofH + 0.04, cz);
+    addW(ridge, cx, cz);
+
+    const gGeo = gablePrismGeo(w + t, roofH, t, 4);
+    const gN = new THREE.Mesh(gGeo, TX.mat(wallTex));
+    gN.position.set(cx, wallTop, z1);
+    addW(gN, cx, z1);
+
+    const gS = new THREE.Mesh(gGeo.clone(), TX.mat(wallTex));
+    gS.position.set(cx, wallTop, z2);
+    addW(gS, cx, z2);
+  }
+
+  // Chaminé de pedra com colisão
+  const chX = ridgeAlongX ? (cx - w * 0.22) : (cx + w * 0.22);
+  const chZ = cz - d * 0.22;
+  const chTop = wallTop + roofH + 1.1;
+  const chBase = wallTop + roofH * 0.45;
+  wbox(chX - 0.65, chZ - 0.65, chX + 0.65, chZ + 0.65, chTop - chBase, plinthTex, {
+    y0: chBase, tile: 2, walkable: true, overhead: true
+  });
+  wbox(chX - 0.80, chZ - 0.80, chX + 0.80, chZ + 0.80, 0.26, plinthTex, {
+    y0: chTop, tile: 2, walkable: true, overhead: true
+  });
+
+  // Colisão do telhado (degraus caminháveis ao longo da inclinação)
+  const tiers = Math.max(6, Math.ceil(roofH / 0.32));
+  const stepH = roofH / tiers;
+  for (let i = 0; i < tiers; i++) {
+    const frac = i / tiers;
+    const tierY0 = (i === 0) ? (wallTop - 0.25) : (wallTop + i * stepH);
+    const tierYMax = wallTop + (i + 1) * stepH;
+    const curHalf = Math.max(0.45, gableHalf * (1 - frac) + 0.15);
+    const col = ridgeAlongX
+      ? { x1: cx - ridgeHalf, z1: cz - curHalf, x2: cx + ridgeHalf, z2: cz + curHalf, y0: tierY0, yMax: tierYMax, walkable: true, overhead: true, active: true }
+      : { x1: cx - curHalf, z1: cz - ridgeHalf, x2: cx + curHalf, z2: cz + ridgeHalf, y0: tierY0, yMax: tierYMax, walkable: true, overhead: true, active: true };
+    World.colliders.push(col);
+  }
+
+  if (!o.noFurniture) populateHouseFurniture(cx, cz, w, d, t, hy + floorRise, face, o);
+
+  if (o.burn) {
+    const peakScale = Math.max(2.6, Math.min(4.6, Math.max(w, d) * 0.25));
+    flame(cx, wallTop + roofH - 0.15, cz, peakScale, null, { smoke: true });
+    const spots = [[-0.22, -0.18, 0.72], [0.24, -0.2, 0.68], [-0.2, 0.24, 0.65], [0.21, 0.2, 0.7]];
+    for (let i = 0; i < spots.length; i++) {
+      const sp = spots[i];
+      const fx = cx + sp[0] * w, fz = cz + sp[1] * d;
+      const slopeF = ridgeAlongX ? Math.max(0, 1 - 2 * Math.abs(sp[1])) : Math.max(0, 1 - 2 * Math.abs(sp[0]));
+      flame(fx, wallTop + roofH * slopeF - 0.15, fz, peakScale * sp[2], null, { smoke: i < 2 });
+    }
+  }
+}
+
+function populateHouseFurniture(cx, cz, w, d, t, floorY, face, o) {
+  let inX = 0, inZ = 1, rtX = 1, rtZ = 0, rotY = 0;
+  let halfIn = d * 0.5 - t * 0.5, halfRt = w * 0.5 - t * 0.5;
+  if (face === 's') {
+    inX = 0; inZ = -1; rtX = -1; rtZ = 0; rotY = Math.PI;
+  } else if (face === 'w') {
+    inX = 1; inZ = 0; rtX = 0; rtZ = -1; rotY = Math.PI / 2;
+    halfIn = w * 0.5 - t * 0.5; halfRt = d * 0.5 - t * 0.5;
+  } else if (face === 'e') {
+    inX = -1; inZ = 0; rtX = 0; rtZ = 1; rotY = -Math.PI / 2;
+    halfIn = w * 0.5 - t * 0.5; halfRt = d * 0.5 - t * 0.5;
+  }
+  if (halfIn < 3.0 || halfRt < 3.0) return;
+
+  const grp = new THREE.Group();
+  grp.position.set(cx, floorY, cz);
+  grp.rotation.y = rotY;
+  addW(grp, cx, cz);
+
+  const addFurnCol = (lx, lz, lw, ld, fh, walkable) => {
+    const wx = cx + lx * rtX + lz * inX;
+    const wz = cz + lx * rtZ + lz * inZ;
+    const hw = (Math.abs(rtX) > 0.5 ? lw : ld) * 0.5;
+    const hd = (Math.abs(rtZ) > 0.5 ? lw : ld) * 0.5;
+    World.colliders.push({
+      x1: wx - hw, z1: wz - hd, x2: wx + hw, z2: wz + hd,
+      y0: floorY, yMax: floorY + fh, walkable: !!walkable, active: true
+    });
+  };
+
+  const burn = !!o.burn;
+  const woodDark = burn ? 0x2b1d12 : 0x4a2e18;
+  const woodMid = burn ? 0x3a2819 : 0x613e22;
+  const woodLight = burn ? 0x4a3422 : 0x7a5230;
+  const ironCol = 0x35383d;
+
+  if (o.wall === 'church') {
+    // Tapete central + altar ao fundo + fileiras de bancos
+    const runnerLen = Math.max(4, halfIn * 1.6);
+    part(grp, 2.2, 0.03, runnerLen, 0x611919, 0, 0.015, 0.3);
+    part(grp, 2.4, 0.02, runnerLen + 0.15, 0x8a6d3b, 0, 0.01, 0.3);
+
+    const altZ = halfIn - 1.3;
+    part(grp, 3.4, 1.05, 1.3, 0x5c5852, 0, 0.525, altZ);
+    part(grp, 3.6, 0.14, 1.5, 0x736e66, 0, 1.12, altZ);
+    part(grp, 1.6, 0.04, 1.54, 0x6e1c1c, 0, 1.20, altZ);
+    part(grp, 0.10, 0.32, 0.10, 0xd9cfa8, -1.1, 1.36, altZ);
+    part(grp, 0.10, 0.32, 0.10, 0xd9cfa8, 1.1, 1.36, altZ);
+    part(grp, 0.08, 0.08, 0.08, 0xffaa22, -1.1, 1.55, altZ, { basic: true });
+    part(grp, 0.08, 0.08, 0.08, 0xffaa22, 1.1, 1.55, altZ, { basic: true });
+    addFurnCol(0, altZ, 3.6, 1.5, 1.2, true);
+
+    const pewW = Math.min(3.4, halfRt - 1.8);
+    if (pewW >= 1.8) {
+      for (let pz = halfIn - 3.6; pz >= -halfIn + 2.6; pz -= 2.2) {
+        for (const side of [-1, 1]) {
+          const px = side * (1.45 + pewW * 0.5);
+          part(grp, pewW, 0.10, 0.55, woodMid, px, 0.45, pz);
+          part(grp, pewW, 0.55, 0.10, woodDark, px, 0.72, pz - 0.24);
+          part(grp, 0.14, 0.45, 0.50, woodDark, px - pewW * 0.44, 0.225, pz);
+          part(grp, 0.14, 0.45, 0.50, woodDark, px + pewW * 0.44, 0.225, pz);
+          addFurnCol(px, pz, pewW, 0.6, 0.85, true);
+        }
+      }
+    }
+    return;
+  }
+
+  // Tapete central
+  const rugW = Math.min(3.6, halfRt * 0.95);
+  const rugD = Math.min(3.0, halfIn * 0.85);
+  part(grp, rugW + 0.22, 0.02, rugD + 0.22, 0x785c30, 0, 0.01, 0.35);
+  part(grp, rugW, 0.03, rugD, burn ? 0x3b1715 : 0x5c1d1a, 0, 0.015, 0.35);
+
+  // Cama no canto traseiro esquerdo
+  const bedX = -halfRt + 1.05;
+  const bedZ = halfIn - 1.45;
+  part(grp, 1.55, 0.34, 2.35, woodDark, bedX, 0.22, bedZ);
+  part(grp, 1.60, 0.85, 0.14, woodMid, bedX, 0.425, bedZ + 1.15);
+  part(grp, 1.40, 0.22, 2.15, burn ? 0x45201d : 0x732622, bedX, 0.48, bedZ - 0.03);
+  part(grp, 0.95, 0.14, 0.48, burn ? 0x7a7060 : 0xc2b69b, bedX, 0.64, bedZ + 0.76);
+  addFurnCol(bedX, bedZ, 1.6, 2.4, 0.75, true);
+
+  // Mesa + 2 cadeiras + objetos no canto traseiro direito
+  const tblX = halfRt - 1.65;
+  const tblZ = halfIn - 1.50;
+  part(grp, 1.75, 0.10, 1.15, woodMid, tblX, 0.78, tblZ);
+  for (const lx of [-0.75, 0.75]) {
+    for (const lz of [-0.45, 0.45]) {
+      part(grp, 0.12, 0.74, 0.12, woodDark, tblX + lx, 0.37, tblZ + lz);
+    }
+  }
+  addFurnCol(tblX, tblZ, 1.75, 1.15, 0.85, true);
+  // Cadeiras
+  for (const czOff of [-0.88, 0.88]) {
+    const cz = tblZ + czOff;
+    const backDir = czOff < 0 ? -1 : 1;
+    part(grp, 0.50, 0.08, 0.50, woodLight, tblX, 0.45, cz);
+    part(grp, 0.50, 0.52, 0.08, woodDark, tblX, 0.71, cz + backDir * 0.21);
+    for (const cxOff of [-0.19, 0.19]) {
+      for (const czL of [-0.19, 0.19]) {
+        part(grp, 0.08, 0.44, 0.08, woodDark, tblX + cxOff, 0.22, cz + czL);
+      }
+    }
+  }
+  // Caneca, prato e vela sobre a mesa
+  part(grp, 0.28, 0.04, 0.28, 0x8f8574, tblX - 0.35, 0.85, tblZ + 0.12);
+  part(grp, 0.14, 0.18, 0.14, 0x6e4f28, tblX + 0.28, 0.92, tblZ - 0.15);
+  part(grp, 0.08, 0.20, 0.08, 0xd9cfa8, tblX + 0.52, 0.93, tblZ + 0.22);
+  part(grp, 0.06, 0.06, 0.06, 0xffaa22, tblX + 0.52, 1.06, tblZ + 0.22, { basic: true });
+
+  // Estante de livros na parede esquerda (longe da porta)
+  if (halfIn >= 3.6) {
+    const shX = -halfRt + 0.38;
+    const shZ = -0.15;
+    part(grp, 0.58, 2.10, 1.75, woodDark, shX, 1.05, shZ);
+    for (let sy = 0.45; sy <= 1.75; sy += 0.45) {
+      part(grp, 0.62, 0.07, 1.65, woodLight, shX + 0.04, sy, shZ);
+      part(grp, 0.36, 0.28, 0.45, 0x6b201b, shX + 0.10, sy + 0.17, shZ - 0.45);
+      part(grp, 0.36, 0.30, 0.38, 0x2a4530, shX + 0.10, sy + 0.18, shZ + 0.02);
+      part(grp, 0.36, 0.26, 0.42, 0x353b54, shX + 0.10, sy + 0.16, shZ + 0.48);
+    }
+    addFurnCol(shX, shZ, 0.65, 1.75, 2.10, false);
+  }
+
+  // Baú reforçado na parede direita
+  const chX = halfRt - 0.55;
+  const chZ = -0.25;
+  part(grp, 0.72, 0.58, 1.25, woodDark, chX, 0.29, chZ);
+  part(grp, 0.76, 0.14, 1.29, woodMid, chX, 0.63, chZ);
+  part(grp, 0.78, 0.68, 0.10, ironCol, chX, 0.36, chZ - 0.40);
+  part(grp, 0.78, 0.68, 0.10, ironCol, chX, 0.36, chZ + 0.40);
+  part(grp, 0.08, 0.14, 0.14, 0x998245, chX - 0.38, 0.52, chZ);
+  addFurnCol(chX, chZ, 0.76, 1.30, 0.72, true);
+}
+
+function _isNearHouseOrProp(x, z, housePad, doorPad, propPad) {
+  for (let i = 0; i < World.houseRects.length; i++) {
+    const h = World.houseRects[i];
+    if (x >= h.x1 - housePad && x <= h.x2 + housePad && z >= h.z1 - housePad && z <= h.z2 + housePad) return true;
+    const dx = h.face === 'e' ? h.x2 + doorPad * 0.5 : (h.face === 'w' ? h.x1 - doorPad * 0.5 : h.cx);
+    const dz = h.face === 's' ? h.z2 + doorPad * 0.5 : (h.face === 'n' ? h.z1 - doorPad * 0.5 : h.cz);
+    if (Math.hypot(x - dx, z - dz) < doorPad) return true;
+  }
+  if (propPad > 0) {
+    for (let i = 0; i < World.colliders.length; i++) {
+      const c = World.colliders[i];
+      if (!c.active || c.overhead) continue;
+      if (x >= c.x1 - propPad && x <= c.x2 + propPad && z >= c.z1 - propPad && z <= c.z2 + propPad) return true;
+    }
+  }
+  return false;
+}
+
+function addCropFence(x1, z1, x2, z2) {
+  const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+  const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+  const segLen = 3.0;
+  const gateHalf = 2.4;
+  const postCol = 0x54361b;
+  const railCol = 0x694524;
+
+  const buildRun = (ax, az, bx, bz, axis) => {
+    const total = axis === 'x' ? (bx - ax) : (bz - az);
+    const mid = total * 0.5;
+    const steps = Math.max(1, Math.round(total / segLen));
+    const dt = total / steps;
+    for (let i = 0; i < steps; i++) {
+      const t0 = i * dt, t1 = (i + 1) * dt, tm = (t0 + t1) * 0.5;
+      if (Math.abs(tm - mid) < gateHalf) continue;
+      const sx1 = axis === 'x' ? ax + t0 : ax;
+      const sz1 = axis === 'x' ? az : az + t0;
+      const sx2 = axis === 'x' ? ax + t1 : bx;
+      const sz2 = axis === 'x' ? az : az + t1;
+      const mx = (sx1 + sx2) * 0.5, mz = (sz1 + sz2) * 0.5;
+      if (_isNearHouseOrProp(mx, mz, 2.2, 4.2, 1.4)) continue;
+
+      const yA = getGroundY(sx1, sz1), yB = getGroundY(sx2, sz2);
+      const yM = (yA + yB) * 0.5;
+      const g = new THREE.Group();
+      g.position.set(mx, yM, mz);
+      const len = Math.hypot(sx2 - sx1, sz2 - sz1);
+      if (axis === 'x') {
+        part(g, 0.16, 1.05, 0.16, postCol, -len * 0.5, 0.525 + (yA - yM), 0);
+        part(g, 0.16, 1.05, 0.16, postCol, len * 0.5, 0.525 + (yB - yM), 0);
+        part(g, len, 0.10, 0.08, railCol, 0, 0.38, 0);
+        part(g, len, 0.10, 0.08, railCol, 0, 0.78, 0);
+      } else {
+        part(g, 0.16, 1.05, 0.16, postCol, 0, 0.525 + (yA - yM), -len * 0.5);
+        part(g, 0.16, 1.05, 0.16, postCol, 0, 0.525 + (yB - yM), len * 0.5);
+        part(g, 0.08, 0.10, len, railCol, 0, 0.38, 0);
+        part(g, 0.08, 0.10, len, railCol, 0, 0.78, 0);
+      }
+      addW(g, mx, mz);
+      World.colliders.push({
+        x1: Math.min(sx1, sx2) - 0.14, z1: Math.min(sz1, sz2) - 0.14,
+        x2: Math.max(sx1, sx2) + 0.14, z2: Math.max(sz1, sz2) + 0.14,
+        y0: Math.min(yA, yB), yMax: Math.max(yA, yB) + 1.05,
+        walkable: false, active: true
+      });
+    }
+  };
+
+  buildRun(minX, minZ, maxX, minZ, 'x');
+  buildRun(minX, maxZ, maxX, maxZ, 'x');
+  buildRun(minX, minZ, minX, maxZ, 'z');
+  buildRun(maxX, minZ, maxX, maxZ, 'z');
+}
+
+function populateCrops(x1, z1, x2, z2) {
+  const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+  const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+  let s = ((minX * 73856093) ^ (minZ * 19349663) ^ (maxX * 83492791)) >>> 0;
+  const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+
+  const stepX = 2.5, stepZ = 2.5;
+  for (let gx = minX + 2.0; gx <= maxX - 2.0; gx += stepX) {
+    for (let gz = minZ + 2.0; gz <= maxZ - 2.0; gz += stepZ) {
+      const px = gx + (rnd() - 0.5) * 0.55;
+      const pz = gz + (rnd() - 0.5) * 0.55;
+      if (_isNearHouseOrProp(px, pz, 2.2, 4.2, 1.5)) continue;
+
+      const py = getGroundY(px, pz) + 0.04;
+      const g = new THREE.Group();
+      g.position.set(px, py, pz);
+      g.rotation.y = rnd() * Math.PI * 2;
+      const kind = Math.floor((gz - minZ) / 5.0 + Math.floor((gx - minX) / 13.0)) % 5;
+
+      if (kind === 0) {
+        // Repolhos / alfaces
+        part(g, 0.85, 0.12, 0.85, 0x3b2615, 0, 0.06, 0);
+        part(g, 0.58, 0.14, 0.58, 0x2b5c1e, 0, 0.17, 0);
+        part(g, 0.42, 0.34, 0.42, 0x4b8f30, 0, 0.32, 0);
+        part(g, 0.28, 0.14, 0.28, 0x68ad44, 0, 0.49, 0);
+      } else if (kind === 1) {
+        // Abóboras
+        part(g, 0.72, 0.10, 0.72, 0x3b2615, 0, 0.05, 0);
+        part(g, 0.56, 0.44, 0.56, 0xc76216, 0, 0.28, 0);
+        part(g, 0.12, 0.18, 0.12, 0x2e4d1b, 0, 0.56, 0);
+        part(g, 0.38, 0.08, 0.26, 0x356924, 0.34, 0.12, 0.12);
+      } else if (kind === 2) {
+        // Cenouras / rabanetes em leira
+        part(g, 0.90, 0.14, 0.65, 0x3b2615, 0, 0.07, 0);
+        for (const ox of [-0.24, 0.22]) {
+          part(g, 0.16, 0.14, 0.16, 0xd96b1c, ox, 0.17, 0);
+          part(g, 0.28, 0.30, 0.28, 0x3f8528, ox, 0.36, 0);
+        }
+      } else if (kind === 3) {
+        // Tomates em estaca
+        part(g, 0.68, 0.10, 0.68, 0x3b2615, 0, 0.05, 0);
+        part(g, 0.08, 1.15, 0.08, 0x5a3a1c, 0, 0.58, 0);
+        part(g, 0.48, 0.68, 0.48, 0x2e6620, 0, 0.52, 0);
+        part(g, 0.12, 0.12, 0.12, 0xc4251a, 0.22, 0.58, 0.16);
+        part(g, 0.12, 0.12, 0.12, 0xc4251a, -0.20, 0.44, -0.18);
+        part(g, 0.11, 0.11, 0.11, 0xc4251a, 0.10, 0.74, -0.22);
+      } else {
+        // Milho / hastes altas
+        part(g, 0.72, 0.10, 0.72, 0x3b2615, 0, 0.05, 0);
+        for (const [ox, oz, hh] of [[-0.16, -0.12, 1.25], [0.16, 0.14, 1.10]]) {
+          part(g, 0.10, hh, 0.10, 0x5c6e26, ox, hh * 0.5 + 0.08, oz);
+          part(g, 0.14, 0.24, 0.14, 0xc9a52c, ox + 0.08, hh * 0.58, oz);
+        }
+      }
+      addW(g, px, pz);
+    }
+  }
+}
+
+const FLAME_TIME = { value: 0 };
+let _flameGeo = null;
+let _smokeGeo = null;
+
+function buildCrossPlanes(planes) {
+  let totalV = 0, totalI = 0;
+  const parts = [];
+  for (let p = 0; p < planes.length; p++) {
+    const cfg = planes[p];
+    const g = new THREE.PlaneGeometry(cfg.w, cfg.h, cfg.ws, cfg.hs);
+    g.translate(0, cfg.y, 0);
+    g.rotateY(cfg.ry);
+    const pos = g.getAttribute('position');
+    const uv = g.getAttribute('uv');
+    const idx = g.getIndex();
+    const vCount = pos.count;
+    const iCount = idx ? idx.count : vCount;
+    parts.push({ g, pos, uv, idx, vCount, iCount, layer: cfg.layer || 0, seed: cfg.seed || 0 });
+    totalV += vCount;
+    totalI += iCount;
+  }
+  const posArr = new Float32Array(totalV * 3);
+  const uvArr = new Float32Array(totalV * 2);
+  const layerArr = new Float32Array(totalV);
+  const seedArr = new Float32Array(totalV);
+  const idxArr = new Uint16Array(totalI);
+  let vOff = 0, iOff = 0;
+  for (let p = 0; p < parts.length; p++) {
+    const it = parts[p];
+    posArr.set(it.pos.array, vOff * 3);
+    uvArr.set(it.uv.array, vOff * 2);
+    layerArr.fill(it.layer, vOff, vOff + it.vCount);
+    seedArr.fill(it.seed, vOff, vOff + it.vCount);
+    if (it.idx) {
+      const src = it.idx.array;
+      for (let j = 0; j < it.iCount; j++) idxArr[iOff + j] = src[j] + vOff;
+    } else {
+      for (let j = 0; j < it.iCount; j++) idxArr[iOff + j] = vOff + j;
+    }
+    vOff += it.vCount;
+    iOff += it.iCount;
+    it.g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(uvArr, 2));
+  out.setAttribute('aLayer', new THREE.BufferAttribute(layerArr, 1));
+  out.setAttribute('aSeed', new THREE.BufferAttribute(seedArr, 1));
+  out.setIndex(new THREE.BufferAttribute(idxArr, 1));
+  return out;
+}
+
+function getFlameGeo() {
+  if (!_flameGeo) {
+    _flameGeo = buildCrossPlanes([
+      { w: 1.25, h: 1.95, ws: 4, hs: 10, y: 0.96, ry: 0.0, layer: 0.0, seed: 0.0 },
+      { w: 1.25, h: 1.95, ws: 4, hs: 10, y: 0.96, ry: Math.PI / 3, layer: 0.0, seed: 1.93 },
+      { w: 1.25, h: 1.95, ws: 4, hs: 10, y: 0.96, ry: (2 * Math.PI) / 3, layer: 0.0, seed: 3.87 },
+      { w: 0.72, h: 1.38, ws: 3, hs: 7, y: 0.68, ry: Math.PI / 6, layer: 1.0, seed: 7.1 },
+      { w: 0.72, h: 1.38, ws: 3, hs: 7, y: 0.68, ry: (2 * Math.PI) / 3 + 0.25, layer: 1.0, seed: 9.4 }
+    ]);
+  }
+  return _flameGeo;
+}
+
+function getSmokeGeo() {
+  if (!_smokeGeo) {
+    _smokeGeo = buildCrossPlanes([
+      { w: 1.9, h: 2.9, ws: 3, hs: 8, y: 2.35, ry: Math.PI / 4, layer: 0.0, seed: 1.3 },
+      { w: 1.9, h: 2.9, ws: 3, hs: 8, y: 2.35, ry: (3 * Math.PI) / 4, layer: 0.0, seed: 4.1 }
+    ]);
+  }
+  return _smokeGeo;
+}
+
+const FLAME_NOISE_GLSL = `
+  float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+  float vnoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash21(i);
+    float b = hash21(i + vec2(1.0, 0.0));
+    float c = hash21(i + vec2(0.0, 1.0));
+    float d = hash21(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+  float fbm3(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
+    for (int i = 0; i < 3; i++) {
+      v += a * vnoise(p);
+      p = rot * p * 2.05 + vec2(17.1, 31.7);
+      a *= 0.5;
+    }
+    return v;
+  }
+`;
+
+function makeFlameMat(cols, phase) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: FLAME_TIME,
+      uPhase: { value: phase },
+      uColOuter: { value: new THREE.Color(cols[0]) },
+      uColInner: { value: new THREE.Color(cols[1]) }
+    },
+    vertexShader: `
+      attribute float aLayer;
+      attribute float aSeed;
+      uniform float uTime;
+      uniform float uPhase;
+      varying vec2 vUv;
+      varying float vLayer;
+      varying float vSeed;
+      void main() {
+        vUv = uv;
+        vLayer = aLayer;
+        vSeed = aSeed;
+        vec3 pos = position;
+        float h = uv.y;
+        float w = uTime * 3.2 + uPhase + aSeed;
+        pos.x += sin(w + h * 4.2) * 0.14 * h * h;
+        pos.z += cos(w * 0.87 + h * 3.6) * 0.12 * h * h;
+        pos.y *= 1.0 + sin(uTime * 6.4 + uPhase + aSeed * 1.7) * 0.075 * h;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uPhase;
+      uniform vec3 uColOuter;
+      uniform vec3 uColInner;
+      varying vec2 vUv;
+      varying float vLayer;
+      varying float vSeed;
+      ${FLAME_NOISE_GLSL}
+      void main() {
+        float x = (vUv.x - 0.5) * 2.0;
+        float y = vUv.y;
+        float t = uTime * (1.85 + 0.35 * vLayer) + uPhase + vSeed * 2.3;
+        vec2 q = vec2(x * 2.25 + vSeed * 1.1, y * 2.7 - t * 1.55);
+        float n1 = fbm3(q);
+        float n2 = fbm3(q * 2.15 + vec2(n1 * 1.35, -t * 0.85));
+        float turb = mix(n1, n2, 0.55);
+
+        float widthProfile = mix(0.88, 0.16, pow(y, 0.82)) * smoothstep(0.0, 0.1, y);
+        float dx = abs(x + (turb - 0.5) * (0.42 + 0.88 * y));
+        float shape = 1.0 - smoothstep(widthProfile * 0.32, widthProfile, dx);
+        float tongues = smoothstep(0.16, 0.78, shape + (turb - 0.42) * (0.45 + 0.92 * y));
+        float vFade = smoothstep(0.0, 0.07, y) * (1.0 - smoothstep(0.56, 1.0, y));
+        float intensity = tongues * vFade;
+
+        float coreHeat = smoothstep(0.36, 0.9, intensity) * (1.0 - smoothstep(0.08, 0.72, y));
+        vec3 colHot = mix(uColInner, vec3(1.0, 0.98, 0.88), 0.72);
+        vec3 colEdge = uColOuter * vec3(1.0, 0.48, 0.22);
+        vec3 col = mix(colEdge, uColInner, smoothstep(0.14, 0.56, intensity));
+        col = mix(col, colHot, clamp(coreHeat + vLayer * 0.35, 0.0, 1.0));
+        col *= 1.15 + 0.35 * coreHeat;
+
+        float alpha = smoothstep(0.08, 0.38, intensity);
+        if (alpha < 0.02) discard;
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide
   });
 }
 
-function flame(x, y, z, s, cols) {
+function makeSmokeMat(glowCol, phase) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: FLAME_TIME,
+      uPhase: { value: phase },
+      uGlowCol: { value: new THREE.Color(glowCol) }
+    },
+    vertexShader: `
+      attribute float aSeed;
+      uniform float uTime;
+      uniform float uPhase;
+      varying vec2 vUv;
+      varying float vSeed;
+      void main() {
+        vUv = uv;
+        vSeed = aSeed;
+        vec3 pos = position;
+        float h = uv.y;
+        pos.x += sin(uTime * 1.4 + uPhase + h * 3.0 + aSeed) * 0.28 * h;
+        pos.z += cos(uTime * 1.15 + uPhase + h * 2.5 + aSeed) * 0.24 * h;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uPhase;
+      uniform vec3 uGlowCol;
+      varying vec2 vUv;
+      varying float vSeed;
+      ${FLAME_NOISE_GLSL}
+      void main() {
+        float x = (vUv.x - 0.5) * 2.0;
+        float y = vUv.y;
+        float t = uTime * 0.75 + uPhase + vSeed * 1.7;
+        vec2 q = vec2(x * 1.8 + vSeed, y * 2.2 - t);
+        float n = fbm3(q);
+        float width = mix(0.45, 0.95, y);
+        float mask = 1.0 - smoothstep(width * 0.28, width, abs(x + (n - 0.5) * 0.55));
+        float billow = smoothstep(0.28, 0.78, mask * 0.85 + n * 0.45);
+        float vFade = smoothstep(0.0, 0.18, y) * (1.0 - smoothstep(0.45, 1.0, y));
+        float alpha = billow * vFade * 0.46;
+        if (alpha < 0.015) discard;
+        vec3 soot = vec3(0.07, 0.06, 0.06);
+        vec3 col = mix(uGlowCol * 0.55, soot, smoothstep(0.0, 0.42, y));
+        gl_FragColor = vec4(col, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+}
+
+function flame(x, y, z, s, cols, opts) {
   const g = new THREE.Group();
   g.position.set(x, y, z);
+  const sc = s || 1;
   cols = cols || [0xff5a10, 0xffc030];
-  const a = new THREE.Mesh(new THREE.ConeGeometry(0.35 * s, 1.3 * s, 4), MT(cols[0], { basic: true }));
-  a.position.y = 0.65 * s;
-  const b = new THREE.Mesh(new THREE.ConeGeometry(0.2 * s, 0.9 * s, 4), MT(cols[1], { basic: true }));
-  b.position.y = 0.45 * s;
-  g.add(a); g.add(b);
+  opts = opts || {};
+  const ph = Math.random() * 20;
+  g.rotation.y = Math.random() * Math.PI * 2;
+  g.scale.set(sc, sc, sc);
+
+  const fireMesh = new THREE.Mesh(getFlameGeo(), makeFlameMat(cols, ph));
+  fireMesh.renderOrder = 2;
+  g.add(fireMesh);
+
+  let smokeMesh = null;
+  if (opts.smoke || sc >= 1.7) {
+    smokeMesh = new THREE.Mesh(getSmokeGeo(), makeSmokeMat(cols[0], ph));
+    smokeMesh.renderOrder = 1;
+    g.add(smokeMesh);
+  }
+
   addW(g, x, z);
-  World.flames.push({ g, ph: Math.random() * 10, chunk: g.userData.chunk });
+  World.flames.push({ g, ph, s: sc, smokeMesh, chunk: g.userData.chunk });
   return g;
 }
 
@@ -742,9 +1576,6 @@ function buildMapA1() {
   wfloor(-45, -55, 45, 20, 'dirt', 0, 8);
   hall(-45, -55, 45, 20, { h: 7, t: 2, wall: 'brick', skip: ['e'] });
   house(-24, -4, 11, 10, 'e', { burn: true });
-  const hyNiv = getGroundY(-24, -4);
-  wbox(-29, -8.6, -27, -6.5, 1, 'wood', { y0: hyNiv + 0.22, tile: 2 });
-  wbox(-25, -2, -23, -0.2, 1.1, 'wood', { y0: hyNiv + 0.22, tile: 2 });
   house(20, -10, 10, 9, 'w');
   house(-26, -34, 11, 10, 'e', { burn: true });
   house(16, -38, 10, 9, 's');
@@ -786,6 +1617,8 @@ function buildMapA1() {
   [[-6, -22], [12, -24], [62, -32], [96, -72], [80, -118], [-34, -114], [10, -118], [36, -68]].forEach(p => deadTree(p[0], p[1]));
   [[4, -14], [58, -16], [96, -42], [108, -96], [62, -108], [-12, -74], [-22, -124], [12, -134]].forEach(p => barrelFire(p[0], p[1]));
   [[-8, 4], [8, 4], [52, -36], [84, -76], [106, -122], [-4, -102], [-28, -130]].forEach(p => crate(p[0], p[1], 1.6));
+  addCropFence(82, -48, 132, 12);
+  populateCrops(82, -48, 132, 12);
   addSkyPortal(40, 140, -110);
 }
 
@@ -846,6 +1679,10 @@ function buildMapA2() {
   [[-22, -26], [22, -26], [-72, -32], [-112, -74], [64, -46], [94, -36], [-48, -116], [48, -116], [0, -126]].forEach(p => hay(p[0], p[1]));
   [[-6, -18], [8, -56], [-56, -54], [-118, -14], [60, -82], [122, -22], [-18, -110], [18, -144], [-58, -166], [58, -166]].forEach(p => deadTree(p[0], p[1]));
   [[0, -10], [-60, -18], [-90, -64], [60, -18], [90, -62], [-20, -128], [20, -128], [0, -158]].forEach(p => barrelFire(p[0], p[1]));
+  [[-38, -70, -12, -18], [12, -70, 38, -18], [-125, -108, -62, -20], [58, -108, 125, -18]].forEach(([cx1, cz1, cx2, cz2]) => {
+    addCropFence(cx1, cz1, cx2, cz2);
+    populateCrops(cx1, cz1, cx2, cz2);
+  });
   addSkyPortal(0, 150, -110);
 }
 
@@ -1027,8 +1864,8 @@ function buildMapA6Gate() {
 
   // Colunata & Pira central
   [-28, -56, -84, -112, -140].forEach(z => [-18, 18].forEach(x => {
-    wbox(x - 1.1, z - 1.1, x + 1.1, z + 1.1, 10, 'church', { tile: 2 });
-    flame(x, 10, z, 1.3);
+    const pl = wpillar(x - 1.1, z - 1.1, x + 1.1, z + 1.1, 10, 'church', { tile: 2 });
+    pl.flame = flame(x, 10, z, 1.3);
   }));
   wbox(-2.8, -77.8, 2.8, -72.2, 1.2, 'church', { tile: 2 });
   flame(0, 1.2, -75, 2.0);
@@ -1107,7 +1944,7 @@ function buildMapA6Nave() {
   wbox(29, -43, 67, -41, 17, 'church');
 
   // Pilares & Bancos
-  [-22, -40, -58, -78, -98, -118, -134].forEach(z => [-15, 15].forEach(x => wbox(x - 0.9, z - 0.9, x + 0.9, z + 0.9, 19, 'church', { tile: 3 })));
+  [-22, -40, -58, -78, -98, -118, -134].forEach(z => [-15, 15].forEach(x => wpillar(x - 0.9, z - 0.9, x + 0.9, z + 0.9, 19, 'church', { tile: 3 })));
   for (let z = -18; z > -130; z -= 7) {
     wbox(-9.5, z - 0.5, -3.5, z + 0.5, 0.9, 'wood', { tile: 2, collide: false });
     wbox(3.5, z - 0.5, 9.5, z + 0.5, 0.9, 'wood', { tile: 2, collide: false });
@@ -1652,11 +2489,13 @@ function buildMap(mapId) {
   World.colliderGrid.clear();
   World.triggers.length = 0;
   World.flames.length = 0;
+  World.pillars.length = 0;
   World.distantMeshes.length = 0;
   World.terrainY = null;
   World.terrainBaseFn = null;
   World.pads.length = 0;
   World.pendingFloors.length = 0;
+  World.houseRects.length = 0;
   World.gates = {};
   World.exitGate = null;
   World.breakWall = null;
@@ -1686,7 +2525,11 @@ World.setWorldDetail = function (mode) {
     if (World.distantMeshes[i]) World.distantMeshes[i].visible = showDistant;
   }
   for (let i = 0; i < World.flames.length; i++) {
-    if (World.flames[i] && World.flames[i].g) World.flames[i].g.visible = showFlames;
+    const f = World.flames[i];
+    if (f && f.g) {
+      f.g.visible = showFlames;
+      if (f.smokeMesh) f.smokeMesh.visible = showDistant;
+    }
   }
 };
 
@@ -1706,21 +2549,21 @@ window.CHAPTERS.ch1 = {
 
 function updateWorld(t, dt) {
   const dm = World.detailMode || 'high';
+  if (dm !== 'min') FLAME_TIME.value = t;
   if (dm !== 'min' && dm !== 'low') {
     const emitEmbers = (dm === 'high' || dm === 'ultra') && World.onFlameEmber;
-    const emberChance = (dm === 'ultra' ? 2.2 : 0.9) * dt;
+    const baseEmberChance = (dm === 'ultra' ? 2.4 : 1.0) * dt;
     const vx = World.viewerX || 0, vz = World.viewerZ || 0;
-    for (const f of World.flames) {
-      if (f.chunk && !f.chunk.active) continue;
-      if (emitEmbers) {
+    if (emitEmbers) {
+      for (const f of World.flames) {
+        if (f.chunk && !f.chunk.active) continue;
+        const sc = f.s || 1;
         const dx = f.g.position.x - vx, dz = f.g.position.z - vz;
-        if (dx * dx + dz * dz < 42 * 42 && Math.random() < emberChance) {
-          World.onFlameEmber(f.g.position.x, f.g.position.y + 0.6, f.g.position.z);
+        const maxDist = 42 + sc * 8;
+        if (dx * dx + dz * dz < maxDist * maxDist && Math.random() < baseEmberChance * Math.min(2.8, 0.7 + sc * 0.45)) {
+          World.onFlameEmber(f.g.position.x, f.g.position.y + 0.75 * sc, f.g.position.z, sc);
         }
       }
-      const k = 1 + Math.sin(t * 14 + f.ph) * 0.18 + Math.sin(t * 23 + f.ph * 2) * 0.1;
-      f.g.scale.set(k, 0.9 + (k - 1) * 2.2, k);
-      f.g.rotation.y += dt * 2;
     }
   }
   for (const id in World.gates) {

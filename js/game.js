@@ -449,7 +449,7 @@
 
   /* ---------------- estado ---------------- */
   const P = {
-    pos: new V3(0, 0, 6), vel: new V3(), yaw: 0, pitch: 0, r: 0.7, eye: 3.10,
+    pos: new V3(0, 0, 6), vel: new V3(), yaw: 0, pitch: 0, r: 0.7, eye: 2.08,
     hp: 200, maxhp: 200, armor: 0, maxarmor: 100, faith: 0, faithMode: 0, onGround: true,
     dashT: 0, dashCd: 0, dashDir: new V3(), bob: 0, lastStep: 0, shake: 0, hurtFlash: 0, healFlash: 0,
     dead: false, god: false, rocks: 0, blood: 0, hand: 0,
@@ -458,7 +458,7 @@
     swingT: 0, swingDur: 0.3, swapT: 0, pending: null, locked: false, fovKick: 0,
     kickT: 0, kickDur: 0.36, kickCd: 0, kickPending: null,
     slamming: false, slamCd: 0, slamJumpT: 0, slamJumpBufT: 0, wasJumpDown: false,
-    grabbed: null, grabT: 0, ramHitSet: null
+    grabbed: null, grabT: 0, ramHitSet: null, fireCd: 0
   };
   const S = {
     started: false, paused: true, difficulty: 2, time: 0, kills: 0, style: 0, ended: false,
@@ -512,8 +512,9 @@
     }
     return gy;
   }
-  function resolveCircle(pos, r, y) {
+  function resolveCircle(pos, r, y, h) {
     const py = y != null ? y : (pos.y || 0);
+    const eh = h != null ? h : 3.35;
     const cs = World.queryColliders
       ? World.queryColliders(pos.x - r - 1, pos.z - r - 1, pos.x + r + 1, pos.z + r + 1, _colTmp)
       : World.colliders;
@@ -521,7 +522,8 @@
       for (let i = 0; i < cs.length; i++) {
         const c = cs[i];
         if (!c.active) continue;
-        if (c.walkable && c.yMax != null && py >= c.yMax - 0.35) continue;
+        if (c.yMax != null && py >= c.yMax - 0.35) continue;
+        if (c.y0 != null && py + eh <= c.y0 + 0.12) continue;
         if (pos.x < c.x1 - r || pos.x > c.x2 + r || pos.z < c.z1 - r || pos.z > c.z2 + r) continue;
         const cx = clamp(pos.x, c.x1, c.x2), cz = clamp(pos.z, c.z1, c.z2);
         let dx = pos.x - cx, dz = pos.z - cz;
@@ -540,11 +542,35 @@
       }
     }
   }
-  function pointInWall(x, z) {
+  function ceilingAt(x, z, y, prevY, r, h) {
+    const rad = (r || 0.7) * 0.85;
+    const eh = h != null ? h : 3.35;
+    const py0 = prevY != null ? prevY : y;
+    const cs = World.queryColliders ? World.queryColliders(x - rad, z - rad, x + rad, z + rad, _colTmp) : World.colliders;
+    let ceilY = Infinity;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
+      if (!c.active || c.y0 == null) continue;
+      if (x + rad > c.x1 && x - rad < c.x2 && z + rad > c.z1 && z - rad < c.z2) {
+        if (c.y0 >= py0 + eh - 0.35 && y + eh > c.y0 && c.y0 < ceilY) {
+          ceilY = c.y0;
+        }
+      }
+    }
+    return ceilY;
+  }
+  function pointInWall(x, z, y) {
     const cs = World.queryColliders ? World.queryColliders(x, z, x, z, _colTmp) : World.colliders;
     for (let i = 0; i < cs.length; i++) {
       const c = cs[i];
-      if (c.active && x > c.x1 && x < c.x2 && z > c.z1 && z < c.z2) return true;
+      if (!c.active) continue;
+      if (y != null) {
+        if (c.y0 != null && y < c.y0) continue;
+        if (c.yMax != null && y > c.yMax) continue;
+      } else if (c.overhead) {
+        continue;
+      }
+      if (x > c.x1 && x < c.x2 && z > c.z1 && z < c.z2) return true;
     }
     return false;
   }
@@ -572,14 +598,14 @@
       const cs = World.colliders;
       for (let i = 0; i < cs.length; i++) {
         const c = cs[i];
-        if (c.active && segHitsBox(ax, az, bx, bz, c)) return false;
+        if (c.active && !c.overhead && segHitsBox(ax, az, bx, bz, c)) return false;
       }
       return true;
     }
     const dyn = World.dynamicColliders;
     for (let i = 0; i < dyn.length; i++) {
       const c = dyn[i];
-      if (c.active && segHitsBox(ax, az, bx, bz, c)) return false;
+      if (c.active && !c.overhead && segHitsBox(ax, az, bx, bz, c)) return false;
     }
     const CS = World.CHUNK_SIZE || 16;
     const stamp = ++World._queryStamp;
@@ -600,7 +626,7 @@
           const c = bucket[i];
           if (c._qStamp !== stamp) {
             c._qStamp = stamp;
-            if (c.active && segHitsBox(ax, az, bx, bz, c)) return false;
+            if (c.active && !c.overhead && segHitsBox(ax, az, bx, bz, c)) return false;
           }
         }
       }
@@ -609,6 +635,85 @@
       else { tMaxZ += tDeltaZ; cz += stepZ; }
     }
     return true;
+  }
+  function clipCameraRay(ax, ay, az, bx, by, bz, pad, out) {
+    const p = pad != null ? pad : 0.4;
+    const yp = Math.min(p, 0.28);
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const minX = Math.min(ax, bx) - p, maxX = Math.max(ax, bx) + p;
+    const minZ = Math.min(az, bz) - p, maxZ = Math.max(az, bz) + p;
+    const cs = World.queryColliders
+      ? World.queryColliders(minX, minZ, maxX, maxZ, _colTmp)
+      : World.colliders;
+    let bestT = 1;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
+      if (!c.active) continue;
+      const cy0 = c.y0 != null ? c.y0 : -1e9;
+      const cy1 = c.yMax != null ? c.yMax : 1e9;
+
+      let t0 = 0, t1 = bestT;
+      const x1 = c.x1 - p, x2 = c.x2 + p;
+      if (Math.abs(dx) < 1e-8) { if (ax < x1 || ax > x2) continue; }
+      else {
+        let a = (x1 - ax) / dx, b = (x2 - ax) / dx;
+        if (a > b) { const tmp = a; a = b; b = tmp; }
+        t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+        if (t0 > t1) continue;
+      }
+      const y1 = cy0 - yp, y2 = cy1 + yp;
+      if (Math.abs(dy) < 1e-8) { if (ay < y1 || ay > y2) continue; }
+      else {
+        let a = (y1 - ay) / dy, b = (y2 - ay) / dy;
+        if (a > b) { const tmp = a; a = b; b = tmp; }
+        t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+        if (t0 > t1) continue;
+      }
+      const z1 = c.z1 - p, z2 = c.z2 + p;
+      if (Math.abs(dz) < 1e-8) { if (az < z1 || az > z2) continue; }
+      else {
+        let a = (z1 - az) / dz, b = (z2 - az) / dz;
+        if (a > b) { const tmp = a; a = b; b = tmp; }
+        t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+        if (t0 > t1) continue;
+      }
+
+      if (t0 > 0) {
+        bestT = t0;
+      } else {
+        let u0 = 0, u1 = bestT;
+        if (Math.abs(dx) < 1e-8) { if (ax < c.x1 || ax > c.x2) continue; }
+        else {
+          let a = (c.x1 - ax) / dx, b = (c.x2 - ax) / dx;
+          if (a > b) { const tmp = a; a = b; b = tmp; }
+          u0 = Math.max(u0, a); u1 = Math.min(u1, b);
+          if (u0 > u1) continue;
+        }
+        if (Math.abs(dy) < 1e-8) { if (ay < cy0 || ay > cy1) continue; }
+        else {
+          let a = (cy0 - ay) / dy, b = (cy1 - ay) / dy;
+          if (a > b) { const tmp = a; a = b; b = tmp; }
+          u0 = Math.max(u0, a); u1 = Math.min(u1, b);
+          if (u0 > u1) continue;
+        }
+        if (Math.abs(dz) < 1e-8) { if (az < c.z1 || az > c.z2) continue; }
+        else {
+          let a = (c.z1 - az) / dz, b = (c.z2 - az) / dz;
+          if (a > b) { const tmp = a; a = b; b = tmp; }
+          u0 = Math.max(u0, a); u1 = Math.min(u1, b);
+          if (u0 > u1) continue;
+        }
+        const len = Math.hypot(dx, dy, dz);
+        const back = len > 1e-5 ? p / len : 0;
+        bestT = Math.max(0, u0 - back);
+      }
+    }
+    if (out) {
+      out.x = ax + dx * bestT;
+      out.y = ay + dy * bestT;
+      out.z = az + dz * bestT;
+    }
+    return bestT;
   }
 
   /* ---------------- partículas / gore (InstancedMesh + Pooling) ---------------- */
@@ -939,8 +1044,14 @@
       );
     }
   }
-  World.onFlameEmber = (x, y, z) => {
-    burst(x + rnd(-0.22, 0.22), y, z + rnd(-0.22, 0.22), Math.random() < 0.5 ? 0xff7a18 : 0xffd850, 1, 1.1, 0.65, 0.085, -3.6, true);
+  World.onFlameEmber = (x, y, z, s) => {
+    const sc = s || 1;
+    const spread = 0.25 * sc;
+    const sz = Math.min(0.18, 0.075 + sc * 0.022);
+    const spd = Math.min(2.8, 1.0 + sc * 0.35);
+    const life = Math.min(1.4, 0.65 + sc * 0.18);
+    const col = Math.random() < 0.4 ? 0xff5a10 : (Math.random() < 0.6 ? 0xff9a20 : 0xffe060);
+    burst(x + rnd(-spread, spread), y, z + rnd(-spread, spread), col, 1, spd, life, sz, -4.2, true);
   };
 
   function bloodSpurt(x, y, z, dx, dz, power, n, upBoost) {
@@ -1256,7 +1367,7 @@
             }
           }
         }
-        if (pointInWall(gp.x, gp.z, c.rad)) {
+        if (pointInWall(gp.x, gp.z, gp.y)) {
           resolveCircle(gp, c.rad);
           c.vx *= -0.42; c.vz *= -0.42;
           c.rvx *= 0.6; c.rvz *= 0.6;
@@ -1370,7 +1481,7 @@
         const pp = p.m.position;
         if (p.kind === 'hex' || p.kind === 'fire' || p.kind === 'brick' || p.kind === 'boulder') { p.m.rotation.x += dt * 6; p.m.rotation.y += dt * 7; }
         const gy = getGroundY(pp.x, pp.z);
-        if (pp.y < gy + 0.1 || pp.y > gy + 45 || pointInWall(pp.x, pp.z)) { killProj(i, true); dead = true; break; }
+        if (pp.y < gy + 0.1 || pp.y > gy + 45 || pointInWall(pp.x, pp.z, pp.y)) { killProj(i, true); dead = true; break; }
         if (p.owner === 'e') {
           if (!P.dead && pp.distanceTo(new V3(P.pos.x, P.pos.y + 1.2, P.pos.z)) < p.r + 0.8) {
             hurtPlayer(p.dmg, pp.x - p.v.x, pp.z - p.v.z, 4);
@@ -2077,7 +2188,8 @@
     const inRender = World.isPosInRender(x, z);
     g.visible = inRender;
     scene.add(g);
-    const hp = T.hpRange ? Math.floor(rnd(T.hpRange[0], T.hpRange[1] + 1)) : T.hp;
+    const baseHp = T.hpRange ? Math.floor(rnd(T.hpRange[0], T.hpRange[1] + 1)) : T.hp;
+    const hp = Math.max(1, Math.round(baseHp * getDifficulty().dmgMul));
     const e = {
       type, T, rig, g, hp, maxhp: hp, r: T.r, h: rig.h, room, aggro: false, aggroOnPlayer: false, cd: rnd(0.4, 1.6),
       state: 'move', st: 0, kv: new V3(), cdir: new V3(), stun: 0, flash: 0, flashing: false, anim: rnd(0, 6),
@@ -2236,9 +2348,16 @@
     const c = e.g.position;
     bloodSpurt(c.x, c.y + e.h * 0.5, c.z, nx, nz, 12, 18, 4.0);
   }
+  function cleanupGaliusProps(e, restoreWeapon) {
+    if (!e) return;
+    if (e.droppedCross) { scene.remove(e.droppedCross); e.droppedCross = null; }
+    if (e.bloodBeamMesh) { scene.remove(e.bloodBeamMesh); e.bloodBeamMesh = null; }
+    if (restoreWeapon && e.rig && e.rig.weapon) e.rig.weapon.visible = true;
+  }
   function removeEnemy(e) {
     if (e && e.grabbed) e.grabbed = false;
     if (P.grabbed === e) { P.grabbed = null; P.ramHitSet = null; }
+    cleanupGaliusProps(e, false);
     scene.remove(e.g);
     const i = enemies.indexOf(e);
     if (i >= 0) enemies.splice(i, 1);
@@ -2291,7 +2410,7 @@
       if (S.msgT <= 0.2) say('IMUNE A ARMAS COMUNS! Desça pela ESCADARIA NO ALTAR!', 'AVISO', 3.0);
       return false;
     }
-    const stuckMult = (T.model === 'maximus' && e.state === 'mStuck') ? 1.75 : 1;
+    const stuckMult = (T.model === 'maximus' && (e.state === 'mStuck' || e.state === 'mImpaleMiss')) ? 1.75 : 1;
     const baseDmg = amt * (P.faithMode > 0 ? 2 : 1) * (T.dmgScale || 1) * stuckMult;
     const part = o.part || 'torso';
     const L = e.limbs && e.limbs[part];
@@ -2345,6 +2464,7 @@
       severLimb(e, 'head', kx, kz);
       if (T.model === 'galius') {
         e.hp = 0; e.downed = true; e.state = 'move';
+        cleanupGaliusProps(e, true);
         SFX.play('roar'); S.shakeBig = 1.2;
         say('Galius caiu! Arranque o Coração Ateu!', 'NIVALDO', 4);
         return true;
@@ -2364,6 +2484,7 @@
       }
       if (e.hp <= 0) {
         e.hp = 0; e.downed = true; e.state = 'move';
+        cleanupGaliusProps(e, true);
         SFX.play('roar'); S.shakeBig = 1.2;
         say('Galius caiu! Arranque o Coração Ateu!', 'NIVALDO', 4);
       }
@@ -2595,7 +2716,7 @@
         if (R.armR) R.armR.rotation.x = Math.cos(p.anim * 22) * 1.4 - 1.2;
         if (R.legL) R.legL.rotation.x = Math.sin(p.anim * 20) * 1.1;
         if (R.legR) R.legR.rotation.x = -Math.sin(p.anim * 20) * 1.1;
-        if (pointInWall(pos.x, pos.z, p.r)) {
+        if (pointInWall(pos.x, pos.z, pos.y)) {
           resolveCircle(pos, p.r);
           r.vx *= -0.55; r.vz *= -0.55;
           r.rvx *= 0.65; r.rvz *= 0.65;
@@ -2875,6 +2996,62 @@
     e.recover = 0.35;
   }
 
+  function spawnGaliusDroppedCross(e) {
+    if (e.droppedCross) return;
+    const g = new THREE.Group();
+    const s = 3.55;
+    const mGold = new THREE.MeshLambertMaterial({ color: 0xd4a017, emissive: 0x3a2800 });
+    const mGlow = new THREE.MeshBasicMaterial({ color: 0xfff0a0 });
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.28 * s, 3.4 * s, 0.28 * s), mGold);
+    shaft.position.set(0, 0, 0);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.5 * s, 0.28 * s, 0.28 * s), mGold);
+    bar.position.set(0, 0.9 * s, 0);
+    const core = new THREE.Mesh(new THREE.BoxGeometry(0.34 * s, 0.34 * s, 0.34 * s), mGlow);
+    core.position.set(0, 0.9 * s, 0);
+    g.add(shaft, bar, core);
+    const rx = Math.cos(e.yaw), rz = -Math.sin(e.yaw);
+    const cx = e.g.position.x + rx * 2.9 + Math.sin(e.yaw) * 1.1;
+    const cz = e.g.position.z + rz * 2.9 + Math.cos(e.yaw) * 1.1;
+    const gy = groundAt(cx, cz, e.g.position.y + 1.5, 1.0);
+    g.position.set(cx, gy + 0.42, cz);
+    g.rotation.order = 'YXZ';
+    g.rotation.set(Math.PI * 0.5, e.yaw + 0.35, 0.25);
+    scene.add(g);
+    e.droppedCross = g;
+    if (e.rig && e.rig.weapon) e.rig.weapon.visible = false;
+    burst(cx, gy + 0.5, cz, 0x6a5a4a, 16, 8, 0.7, 0.35, 14, false);
+    SFX.play('slam');
+    S.shakeBig = Math.max(S.shakeBig || 0, 0.45);
+  }
+  function ensureGaliusBloodBeam(e) {
+    if (e.bloodBeamMesh) return e.bloodBeamMesh;
+    const grp = new THREE.Group();
+    const coreGeo = new THREE.CylinderGeometry(0.24, 0.34, 1, 10, 1, true);
+    coreGeo.translate(0, 0.5, 0);
+    coreGeo.rotateX(Math.PI * 0.5);
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xff1a24, transparent: true, opacity: 0.95 });
+    const auraGeo = new THREE.CylinderGeometry(0.56, 0.78, 1, 10, 1, true);
+    auraGeo.translate(0, 0.5, 0);
+    auraGeo.rotateX(Math.PI * 0.5);
+    const auraMat = new THREE.MeshBasicMaterial({ color: 0x7a020a, transparent: true, opacity: 0.55, depthWrite: false });
+    const core = new THREE.Mesh(coreGeo, coreMat);
+    const aura = new THREE.Mesh(auraGeo, auraMat);
+    grp.add(aura, core);
+    grp.userData.core = core;
+    grp.userData.aura = aura;
+    scene.add(grp);
+    e.bloodBeamMesh = grp;
+    return grp;
+  }
+  function pointSegDistSq3D(px, py, pz, ax, ay, az, bx, by, bz) {
+    const abx = bx - ax, aby = by - ay, abz = bz - az;
+    const lenSq = abx * abx + aby * aby + abz * abz || 0.0001;
+    let t = ((px - ax) * abx + (py - ay) * aby + (pz - az) * abz) / lenSq;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    const cx = ax + abx * t - px, cy = ay + aby * t - py, cz = az + abz * t - pz;
+    return cx * cx + cy * cy + cz * cz;
+  }
+
   function updateGaliusIntro(e, dt) {
     const pos = e.g.position;
     const targetZ = -148.2;
@@ -3014,6 +3191,183 @@
     e.savedYaw = e.yaw;
   }
 
+  /* ---------------- Sérgio Maximo & Galius: destroem pilastras + pathfinding do menor caminho ---------------- */
+  function isPillarBreaker(e) {
+    const m = e.T && e.T.model;
+    return (m === 'galius' || m === 'maximus') && !e.dead;
+  }
+
+  function breakPillar(p, e) {
+    if (p.broken) return;
+    p.broken = true;
+    if (p.col) p.col.active = false;
+    p.mesh.visible = false;
+    if (p.rubble) p.rubble.visible = true;
+    if (p.flame) {
+      p.flame.visible = false;
+      const fi = World.flames.findIndex(f => f && f.g === p.flame);
+      if (fi >= 0) World.flames.splice(fi, 1);
+    }
+    const base = p.y0 || 0;
+    for (let k = 0; k < 4; k++) {
+      const y = base + 0.5 + (p.h - 1) * (k / 3);
+      burst(p.x, y, p.z, 0x8a7a68, 14, 10, 0.9, 0.5, 18, false);
+    }
+    burst(p.x, base + 1.0, p.z, 0xc8b8a0, 18, 7, 0.7, 0.35, 12, false);
+    SFX.play('boom');
+    S.shakeBig = Math.max(S.shakeBig || 0, 0.55);
+    // Estilhaços ferem Nivaldo se estiver colado
+    const pd = Math.hypot(P.pos.x - p.x, P.pos.z - p.z);
+    if (pd < 4.5 && !P.dead) hurtPlayer(8, p.x, p.z, 8);
+  }
+
+  // Quebra qualquer pilastra tocada pelo corpo do chefe
+  function bossBreakPillars(e, pos) {
+    const pl = World.pillars;
+    if (!pl || !pl.length) return;
+    const r = e.r + 0.2;
+    for (let i = 0; i < pl.length; i++) {
+      const p = pl[i];
+      if (p.broken) continue;
+      if (pos.x < p.x1 - r || pos.x > p.x2 + r || pos.z < p.z1 - r || pos.z > p.z2 + r) continue;
+      const cx = clamp(pos.x, p.x1, p.x2), cz = clamp(pos.z, p.z1, p.z2);
+      if ((pos.x - cx) * (pos.x - cx) + (pos.z - cz) * (pos.z - cz) <= r * r) breakPillar(p, e);
+    }
+  }
+
+  function bossResolve(e, pos) {
+    if (isPillarBreaker(e)) bossBreakPillars(e, pos);
+    resolveCircle(pos, e.r);
+  }
+
+  // Colisor que realmente bloqueia o chefe (pilastras contam como livres, pois serão quebradas)
+  const _navTmp = [];
+  function navBlocked(x, z, r) {
+    const cs = World.queryColliders(x - r, z - r, x + r, z + r, _navTmp);
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
+      if (!c.active || c.pillar) continue;
+      if (c.walkable && c.yMax != null && c.yMax <= 1.2) continue;
+      const cx = clamp(x, c.x1, c.x2), cz = clamp(z, c.z1, c.z2);
+      if ((x - cx) * (x - cx) + (z - cz) * (z - cz) < r * r) return true;
+    }
+    return false;
+  }
+  function navLos(ax, az, bx, bz, r) {
+    const d = Math.hypot(bx - ax, bz - az);
+    const n = Math.max(1, Math.ceil(d / 1.2));
+    for (let i = 1; i <= n; i++) {
+      const t = i / n;
+      if (navBlocked(ax + (bx - ax) * t, az + (bz - az) * t, r)) return false;
+    }
+    return true;
+  }
+  function bossLos(e, ax, az, bx, bz) {
+    return isPillarBreaker(e) ? navLos(ax, az, bx, bz, Math.min(e.r, 1.2) * 0.6) : los(ax, az, bx, bz);
+  }
+
+  // A* em grade 8-direções: menor caminho, atravessando pilastras e contornando paredes sólidas
+  function navFindPath(sx, sz, gx, gz, rad) {
+    const CELL = 2.0;
+    const pad = 16;
+    let minX = Math.min(sx, gx) - pad, maxX = Math.max(sx, gx) + pad;
+    let minZ = Math.min(sz, gz) - pad, maxZ = Math.max(sz, gz) + pad;
+    const W = Math.min(110, Math.ceil((maxX - minX) / CELL)), H = Math.min(110, Math.ceil((maxZ - minZ) / CELL));
+    const cell = (x, z) => ({ i: clamp(Math.floor((x - minX) / CELL), 0, W - 1), j: clamp(Math.floor((z - minZ) / CELL), 0, H - 1) });
+    const cx = (i) => minX + (i + 0.5) * CELL, cz = (j) => minZ + (j + 0.5) * CELL;
+    const N = W * H;
+    const blockedC = new Int8Array(N); // 0 desconhecido, 1 livre, 2 bloqueado
+    const isBlocked = (i, j) => {
+      const k = j * W + i;
+      if (!blockedC[k]) blockedC[k] = navBlocked(cx(i), cz(j), rad) ? 2 : 1;
+      return blockedC[k] === 2;
+    };
+    const s = cell(sx, sz), g = cell(gx, gz);
+    const gScore = new Float32Array(N).fill(1e9);
+    const from = new Int32Array(N).fill(-1);
+    const closed = new Uint8Array(N);
+    const heap = [];
+    const push = (k, f) => {
+      heap.push([f, k]);
+      let c = heap.length - 1;
+      while (c > 0) { const p = (c - 1) >> 1; if (heap[p][0] <= heap[c][0]) break; const t = heap[p]; heap[p] = heap[c]; heap[c] = t; c = p; }
+    };
+    const pop = () => {
+      const top = heap[0], last = heap.pop();
+      if (heap.length) {
+        heap[0] = last;
+        let c = 0;
+        for (;;) {
+          const l = c * 2 + 1, r = l + 1; let m = c;
+          if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+          if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+          if (m === c) break;
+          const t = heap[m]; heap[m] = heap[c]; heap[c] = t; c = m;
+        }
+      }
+      return top[1];
+    };
+    const sk = s.j * W + s.i, gk = g.j * W + g.i;
+    gScore[sk] = 0;
+    push(sk, 0);
+    blockedC[sk] = 1; blockedC[gk] = 1; // início/fim sempre transitáveis
+    const h = (i, j) => { const dx = Math.abs(i - g.i), dz = Math.abs(j - g.j); return (dx + dz + (1.4142 - 2) * Math.min(dx, dz)) * CELL; };
+    let found = false, iter = 0;
+    while (heap.length && iter++ < 9000) {
+      const k = pop();
+      if (closed[k]) continue;
+      closed[k] = 1;
+      if (k === gk) { found = true; break; }
+      const ci = k % W, cj = (k / W) | 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        if (!di && !dj) continue;
+        const ni = ci + di, nj = cj + dj;
+        if (ni < 0 || nj < 0 || ni >= W || nj >= H) continue;
+        const nk = nj * W + ni;
+        if (closed[nk] || isBlocked(ni, nj)) continue;
+        if (di && dj && (isBlocked(ci + di, cj) || isBlocked(ci, cj + dj))) continue; // sem cortar quinas
+        const ng = gScore[k] + (di && dj ? 1.4142 : 1) * CELL;
+        if (ng < gScore[nk]) { gScore[nk] = ng; from[nk] = k; push(nk, ng + h(ni, nj)); }
+      }
+    }
+    if (!found) return null;
+    const raw = [];
+    for (let k = gk; k !== -1; k = from[k]) raw.push({ x: cx(k % W), z: cz((k / W) | 0) });
+    raw.reverse();
+    raw[raw.length - 1] = { x: gx, z: gz };
+    // string-pulling: mantém só os waypoints necessários (caminho mais curto e reto)
+    const out = [];
+    let ax = sx, az = sz, idx = 0;
+    while (idx < raw.length) {
+      let far = idx;
+      for (let q = raw.length - 1; q > idx; q--) {
+        if (navLos(ax, az, raw[q].x, raw[q].z, rad)) { far = q; break; }
+      }
+      out.push(raw[far]);
+      ax = raw[far].x; az = raw[far].z; idx = far + 1;
+    }
+    return out;
+  }
+
+  // Retorna o ponto para onde o chefe deve andar agora (caminho mais curto até Nivaldo)
+  function bossWaypoint(e, pos, tx, tz, dt) {
+    const rad = Math.min(e.r, 1.6) * 0.8;
+    e.navT = (e.navT || 0) - dt;
+    if (navLos(pos.x, pos.z, tx, tz, rad)) { e.navPath = null; return { x: tx, z: tz }; }
+    const moved = e.navGoal ? Math.hypot(tx - e.navGoal.x, tz - e.navGoal.z) : 1e9;
+    if (!e.navPath || e.navT <= 0 || moved > 3) {
+      e.navT = 0.3;
+      e.navGoal = { x: tx, z: tz };
+      e.navPath = navFindPath(pos.x, pos.z, tx, tz, rad);
+    }
+    const path = e.navPath;
+    if (!path || !path.length) return { x: tx, z: tz };
+    while (path.length > 1 && Math.hypot(path[0].x - pos.x, path[0].z - pos.z) < 1.8) path.shift();
+    // atalho: se já enxerga um waypoint adiante, pula
+    if (path.length > 1 && navLos(pos.x, pos.z, path[1].x, path[1].z, rad)) path.shift();
+    return path[0];
+  }
+
   function updateEnemyVertical(e, pos, dt, dist) {
     const T = e.T;
     const canFly = T.flying && !e.wingsLost && !e.crawling;
@@ -3075,8 +3429,9 @@
     if (t >= 5.10) {
       e.phase = 2;
       e.invuln = false;
-      e.maxhp = 1100;
-      e.hp = 1100;
+      const p2Hp = Math.max(1, Math.round(1100 * getDifficulty().dmgMul));
+      e.maxhp = p2Hp;
+      e.hp = p2Hp;
       e.state = 'move';
       e.kneel = false;
       e.cd = 0.45;
@@ -3098,8 +3453,12 @@
     e.pirCd = Math.max(0, (e.pirCd || 0) - dt);
     e.leapCd = Math.max(0, (e.leapCd || 0) - dt);
     e.chargeCd = Math.max(0, (e.chargeCd || 0) - dt);
+    if (e.impCd === undefined) e.impCd = 3.5;
+    e.impCd = Math.max(0, e.impCd - dt);
+    e.rushCd = Math.max(0, (e.rushCd || 0) - dt);
 
-    if (e.state !== 'mSlide' && e.state !== 'mLeap' && e.state !== 'mStuck' && e.state !== 'charge') {
+    if (e.state !== 'mSlide' && e.state !== 'mLeap' && e.state !== 'mStuck' && e.state !== 'charge' &&
+        e.state !== 'mRush' && e.state !== 'mImpaleDash' && e.state !== 'mImpaled' && e.state !== 'mImpaleMiss') {
       e.yaw = lerpAngle(e.yaw, Math.atan2(dx, dz), Math.min(1, dt * (p2 ? 7 : 12)));
     }
     let mvx = 0, mvz = 0, spd = p2 ? 6.2 : 7.4;
@@ -3117,7 +3476,15 @@
             mvz = nx * e.strafe * 0.9;
           }
           if (e.cd <= 0) {
-            if (dist > 6.5 && dist < 24 && e.slideCd <= 0 && los(pos.x, pos.z, P.pos.x, P.pos.z)) {
+            const sLos = bossLos(e, pos.x, pos.z, P.pos.x, P.pos.z);
+            const canImp = dist > 7 && dist < 24 && sLos && e.impCd <= 0;
+            const canRush = dist > 6 && dist < 26 && sLos && e.rushCd <= 0;
+            if (canImp && (!canRush || e.flipSpecial)) {
+              e.state = 'mImpaleWind'; e.st = 0.62; e.flipSpecial = false;
+              SFX.play('parry');
+            } else if (canRush) {
+              e.state = 'mRushWind'; e.st = 0.5; e.flipSpecial = true;
+            } else if (dist > 6.5 && dist < 24 && e.slideCd <= 0 && sLos) {
               e.state = 'mSlideWind'; e.st = 0.22;
               const flank = (Math.random() < 0.5 ? 1 : -1) * 0.28;
               e.cdir.set(nx - nz * flank, 0, nz + nx * flank).normalize();
@@ -3136,7 +3503,7 @@
               e.state = 'mLeapWind'; e.st = 0.36;
             } else if (dist <= 5.6) {
               e.state = 'mCleaveWind'; e.st = 0.36;
-            } else if (e.chargeCd <= 0 && dist > 6 && dist < 22 && los(pos.x, pos.z, P.pos.x, P.pos.z)) {
+            } else if (e.chargeCd <= 0 && dist > 6 && dist < 22 && bossLos(e, pos.x, pos.z, P.pos.x, P.pos.z)) {
               e.state = 'chargeWind'; e.st = 0.45;
             }
           }
@@ -3156,6 +3523,61 @@
         if (e.st <= 0) {
           e.state = 'move'; e.slideCd = 2.6; e.cd = 0.42; e.strafe = -e.strafe;
         }
+        break;
+      // --- FASE 1: INVESTIDA (rusha em cima do Nivaldo, persegue em curva) ---
+      case 'mRushWind':
+        e.st -= dt;
+        if (Math.random() < dt * 40) burst(pos.x, pos.y + 0.2, pos.z, 0x6a5a4a, 2, 3, 0.3, 0.15, 6, false);
+        if (e.st <= 0) { e.state = 'mRush'; e.st = 1.2; e.hit = false; SFX.play('roar'); }
+        break;
+      case 'mRush': {
+        e.st -= dt;
+        e.yaw = lerpAngle(e.yaw, Math.atan2(dx, dz), Math.min(1, dt * 2.8));
+        e.cdir.set(Math.sin(e.yaw), 0, Math.cos(e.yaw));
+        mvx = e.cdir.x; mvz = e.cdir.z; spd = 21.5;
+        if (Math.random() < dt * 34) burst(pos.x, pos.y + 0.2, pos.z, 0x6a5a4a, 2, 3, 0.3, 0.15, 6, false);
+        if (!e.hit && pDist <= 3.7) {
+          hurtPlayer(26, pos.x, pos.z, 18); e.hit = true; SFX.play('hit');
+          S.shakeBig = Math.max(S.shakeBig || 0, 0.5);
+          e.st = Math.min(e.st, 0.3);
+        }
+        if (e.st <= 0) { e.state = 'move'; e.rushCd = 3.8; e.cd = 0.5; e.recover = 0.28; e.strafe = -e.strafe; }
+        break;
+      }
+      // --- FASE 1: ESTOCADA EMPALADORA (se acertar: empala, gira e arremessa) ---
+      case 'mImpaleWind':
+        e.st -= dt;
+        if (Math.random() < dt * 30) burst(pos.x + Math.sin(e.yaw) * 1.5, pos.y + 1.6, pos.z + Math.cos(e.yaw) * 1.5, 0xffd8a0, 1, 3, 0.25, 0.1, 6);
+        if (e.st <= 0) {
+          e.state = 'mImpaleDash'; e.st = 0.62; e.hit = false;
+          e.cdir.set(nx, 0, nz); SFX.play('swing'); SFX.play('roar');
+        }
+        break;
+      case 'mImpaleDash': {
+        e.st -= dt;
+        const wantY = Math.atan2(dx, dz), curY = Math.atan2(e.cdir.x, e.cdir.z);
+        const newY = lerpAngle(curY, wantY, Math.min(1, dt * 1.6));
+        e.cdir.set(Math.sin(newY), 0, Math.cos(newY));
+        e.yaw = newY;
+        mvx = e.cdir.x; mvz = e.cdir.z; spd = 31;
+        if (!e.hit && pDist <= 3.4) {
+          e.hit = true;
+          if (startImpale && startImpale(e)) { mvx = 0; mvz = 0; break; }
+        }
+        if (e.st <= 0) {
+          e.state = 'mImpaleMiss'; e.st = 1.0; e.impCd = 6;
+          SFX.play('slam');
+          burst(pos.x + Math.sin(e.yaw) * 2, pos.y + 0.3, pos.z + Math.cos(e.yaw) * 2, 0x6a5a4a, 12, 7, 0.5, 0.25, 8, false);
+        }
+        break;
+      }
+      case 'mImpaled':
+        // controlado pela cutscene de empalamento (game2.js)
+        if (!S.impale) { e.state = 'move'; e.cd = 0.8; }
+        break;
+      case 'mImpaleMiss':
+        e.st -= dt;
+        if (e.st <= 0) { e.state = 'move'; e.cd = 0.5; }
         break;
       // --- FASE 1: PIRUETA ---
       case 'mPirWind':
@@ -3204,7 +3626,7 @@
         pos.x += (e.leapVx || 0) * dt;
         pos.z += (e.leapVz || 0) * dt;
         pos.y += e.vy * dt;
-        resolveCircle(pos, e.r);
+        bossResolve(e, pos);
         const curGy = groundAt(pos.x, pos.z, pos.y + 2.0, e.r);
         if (pos.y <= curGy && e.vy <= 0) {
           pos.y = curGy;
@@ -3263,10 +3685,10 @@
     }
 
     const ml = Math.hypot(mvx, mvz);
-    if (ml > 0.001 && e.state !== 'mLeap' && e.state !== 'mStuck') {
+    if (ml > 0.001 && e.state !== 'mLeap' && e.state !== 'mStuck' && e.state !== 'mImpaled' && e.state !== 'mImpaleMiss') {
       pos.x += (mvx / ml) * Math.min(1, ml) * spd * dt;
       pos.z += (mvz / ml) * Math.min(1, ml) * spd * dt;
-      resolveCircle(pos, e.r);
+      bossResolve(e, pos);
     }
     if (e.state !== 'mLeap') updateEnemyVertical(e, pos, dt, dist);
     e.g.rotation.y = e.state === 'mPir' ? e.yaw + (1 - e.st / 0.62) * Math.PI * 4 : e.yaw;
@@ -3361,7 +3783,7 @@
           dmgEnemy(o, 55, e.kickVel.x / l, e.kickVel.z / l, { knock: 14, stunBonus: 0.6 });
         }
       }
-      const wallHit = pointInWall(pos.x, pos.z, e.r);
+      const wallHit = pointInWall(pos.x, pos.z, pos.y + (e.h || 2.5) * 0.5);
       resolveCircle(pos, e.r);
       const gy = groundAt(pos.x, pos.z, pos.y + 1.0, e.r);
       const groundHit = pos.y <= gy && e.kickVel.y < -1.5;
@@ -3486,12 +3908,44 @@
     }
 
     e.cd -= dt; e.chargeCd -= dt; e.stompCd -= dt;
-    const nx = dx / dist, nz = dz / dist;
+    if (T.model === 'galius') {
+      e.bloodBeamCd = (e.bloodBeamCd == null ? 6.0 : e.bloodBeamCd) - dt;
+      e.biteCd = Math.max(0, (e.biteCd || 0) - dt);
+      if (e.state === 'galiusBite') {
+        e.savedPos.copy(pos);
+        e.savedYaw = e.yaw;
+        animEnemy(e, dt, false);
+        return;
+      }
+      // Reação de proximidade: se Nivaldo se aproximar demais, Galius o agarra instantaneamente, morde a cabeça e arremessa
+      if (!P.dead && !P.god && S.cutscene <= 0 && !S.glory && !S.impale && !S.galiusBite && e.biteCd <= 0 && pDist <= e.r + 5.2) {
+        if (startGaliusBite && startGaliusBite(e)) {
+          e.nearPlayerT = 0;
+          e.biteCd = 8.0;
+          cleanupGaliusProps(e, true);
+          e.savedPos.copy(pos);
+          e.savedYaw = e.yaw;
+          animEnemy(e, dt, false);
+          return;
+        }
+      }
+    }
+    if (isPillarBreaker(e) && !tp) {
+      // Menor caminho até Nivaldo: reta se livre; senão A* (pilastras não contam como obstáculo)
+      const wp = bossWaypoint(e, pos, tx, tz, dt);
+      dx = wp.x - pos.x; dz = wp.z - pos.z;
+    }
+    const dl = Math.hypot(dx, dz) || 0.001;
+    const nx = dx / dl, nz = dz / dl;
     if (T.model === 'maximus') {
       updateMaximusCombat(e, dt, pos, dist, dx, dz, nx, nz, pDist);
       return;
     }
-    if (e.state !== 'charge') e.yaw = lerpAngle(e.yaw, Math.atan2(dx, dz), Math.min(1, dt * (e.state === 'move' ? 9 : 4)));
+    if (e.state === 'galiusBeamFire') {
+      e.yaw = lerpAngle(e.yaw, Math.atan2(dx, dz), Math.min(1, dt * 1.45));
+    } else if (e.state !== 'charge' && e.state !== 'galiusDropCross' && e.state !== 'galiusPickCross') {
+      e.yaw = lerpAngle(e.yaw, Math.atan2(dx, dz), Math.min(1, dt * (e.state === 'move' ? 9 : 4)));
+    }
     const limbMul = e.limbSpeedMul || 1;
     let mvx = 0, mvz = 0, spd = T.speed * (e.enrage ? 1.3 : 1) * (e.kneel ? 0.4 : 1) * limbMul;
     const tall = T.boss;
@@ -3509,17 +3963,87 @@
           if (canFly && dist < 14) { mvx += -nz * e.strafe * 0.5; mvz += nx * e.strafe * 0.5; }
           if (T.ranged && !T.melee && dist < 9) { mvx = -nx * 0.6; mvz = -nz * 0.6; }
         }
-        if (T.charge && !e.crawling && e.chargeCd <= 0 && dist > 8 && dist < 36 && !e.kneel && los(pos.x, pos.z, tx, tz)) {
+        if (T.model === 'galius' && e.bloodBeamCd <= 0 && !e.kneel && dist > 8 && dist < 44 && bossLos(e, pos.x, pos.z, tx, tz)) {
+          e.state = 'galiusDropCross'; e.st = 0.75; e._droppedNow = false;
+        } else if (T.charge && !e.crawling && e.chargeCd <= 0 && dist > 8 && dist < 36 && !e.kneel && bossLos(e, pos.x, pos.z, tx, tz)) {
           e.state = 'chargeWind'; e.st = T.charge.wind;
         } else if (T.stomp && e.stompCd <= 0 && dist < 28) {
           e.state = 'stompWind'; e.st = 1.0;
         } else if (T.melee && e.cd <= 0 && dist <= T.melee.range + e.r * 0.6) {
           e.state = 'wind'; e.st = T.melee.wind; e.ranged = false;
-        } else if (T.ranged && !T.melee && e.cd <= 0 && dist < T.ranged.range && los(pos.x, pos.z, tx, tz)) {
+        } else if (T.ranged && !T.melee && e.cd <= 0 && dist < T.ranged.range && bossLos(e, pos.x, pos.z, tx, tz)) {
           e.state = 'wind'; e.st = 0.45; e.ranged = true;
         } else if (T.ranged && T.melee && e.cd <= 0) { e.state = 'wind'; e.st = 0.4; e.ranged = true; }
         break;
       }
+      case 'galiusDropCross':
+        e.st -= dt;
+        if (e.st <= 0.35 && !e._droppedNow) {
+          e._droppedNow = true;
+          spawnGaliusDroppedCross(e);
+        }
+        if (e.st <= 0) {
+          e.state = 'galiusBeamWind'; e.st = 0.65;
+          SFX.play('roar');
+        }
+        break;
+      case 'galiusBeamWind':
+        e.st -= dt;
+        if (Math.random() < dt * 16) {
+          const hx = pos.x + Math.sin(e.yaw) * 1.6, hy = pos.y + 6.9, hz = pos.z + Math.cos(e.yaw) * 1.6;
+          bloodSpurt(hx, hy, hz, Math.sin(e.yaw), Math.cos(e.yaw), 4, 3, 2.0);
+        }
+        if (e.st <= 0) {
+          e.state = 'galiusBeamFire'; e.st = 1.75; e.beamHitT = 0;
+          ensureGaliusBloodBeam(e);
+          SFX.play('gush');
+        }
+        break;
+      case 'galiusBeamFire': {
+        e.st -= dt;
+        e.beamHitT = Math.max(0, (e.beamHitT || 0) - dt);
+        const beam = ensureGaliusBloodBeam(e);
+        const ox = pos.x + Math.sin(e.yaw) * 1.65;
+        const oy = pos.y + 6.9;
+        const oz = pos.z + Math.cos(e.yaw) * 1.65;
+        const beamLen = 44;
+        const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
+        const dyTarget = clamp((P.pos.y + 1.2 - oy) / Math.max(4, pDist), -0.38, 0.25);
+        const bx = ox + fx * beamLen, by = oy + dyTarget * beamLen, bz = oz + fz * beamLen;
+        beam.position.set(ox, oy, oz);
+        beam.lookAt(bx, by, bz);
+        const pulse = 1 + Math.sin(e.anim * 28) * 0.22;
+        beam.scale.set(pulse, pulse, beamLen);
+        if (Math.random() < dt * 24) {
+          const rt = Math.random() * 0.7;
+          bloodSpurt(ox + fx * beamLen * rt, oy + dyTarget * beamLen * rt, oz + fz * beamLen * rt, fx, fz, 5, 2, 1.5);
+        }
+        const d2 = pointSegDistSq3D(P.pos.x, P.pos.y + 1.1, P.pos.z, ox, oy, oz, bx, by, bz);
+        if (d2 < 1.45 * 1.45 && e.beamHitT <= 0) {
+          e.beamHitT = 0.18;
+          hurtPlayer(9, ox, oz, 6);
+          burst(P.pos.x, P.pos.y + 1.1, P.pos.z, 0xb01010, 8, 6, 0.45, 0.2, 12);
+        }
+        if (e.st <= 0) {
+          if (e.bloodBeamMesh) { scene.remove(e.bloodBeamMesh); e.bloodBeamMesh = null; }
+          e.state = 'galiusPickCross'; e.st = 0.85; e._pickedNow = false;
+        }
+        break;
+      }
+      case 'galiusPickCross':
+        e.st -= dt;
+        if (e.st <= 0.38 && !e._pickedNow) {
+          e._pickedNow = true;
+          if (e.droppedCross) { scene.remove(e.droppedCross); e.droppedCross = null; }
+          if (e.rig && e.rig.weapon) e.rig.weapon.visible = true;
+          SFX.play('cross');
+        }
+        if (e.st <= 0) {
+          e.state = 'move';
+          e.bloodBeamCd = rnd(10, 14);
+          e.cd = 0.9;
+        }
+        break;
       case 'wind':
         e.st -= dt;
         if (canFly) { mvx = nx * 0.4; mvz = nz * 0.4; }
@@ -3565,7 +4089,7 @@
         if (d < md) { const push = (md - d) * 0.5 * (o.T.boss ? 1 : 0.6); pos.x += ox / d * push; pos.z += oz / d * push; }
       }
     }
-    resolveCircle(pos, e.r);
+    bossResolve(e, pos);
     if (e.state === 'charge') {
       const moved = Math.hypot(pos.x - px0, pos.z - pz0);
       if (moved < spd * dt * 0.4 && e.st > 0.1) {
@@ -3591,6 +4115,15 @@
     if (e.crawling && e.crawlT < 1) e.crawlT = Math.min(1, (e.crawlT || 0) + dt * 6);
     if (e.crawling && !e.downed) {
       e.g.rotation.z = moving ? Math.sin(a * 5.5) * 0.14 : 0;
+    } else if (T.model === 'galius' && !e.downed && !e.galiusIntro && e.state !== 'galiusBite') {
+      // Andar cambaleante e balangando de gordão morto reanimado
+      const wad = a * 4.2;
+      e.g.rotation.z = moving ? Math.sin(wad) * 0.11 : Math.sin(a * 1.4) * 0.025;
+      if (R.torso) {
+        R.torso.rotation.z = moving ? Math.sin(wad + 0.5) * 0.09 : Math.sin(a * 1.4) * 0.02;
+        R.torso.rotation.y = moving ? Math.sin(wad) * 0.10 : 0;
+        R.torso.rotation.x = moving ? 0.08 + Math.abs(Math.sin(wad)) * 0.05 : 0.04;
+      }
     } else if (legLOff !== legROff && !e.downed) {
       e.g.rotation.z = (legLOff ? 0.14 : -0.14) + (moving ? Math.sin(a * T.speed * limbMul * 2.2) * 0.08 : 0);
     } else if (e.g.rotation.z !== 0) {
@@ -3601,8 +4134,14 @@
     const windP = winding ? clamp(1 - e.st / wt, 0, 1) : 0;
     const strikeT = e.recover > 0 ? e.recover / 0.35 : 0;
     if (R.legL && !e.downed) {
-      R.legL.rotation.x = e.kneel ? -1.4 : sw;
-      R.legR.rotation.x = e.kneel ? -1.4 : -sw;
+      if (T.model === 'galius' && !e.galiusIntro) {
+        const gsw = moving ? Math.sin(a * 4.2) * 0.50 : 0;
+        R.legL.rotation.x = e.kneel ? -1.4 : gsw;
+        R.legR.rotation.x = e.kneel ? -1.4 : -gsw;
+      } else {
+        R.legL.rotation.x = e.kneel ? -1.4 : sw;
+        R.legR.rotation.x = e.kneel ? -1.4 : -sw;
+      }
     }
     if (e.crawling && !e.downed) {
       if (R.armL && R.armR) {
@@ -3649,11 +4188,90 @@
         R.armR.rotation.set(0.4, 0, -0.15);
         if (R.weapon) R.weapon.rotation.z = -0.4;
         if (R.head) R.head.rotation.x = 0.5;
+      } else if (e.state === 'galiusBite') {
+        const bt = e.biteT || 0;
+        if (e.bitePhase === 'throw') {
+          // Braço esquerdo recua rápido e arremessa Nivaldo pra longe
+          if (bt < 0.14) {
+            const k = bt / 0.14;
+            R.armL.rotation.set(mix(-2.05, -2.85, k), mix(0.45, 0.1, k), mix(-0.32, 0.25, k));
+            if (R.torso) R.torso.rotation.set(mix(0.05, -0.18, k), mix(0, -0.22, k), 0);
+          } else {
+            const k = clamp((bt - 0.14) / 0.22, 0, 1);
+            R.armL.rotation.set(mix(-2.85, -0.55, k), mix(0.1, -0.15, k), mix(0.25, 0.15, k));
+            if (R.torso) R.torso.rotation.set(mix(-0.18, 0.32, k), mix(-0.22, 0.28, k), 0);
+          }
+          R.armR.rotation.set(-0.95, -0.18, -0.45);
+          if (R.head) R.head.rotation.x = -0.12;
+          if (R.jaw) R.jaw.rotation.x = 0.25;
+        } else if (bt < 0.35) {
+          // 1a. Galius se abaixa e estica a mão esquerda até o Nivaldo no chão
+          const k = clamp(bt / 0.35, 0, 1);
+          if (R.torso) R.torso.rotation.set(mix(0.04, 0.54, k), mix(0, 0.18, k), 0);
+          if (R.legL) R.legL.rotation.x = mix(0, -0.36, k);
+          if (R.legR) R.legR.rotation.x = mix(0, -0.36, k);
+          R.armL.rotation.set(mix(-1.12, -0.52, k), mix(0.22, 0.15, k), mix(0.62, 0.14, k));
+          R.armR.rotation.set(mix(-1.12, -0.75, k), -0.18, -0.48);
+          if (R.head) R.head.rotation.x = mix(0, 0.28, k);
+          if (R.jaw) R.jaw.rotation.x = 0.15;
+        } else if (bt < 1.00) {
+          // 1b/2a. Pega com a mão e leva a mão até a boca
+          const k = clamp((bt - 0.35) / 0.65, 0, 1);
+          if (R.torso) R.torso.rotation.set(mix(0.54, 0.04, k), mix(0.18, 0, k), 0);
+          if (R.legL) R.legL.rotation.x = mix(-0.36, 0, k);
+          if (R.legR) R.legR.rotation.x = mix(-0.36, 0, k);
+          R.armL.rotation.set(mix(-0.52, -2.05, k), mix(0.15, 0.48, k), mix(0.14, -0.34, k));
+          R.armR.rotation.set(mix(-0.75, -0.95, k), -0.18, -0.45);
+          if (R.head) R.head.rotation.x = mix(0.28, 0.18, k);
+          if (R.jaw) R.jaw.rotation.x = mix(0.15, 0.58, k);
+        } else {
+          // 2b. Segura na frente da boca e morde a cabeça do Nivaldo
+          const chomp = Math.max(0, Math.sin((bt - 1.00) * 18));
+          if (R.torso) R.torso.rotation.set(0.06, 0, 0);
+          R.armL.rotation.set(-2.05, 0.48, -0.34);
+          R.armR.rotation.set(-0.95, -0.18, -0.45);
+          if (R.head) R.head.rotation.x = 0.24 + chomp * 0.18;
+          if (R.jaw) R.jaw.rotation.x = 0.08 + chomp * 0.68;
+        }
+      } else if (e.state === 'galiusDropCross') {
+        const k = clamp(1 - (e.st || 0) / 0.75, 0, 1);
+        R.armL.rotation.set(mix(-1.12, 0.15, k), 0, mix(0.62, 0.35, k));
+        R.armR.rotation.set(mix(-1.12, -0.35, k), 0, mix(-0.44, -0.65, k));
+        if (R.torso) R.torso.rotation.x = Math.sin(k * Math.PI) * 0.22;
+        if (R.head) R.head.rotation.x = 0.18 * k;
+      } else if (e.state === 'galiusBeamWind') {
+        const k = clamp(1 - (e.st || 0) / 0.65, 0, 1);
+        R.armL.rotation.set(mix(0.15, 0.35, k), 0, mix(0.35, 0.85, k));
+        R.armR.rotation.set(mix(-0.35, 0.35, k), 0, mix(-0.65, -0.85, k));
+        if (R.torso) R.torso.rotation.x = mix(0, -0.24, k);
+        if (R.head) R.head.rotation.x = mix(0.18, -0.35, k);
+        if (R.jaw) R.jaw.rotation.x = 0.55 * k;
+      } else if (e.state === 'galiusBeamFire') {
+        const shake = Math.sin(a * 30) * 0.05;
+        R.armL.rotation.set(0.35 + shake, 0, 0.92);
+        R.armR.rotation.set(0.35 - shake, 0, -0.92);
+        if (R.torso) R.torso.rotation.x = -0.22 + shake * 0.5;
+        if (R.head) R.head.rotation.x = -0.35 + shake;
+        if (R.jaw) R.jaw.rotation.x = 0.62;
+      } else if (e.state === 'galiusPickCross') {
+        const k = clamp(1 - (e.st || 0) / 0.85, 0, 1);
+        if (k < 0.5) {
+          const u = k / 0.5;
+          R.armL.rotation.set(mix(0.35, -0.45, u), 0, mix(0.92, 0.45, u));
+          R.armR.rotation.set(mix(0.35, -0.65, u), 0, mix(-0.92, -0.45, u));
+          if (R.torso) R.torso.rotation.x = mix(-0.22, 0.32, u);
+        } else {
+          const u = (k - 0.5) / 0.5;
+          R.armL.rotation.set(mix(-0.45, -1.12, u), mix(0, 0.22, u), mix(0.45, 0.62, u));
+          R.armR.rotation.set(mix(-0.65, -1.12, u), mix(0, -0.18, u), mix(-0.45, -0.44, u));
+          if (R.torso) R.torso.rotation.x = mix(0.32, 0.04, u);
+        }
+        if (R.jaw) R.jaw.rotation.x = 0.08;
       } else if (e.state === 'wind' || e.state === 'stompWind') {
         R.armL.rotation.x = mix(-1.12, 0.35, windP);
-        R.armL.rotation.z = mix(0.52, -0.25, windP);
+        R.armL.rotation.z = mix(0.62, -0.25, windP);
         R.armR.rotation.x = mix(-1.12, -2.9, windP);
-        R.armR.rotation.z = mix(-0.36, 0, windP);
+        R.armR.rotation.z = mix(-0.44, 0, windP);
         if (R.weapon) R.weapon.rotation.z = mix(-1.21, 0, Math.min(1, windP * 1.35));
       } else if (strikeT > 0 && !winding) {
         const p = 1 - strikeT;
@@ -3674,18 +4292,20 @@
           let k = (p - 0.55) / 0.45;
           k = k * k * (3 - 2 * k);
           R.armR.rotation.x = mix(-1.02, -1.12, k);
-          R.armR.rotation.z = mix(0, -0.36, k);
+          R.armR.rotation.y = mix(0, -0.18, k);
+          R.armR.rotation.z = mix(0, -0.44, k);
           R.armL.rotation.x = mix(0.35, -1.12, k);
-          R.armL.rotation.z = mix(-0.25, 0.52, k);
+          R.armL.rotation.y = mix(0, 0.22, k);
+          R.armL.rotation.z = mix(-0.25, 0.62, k);
           if (R.weapon) R.weapon.rotation.z = mix(0, -1.21, k);
         }
       } else {
-        const bob = moving ? Math.sin(a * T.speed * limbMul * 2.2) * 0.08 : 0;
-        R.armL.rotation.x = -1.12 + bob;
-        R.armL.rotation.z = 0.52;
-        R.armR.rotation.x = -1.12 + bob;
-        R.armR.rotation.z = -0.36;
+        const bob = moving ? Math.sin(a * 4.2) * 0.10 : 0;
+        R.armL.rotation.set(-1.12 + bob, 0.22, 0.62);
+        R.armR.rotation.set(-1.12 + bob, -0.18, -0.44);
         if (R.weapon) R.weapon.rotation.z = -1.21;
+        if (R.head) R.head.rotation.x = moving ? Math.sin(a * 4.2) * 0.06 : 0;
+        if (R.jaw) R.jaw.rotation.x = 0.08 + Math.sin(a * 2.5) * 0.04;
       }
     } else if (R.legL && R.armL && !R.book) {
       if (e.maximusIntro) {
@@ -3778,6 +4398,41 @@
             R.armL.rotation.set(-1.1, 0, 0.45);
             if (R.head) R.head.rotation.x = -0.25;
           }
+        } else if (e.state === 'mRushWind') {
+          R.legL.rotation.x = -0.8; R.legR.rotation.x = 0.55;
+          R.armR.rotation.set(0.6, 0.3, -0.7);
+          R.armL.rotation.set(0.9, 0, 0.8);
+          if (R.head) R.head.rotation.x = 0.35;
+        } else if (e.state === 'mRush') {
+          const run = Math.sin(a * 34);
+          R.legL.rotation.x = run * 1.15; R.legR.rotation.x = -run * 1.15;
+          R.armR.rotation.set(-1.35, 0.15, -0.12);
+          R.armL.rotation.set(-0.45 + run * 0.5, 0, 0.55);
+          if (R.head) R.head.rotation.x = 0.25;
+        } else if (e.state === 'mImpaleWind') {
+          const tremor = Math.sin(a * 40) * 0.03;
+          R.legL.rotation.x = 0.55; R.legR.rotation.x = -0.65;
+          R.armR.rotation.set(0.75 + tremor, 0.2, -0.45);
+          R.armL.rotation.set(0.55, 0, 0.7);
+          if (R.head) R.head.rotation.x = -0.1;
+        } else if (e.state === 'mImpaleDash') {
+          const run = Math.sin(a * 36);
+          R.legL.rotation.x = run * 0.9 + 0.3; R.legR.rotation.x = -run * 0.9 - 0.2;
+          R.armR.rotation.set(-1.58, 0, 0.04);
+          R.armL.rotation.set(-1.48, 0, 0.22);
+          if (R.head) R.head.rotation.x = 0.15;
+        } else if (e.state === 'mImpaled') {
+          const strain = Math.sin(a * 24) * 0.04;
+          R.legL.rotation.x = 0.55; R.legR.rotation.x = -0.75;
+          R.armR.rotation.set(-1.58 + strain, 0, 0.04);
+          R.armL.rotation.set(-1.45 + strain, 0, 0.2);
+          if (R.head) R.head.rotation.x = -0.18;
+        } else if (e.state === 'mImpaleMiss') {
+          const tug = Math.sin(a * 22) * 0.08;
+          R.legL.rotation.x = 0.7; R.legR.rotation.x = -0.35;
+          R.armR.rotation.set(-1.2 + tug, 0, 0.1);
+          R.armL.rotation.set(-0.95 + tug, 0, 0.3);
+          if (R.head) R.head.rotation.x = 0.4;
         } else if (e.state === 'mSlideWind' || e.state === 'mSlide') {
           R.legL.rotation.x = -0.95; R.legR.rotation.x = 0.55;
           R.armR.rotation.set(-1.35, -0.5, -0.65);
@@ -3820,6 +4475,71 @@
           R.armR.rotation.set(p2 ? -1.15 : -0.95 + sw * 0.25, 0, -0.22);
           R.armL.rotation.set(p2 ? -0.75 : 0.25 - sw * 0.35, 0, 0.38);
           if (R.head) R.head.rotation.x = p2 ? 0.12 : 0;
+          if (moving && R.armR) {
+            // balanço de braços oposto às pernas (mais solto)
+            const ph = a * T.speed * limbMul * 2.2;
+            R.armR.rotation.x += Math.sin(ph) * (p2 ? 0.30 : 0.12);
+            R.armL.rotation.x -= Math.sin(ph) * (p2 ? 0.38 : 0.15);
+          }
+        }
+        // ---- Corpo articulado e solto: inclinações, torção, balanço + suavização de pose ----
+        const p2s = e.phase === 2 || e.phase === 1.5;
+        let lx = 0, ly = 0, lz = 0, by = 0, hy = 0, hz = 0;
+        const ph2 = a * T.speed * limbMul * 2.2;
+        const st = e.state;
+        if (st === 'move') {
+          if (moving) {
+            lx = (p2s ? 0.20 : 0.10) + Math.sin(ph2 * 2) * (p2s ? 0.05 : 0.03);
+            lz = Math.sin(ph2) * (p2s ? 0.08 : 0.05);
+            ly = Math.sin(ph2) * (p2s ? 0.20 : 0.12);
+            by = Math.abs(Math.sin(ph2)) * (p2s ? 0.10 : 0.06);
+            hy = -ly * 0.8;
+            if (p2s) { R.legL.rotation.x *= 1.3; R.legR.rotation.x *= 1.3; }
+          } else {
+            lx = Math.sin(a * 1.9) * 0.025; lz = Math.sin(a * 1.2) * 0.02;
+            ly = Math.sin(a * 0.8) * 0.06; hy = Math.sin(a * 1.1 + 1) * 0.10;
+            by = Math.sin(a * 1.9) * 0.012;
+          }
+          hz = Math.sin(a * 2.3) * 0.04;
+        } else if (st === 'mLeapWind') { lx = -0.28; by = -0.26; ly = 0.35;
+        } else if (st === 'mLeap') { lx = 0.38; ly = -0.15;
+        } else if (st === 'mStuck') { lx = 0.34 + Math.sin(a * 26) * 0.05; by = -0.12; hz = Math.sin(a * 18) * 0.08;
+        } else if (st === 'mCleaveWind') { lx = -0.34; ly = 0.55; by = -0.10;
+        } else if (st === 'chargeWind') { lx = 0.12; by = -0.22; ly = -0.3;
+        } else if (st === 'charge') { lx = 0.52; lz = Math.sin(a * 28) * 0.05;
+        } else if (st === 'mSlideWind' || st === 'mSlide') { lx = 0.28; lz = -0.28; by = -0.22;
+        } else if (st === 'mPirWind' || st === 'mPir') { lx = 0.06; lz = Math.sin(a * 20) * 0.1;
+        } else if (st === 'mLungeWind') { lx = -0.16; ly = 0.35;
+        } else if (st === 'mLunge') { lx = 0.46; ly = -0.18; by = -0.08;
+        } else if (st === 'mRushWind') { lx = 0.30; by = -0.30; ly = 0.2;
+        } else if (st === 'mRush') { lx = 0.62; lz = Math.sin(a * 34) * 0.08; ly = Math.sin(a * 17) * 0.12; by = Math.abs(Math.sin(a * 34)) * 0.1;
+        } else if (st === 'mImpaleWind') { lx = -0.32; ly = 0.55; by = -0.12;
+        } else if (st === 'mImpaleDash') { lx = 0.50; ly = -0.12; by = -0.05;
+        } else if (st === 'mImpaled') { lx = -0.22 + Math.sin(a * 24) * 0.02; ly = Math.sin(a * 11) * 0.04; by = -0.04;
+        } else if (st === 'mImpaleMiss') { lx = 0.46; by = -0.10; hz = Math.sin(a * 22) * 0.06; }
+        if (strikeT > 0) { lx += 0.2 * strikeT; ly += (e.strafe || 1) * 0.25 * strikeT; }
+        if (R.legL && st !== 'phaseTrans') { R.legL.rotation.z = -0.04 - Math.abs(lz) * 0.5; R.legR.rotation.z = 0.04 + Math.abs(lz) * 0.5; }
+        if (R.head) { R.head.rotation.y = hy; R.head.rotation.z = hz; }
+        if (R.plume) R.plume.rotation.x = 0.42 + Math.sin(a * 6) * 0.10 + (moving ? 0.25 : 0);
+        if (R.root) {
+          if (e._rootY0 === undefined) e._rootY0 = R.root.position.y;
+          lx += 0; // root pivota nos pés
+        }
+        const sm = e._sm || (e._sm = {});
+        const kk = 1 - Math.exp(-dt * (p2s ? 11 : 17));
+        const smRot = (key, o, tx, ty, tz) => {
+          let p = sm[key];
+          if (!p) p = sm[key] = [o.rotation.x, o.rotation.y, o.rotation.z];
+          p[0] += (tx - p[0]) * kk; p[1] += (ty - p[1]) * kk; p[2] += (tz - p[2]) * kk;
+          o.rotation.set(p[0], p[1], p[2]);
+        };
+        ['armR', 'armL', 'legL', 'legR', 'head'].forEach((key) => {
+          const o = R[key]; if (o) smRot(key, o, o.rotation.x, o.rotation.y, o.rotation.z);
+        });
+        if (R.root) {
+          smRot('root', R.root, lx, ly, lz);
+          sm.by = (sm.by === undefined ? 0 : sm.by) + (by - (sm.by === undefined ? 0 : sm.by)) * kk;
+          R.root.position.y = e._rootY0 + sm.by;
         }
       } else {
         const base = T.armsFwd ? -1.3 : 0;
@@ -3844,10 +4564,28 @@
       const f = Math.sin(a * (T.model === 'diabrete' ? 18 : 12)) * 0.7;
       R.wingL.rotation.z = f; R.wingR.rotation.z = -f;
     }
+    if (R.tail) {
+      if (e.downed) {
+        R.tail.rotation.y = Math.sin(a * 1.5) * 0.08;
+        R.tail.rotation.x = 0.25;
+      } else {
+        const tailFreq = (winding || e.state === 'charge') ? 7.5 : (moving ? 4.2 : 2.2);
+        const tailAmp = (winding || e.state === 'charge') ? 0.34 : (moving ? 0.26 : 0.16);
+        R.tail.rotation.y = Math.sin(a * tailFreq) * tailAmp;
+        R.tail.rotation.x = 0.08 * Math.cos(a * tailFreq * 0.7);
+        if (R.tailSegs) {
+          for (let ti = 0; ti < R.tailSegs.length; ti++) {
+            R.tailSegs[ti].rotation.y = Math.sin(a * tailFreq - ti * 0.85) * (tailAmp * (0.65 + ti * 0.18));
+          }
+        }
+      }
+    }
     if (R.heart) {
-      const rate = T.galius2 ? 1.65 : 1.25;
+      const beaming = e.state === 'galiusBeamWind' || e.state === 'galiusBeamFire';
+      const rate = beaming ? 3.2 : (T.galius2 ? 1.65 : 1.25);
       const p = heartPulse(a * rate);
-      R.heart.scale.set(1 + p * 0.22, 1 + p * 0.14, 1 + p * 0.28);
+      const amp = beaming ? 0.42 : 0.25;
+      R.heart.scale.set(1 + p * amp, 1 + p * (amp * 0.65), 1 + p * (amp * 1.2));
     }
     if (T.model === 'diabrete') { R.armL.rotation.x = -windP * 1.5; R.armR.rotation.x = -windP * 1.5; }
     if (e.glory) {
@@ -3944,7 +4682,7 @@
   /* referencias para outras partes */
   window.__HS = { P, S, WEAPONS, enemies, peasants, scene, camera, renderer, parts, gibs, decals, projs, rings, vmScene, vmCam, VMS };
   window.__HSAPI = {
-    $, rnd, clamp, V3, lerpAngle, resolveCircle, groundAt, pointInWall, los, burst, spawnRing, spawnProj, spawnEnemy, removeEnemy,
+    $, rnd, clamp, V3, lerpAngle, resolveCircle, groundAt, ceilingAt, pointInWall, los, clipCameraRay, burst, spawnRing, spawnProj, spawnEnemy, removeEnemy,
     clearRoomEnemies, aliveInRoom, hurtPlayer, dmgEnemy, killEnemy, addFaith, findHitPart, findHitPartRay, updateEnemy, updateParts, updateRings, updateProjs,
     setGloryGlow, flushGloryQueue, bisectEnemy, decapEnemy, smashHeadEnemy, launchKickedEnemy,
     makeNodeProp, makeEnemyHalves, severLimb, addCorpsePart, pushGib, evictOldestGib, bloodSpurt, spawnBloodDecal, spawnGore, deformGaliusHit, GIB_COLS,
@@ -3956,7 +4694,7 @@
     setMouse: (v) => { mouseL = v; }, getMouse: () => mouseL, curW: () => curW, setCurW: (v) => { curW = v; }, wcd
   };
   // As funções abaixo são definidas na parte 2 (story) e referenciadas aqui
-  var die, say, quip, spawnPickup;
-  window.__HSAPI.bind = (fns) => { die = fns.die; say = fns.say; quip = fns.quip; spawnPickup = fns.spawnPickup; };
+  var die, say, quip, spawnPickup, startImpale, startGaliusBite;
+  window.__HSAPI.bind = (fns) => { die = fns.die; say = fns.say; quip = fns.quip; spawnPickup = fns.spawnPickup; startImpale = fns.startImpale; startGaliusBite = fns.startGaliusBite; };
   // ---- continua em game2.js ----
 })();
