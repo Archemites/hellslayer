@@ -39,10 +39,11 @@ const TX = (() => {
       g.fillRect(Math.floor(r() * w), Math.floor(r() * h), s, s);
     }
   }
+  let curFilter = THREE.NearestFilter;
   function mk(canvas) {
     const t = new THREE.CanvasTexture(canvas);
-    t.magFilter = THREE.NearestFilter;
-    t.minFilter = THREE.NearestFilter;
+    t.magFilter = curFilter;
+    t.minFilter = curFilter;
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     return t;
   }
@@ -253,7 +254,9 @@ const TX = (() => {
   }
 
   // Céu em gradiente
+  let skyTex = null;
   function skyTexture() {
+    if (skyTex) return skyTex;
     const c = cv(8, 128), g = c.getContext('2d');
     const gr = g.createLinearGradient(0, 0, 0, 128);
     gr.addColorStop(0, '#070006');
@@ -262,9 +265,21 @@ const TX = (() => {
     gr.addColorStop(1, '#d05010');
     g.fillStyle = gr; g.fillRect(0, 0, 8, 128);
     const t = new THREE.CanvasTexture(c);
-    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    t.magFilter = curFilter; t.minFilter = curFilter;
+    skyTex = t;
     return t;
   }
 
-  return { get, mat, skyTexture };
+  function setFilter(mode) {
+    const f = mode === 'linear' ? THREE.LinearFilter : THREE.NearestFilter;
+    if (curFilter === f) return;
+    curFilter = f;
+    for (const k in cache) {
+      const t = cache[k];
+      if (t) { t.magFilter = f; t.minFilter = f; t.needsUpdate = true; }
+    }
+    if (skyTex) { skyTex.magFilter = f; skyTex.minFilter = f; skyTex.needsUpdate = true; }
+  }
+
+  return { get, mat, skyTexture, setFilter };
 })();

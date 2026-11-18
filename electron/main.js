@@ -24,7 +24,7 @@ function createWindow() {
     height: 720,
     minWidth: 960,
     minHeight: 540,
-    title: 'HELLSLAYER — Beta 1',
+    title: 'CABRUNCO — Beta 1',
     backgroundColor: '#000000',
     autoHideMenuBar: true,
     webPreferences: {

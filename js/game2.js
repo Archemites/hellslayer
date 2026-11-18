@@ -16,6 +16,7 @@
   if (window.BloodStain) BloodStain.init(NIVALDO_3P, VMS);
   const TP_CAM = {
     active: false,
+    userMode: false,
     angle: 0,
     pitch: 0.38,
     dist: 4.2,
@@ -25,7 +26,14 @@
     lookScratch: new V3()
   };
   function isThirdPersonActive() {
-    return !P.dead && (!!S.glory || (S.cutscene > 0 && (S.csKind === 'door' || S.csKind === 'rip' || S.csKind === 'maximusDeath')));
+    return !P.dead && (TP_CAM.userMode || !!S.glory || (S.cutscene > 0 && (S.csKind === 'door' || S.csKind === 'rip' || S.csKind === 'maximusDeath' || S.csKind === 'maximusIntro' || S.csKind === 'galiusIntro' || S.csKind === 'tomb')));
+  }
+  function toggleThirdPerson() {
+    TP_CAM.userMode = !TP_CAM.userMode;
+    if (TP_CAM.userMode) {
+      TP_CAM.angle = P.yaw;
+      TP_CAM.pitch = clamp(-P.pitch + 0.30, -0.35, 1.10);
+    }
   }
   /* ---------------- Glory Kills: corpos/partes que seguem as mãos do Nivaldo ---------------- */
   const sm01 = (x) => { x = x < 0 ? 0 : (x > 1 ? 1 : x); return x * x * (3 - 2 * x); };
@@ -708,6 +716,49 @@
     S.glory = null;
   }
 
+  function slingPullCurve(a) {
+    if (a < 0.42) return sm01(a / 0.42);
+    if (a < 0.62) return 1 - sm01((a - 0.42) / 0.20) * 1.18;
+    return -0.18 * (1 - sm01((a - 0.62) / 0.38));
+  }
+  function animateSlingParts(sling, pull, showRock) {
+    if (!sling) return;
+    const m = sling.userData && sling.userData.tipY != null ? sling.userData : (sling.userData && sling.userData.base ? sling.userData.base : null);
+    if (!m || m.tipY == null) return;
+    const py = m.restY - pull * 0.04;
+    const pz = m.restZ + pull * 0.22;
+    if (sling.pouch) sling.pouch.position.set(0, py, pz);
+    if (sling.rock) {
+      sling.rock.visible = !!showRock;
+      sling.rock.position.set(0, py, m.rockZ + pull * 0.22);
+    }
+    const updateBand = (band, tipX) => {
+      if (!band) return;
+      const dx = -tipX, dy = py - m.tipY, dz = pz;
+      const len = Math.hypot(dx, dy, dz);
+      band.position.set(tipX * 0.5, (m.tipY + py) * 0.5, pz * 0.5);
+      band.rotation.y = Math.atan2(dx, dz);
+      band.rotation.x = -Math.atan2(dy, Math.hypot(dx, dz));
+      band.scale.z = len / (m.baseLen || 0.125);
+    };
+    updateBand(sling.bandL, -0.081);
+    updateBand(sling.bandR, 0.081);
+  }
+
+  const _snapTgt = new V3();
+  const _snapHand = new V3();
+  const _snapQuat = new THREE.Quaternion();
+  function snapLeftHandToShaft(N, weapon, shaftY) {
+    if (!N || !weapon || !N.shoulderR || !N.handR || !N.chestGroup) return;
+    N.root.updateMatrixWorld(true);
+    _snapTgt.set(0, shaftY, 0).applyMatrix4(weapon.matrixWorld);
+    _snapHand.set(0, -0.06, 0.02).applyMatrix4(N.handR.matrixWorld);
+    _snapTgt.sub(_snapHand);
+    N.chestGroup.getWorldQuaternion(_snapQuat);
+    _snapTgt.applyQuaternion(_snapQuat.invert());
+    N.shoulderR.position.add(_snapTgt);
+  }
+
   function resetNivaldoPose() {
     const N = NIVALDO_3P;
     N.hammer.rotation.set(Math.PI * 0.5, 0, 0);
@@ -715,8 +766,8 @@
     N.torsoGroup.rotation.set(0, 0, 0);
     if (N.chestGroup) N.chestGroup.rotation.set(0, 0, 0);
     N.head.rotation.set(0, 0, 0);
-    if (N.shoulderL) N.shoulderL.rotation.set(0, 0, 0);
-    if (N.shoulderR) N.shoulderR.rotation.set(0, 0, 0);
+    if (N.shoulderL) { N.shoulderL.position.set(-0.62, 0.36, 0); N.shoulderL.rotation.set(0, 0, 0); }
+    if (N.shoulderR) { N.shoulderR.position.set(0.62, 0.36, 0); N.shoulderR.rotation.set(0, 0, 0); }
     N.armL.rotation.set(0, 0, 0);
     N.armR.rotation.set(0, 0, 0);
     if (N.forearmL) N.forearmL.rotation.set(-0.22, 0, 0);
@@ -731,7 +782,14 @@
     if (N.footR) N.footR.rotation.set(0, 0, 0);
     N.hammer.visible = false;
     N.heart.visible = false;
+    N.heart.scale.set(1, 1, 1);
+    N.heart.position.set(0, -0.14, 0.14);
     if (N.cross) N.cross.visible = false;
+    if (N.sling) { N.sling.visible = false; animateSlingParts(N.sling, 0, true); }
+    if (N.scythe) { N.scythe.visible = false; N.scythe.rotation.set(Math.PI * 0.5, 0, 0); }
+    if (N.demo) { N.demo.visible = false; N.demo.rotation.set(Math.PI * 0.5, 0, 0); }
+    if (N.papalCross) { N.papalCross.visible = false; N.papalCross.rotation.set(Math.PI * 0.5, 0, 0); }
+    if (N.papalCrossL) { N.papalCrossL.visible = false; N.papalCrossL.rotation.set(Math.PI * 0.5, 0, 0); }
     if (N.handRosary) N.handRosary.visible = false;
     const eyeCol = P.faithMode > 0 ? 0xffe060 : 0xf0e6d0;
     if (N.eyeL && N.eyeL.material) N.eyeL.material.color.setHex(eyeCol);
@@ -1347,10 +1405,84 @@
       N.armR.rotation.set(0.35 * s, 0, -0.35 * s);
       if (N.forearmL) N.forearmL.rotation.x = -0.55 * s;
       if (N.forearmR) N.forearmR.rotation.x = -0.55 * s;
+    } else if (S.cutscene > 0 && S.csKind === 'maximusIntro') {
+      const t = S.csT;
+      if (t < 3.4) {
+        N.torsoGroup.position.y = 0.96;
+        N.torsoGroup.rotation.x = -0.04;
+        N.head.rotation.x = -0.18;
+        N.armL.rotation.set(-0.25, 0, 0.22);
+        N.armR.rotation.set(-0.25, 0, -0.22);
+        N.forearmL.rotation.x = -0.45;
+        N.forearmR.rotation.x = -0.45;
+      } else if (t < 11.6) {
+        const sh = sm01((t - 3.4) / 0.5);
+        N.torsoGroup.position.y = 0.95;
+        N.torsoGroup.rotation.set(0.06 * sh, -0.08 * sh, 0);
+        N.head.rotation.set(0.06 * sh, 0.08 * sh, -0.06 * sh);
+        N.armL.rotation.set(-0.55 * sh, 0, 0.26);
+        N.armR.rotation.set(-0.18 * sh, 0, -0.20);
+        N.forearmL.rotation.x = -0.75 * sh;
+        N.forearmR.rotation.x = -0.35 * sh;
+      } else {
+        const rage = sm01((t - 11.6) / 0.45);
+        const vib = Math.sin(t * 38) * 0.048 * rage;
+        N.torsoGroup.position.y = 0.92;
+        N.torsoGroup.rotation.set(-0.14 * rage + vib, 0, 0);
+        N.chestGroup.rotation.set(-0.18 * rage + vib, 0, 0);
+        N.head.rotation.set(-0.26 * rage, 0, 0);
+        N.shoulderL.rotation.set(0, -0.25 * rage, -0.15 * rage);
+        N.shoulderR.rotation.set(0, 0.25 * rage, 0.15 * rage);
+        N.armL.rotation.set(-0.98 * rage + vib, 0, 0.32);
+        N.armR.rotation.set(-0.98 * rage - vib, 0, -0.32);
+        N.forearmL.rotation.x = -1.18 * rage;
+        N.forearmR.rotation.x = -1.18 * rage;
+        N.legL.rotation.x = -0.24 * rage; N.kneeL.rotation.x = 0.28 * rage;
+        N.legR.rotation.x = 0.24 * rage; N.kneeR.rotation.x = 0.24 * rage;
+      }
+    } else if (S.cutscene > 0 && S.csKind === 'galiusIntro') {
+      const t = S.csT;
+      if (t < 8.0) {
+        N.torsoGroup.position.y = 0.96;
+        N.head.rotation.x = -0.14;
+        N.armL.rotation.set(-0.30, 0, 0.24);
+        N.armR.rotation.set(-0.30, 0, -0.24);
+        N.forearmL.rotation.x = -0.50;
+        N.forearmR.rotation.x = -0.50;
+      } else {
+        const ready = sm01((t - 8.0) / 0.5);
+        N.torsoGroup.position.y = 0.93;
+        N.torsoGroup.rotation.x = 0.10 * ready;
+        N.head.rotation.x = -0.12 * ready;
+        N.armL.rotation.set(-0.85 * ready, 0.25 * ready, 0.28);
+        N.armR.rotation.set(-0.85 * ready, -0.25 * ready, -0.28);
+        N.forearmL.rotation.x = -1.05 * ready;
+        N.forearmR.rotation.x = -1.05 * ready;
+        N.legL.rotation.x = -0.22 * ready; N.kneeL.rotation.x = 0.26 * ready;
+        N.legR.rotation.x = 0.22 * ready; N.kneeR.rotation.x = 0.22 * ready;
+      }
+    } else if (S.cutscene > 0 && S.csKind === 'tomb') {
+      const t = S.csT;
+      if (t < 8.2) {
+        const reach = t >= 6.0 ? sm01((t - 6.0) / 1.2) : 0;
+        N.torsoGroup.position.y = 0.95;
+        N.torsoGroup.rotation.x = 0.08 * (1 - reach);
+        N.head.rotation.x = 0.14 * (1 - reach) - 0.15 * reach;
+        N.armL.rotation.set(-0.20, 0, 0.18);
+        N.armR.rotation.set(-0.20 - 1.15 * reach, 0, -0.18);
+        N.forearmR.rotation.x = -0.35 - 0.35 * reach;
+      } else {
+        N.torsoGroup.position.y = 0.96;
+        N.torsoGroup.rotation.x = -0.06;
+        N.head.rotation.x = -0.18;
+        N.armL.rotation.set(-0.25, 0, 0.20);
+        N.armR.rotation.set(-1.75, 0, -0.22);
+        N.forearmR.rotation.x = -0.30;
+      }
     } else if (S.cutscene > 0 && S.csKind === 'maximusDeath') {
       const t = S.csT;
-      if (t < 1.4) {
-        const walk = Math.sin(t * 10);
+      if (t < 2.2) {
+        const walk = Math.sin(t * 9);
         N.torsoGroup.position.y = 0.98 + Math.abs(walk) * 0.04;
         N.torsoGroup.rotation.x = 0.06;
         N.armL.rotation.set(walk * 0.45, 0, 0.14);
@@ -1359,26 +1491,26 @@
         N.kneeL.rotation.x = Math.max(0.05, -walk * 0.45 + 0.2);
         N.legR.rotation.x = -walk * 0.55;
         N.kneeR.rotation.x = Math.max(0.05, walk * 0.45 + 0.2);
-      } else if (t < 4.2) {
+      } else if (t < 7.6) {
         N.torsoGroup.position.y = 0.94;
         N.torsoGroup.rotation.x = 0.14;
         N.head.rotation.x = 0.28;
         N.armL.rotation.set(-0.22, 0, 0.16);
         N.armR.rotation.set(-0.22, 0, -0.16);
-      } else if (t < 5.4) {
+      } else if (t < 9.2) {
         // Estende a mão, pega o rosário e aperta na mão
-        const reach = sm01((t - 4.2) / 0.6);
-        const sq = t >= 4.9 ? Math.sin(t * 28) * 0.03 : 0;
+        const reach = sm01((t - 7.6) / 0.7);
+        const sq = t >= 8.5 ? Math.sin(t * 28) * 0.03 : 0;
         N.torsoGroup.position.y = 0.92;
         N.torsoGroup.rotation.x = 0.22;
         N.head.rotation.x = 0.26;
         N.armL.rotation.set(-0.22, 0, 0.16);
         N.armR.rotation.set(-0.22 - 1.05 * reach + sq, 0, -0.16 + 0.12 * reach);
         N.forearmR.rotation.x = -0.45 * reach;
-        if (N.handRosary && t >= 4.9) N.handRosary.visible = true;
-      } else if (t < 6.4) {
+        if (N.handRosary && t >= 8.5) N.handRosary.visible = true;
+      } else if (t < 10.6) {
         // Enrola o rosário no braço/pulso direito
-        const wrap = sm01((t - 5.4) / 0.8);
+        const wrap = sm01((t - 9.2) / 0.9);
         N.torsoGroup.position.y = 0.94;
         N.torsoGroup.rotation.x = 0.14 * (1 - wrap);
         N.head.rotation.x = 0.30;
@@ -1386,10 +1518,10 @@
         N.armR.rotation.set(-1.05, 0.25 * wrap, -0.15);
         N.forearmL.rotation.x = -0.85 * wrap;
         N.forearmR.rotation.x = -0.95;
-        if (N.handRosary) N.handRosary.visible = t < 6.1;
+        if (N.handRosary) N.handRosary.visible = t < 10.2;
       } else {
         // Se enche de ÓDIO / IRA! Punhos cerrados tremendo
-        const rage = sm01((t - 6.4) / 0.5);
+        const rage = sm01((t - 10.6) / 0.5);
         const vib = Math.sin(t * 38) * 0.045 * rage;
         N.torsoGroup.position.y = 0.92;
         N.torsoGroup.rotation.set(-0.14 * rage + vib, 0, 0);
@@ -1406,7 +1538,7 @@
       }
     } else if (S.cutscene > 0 && S.csKind === 'door') {
       const t = S.csT;
-      if (t < 0.85) {
+      if (t < 1.1) {
         const run = Math.sin(t * 18);
         N.torsoGroup.position.y = 0.98 + Math.abs(run) * 0.06;
         N.torsoGroup.rotation.x = 0.20;
@@ -1422,7 +1554,7 @@
         N.kneeR.rotation.x = Math.max(0.1, run * 0.75 + 0.35);
       } else if (!S.csHit) {
         // Socando com MUITA IRA (alternando esquerda e direita violentamente)
-        const pt = (t - 0.85) / 0.24;
+        const pt = (t - 1.1) / 0.25;
         const idx = Math.floor(pt);
         const f = pt - idx;
         const punch = Math.sin(Math.min(1, f * 1.45) * Math.PI);
@@ -1458,46 +1590,50 @@
       if (t < 0.8) {
         const u = clamp(t / 0.65, 0, 1);
         const e = u * u * (3 - 2 * u);
-        N.torsoGroup.position.y = 0.98 - 0.06 * e;
-        N.torsoGroup.rotation.set(0.18 * e, -0.08 * e, 0);
-        N.chestGroup.rotation.set(0.18 * e, -0.06 * e, 0);
-        N.shoulderR.rotation.y = -0.22 * e;
-        N.armR.rotation.set(-1.45 * e, 0, -0.22 * e);
-        N.forearmR.rotation.x = -0.22 - 0.38 * e;
-        N.armL.rotation.set(-1.05 * e, 0, 0.25 * e);
-        N.forearmL.rotation.x = -0.22 - 0.35 * e;
-        N.legL.rotation.x = -0.28 * e;
-        N.kneeL.rotation.x = 0.34 * e;
-        N.legR.rotation.x = 0.22 * e;
-        N.kneeR.rotation.x = 0.26 * e;
+        N.torsoGroup.position.y = 0.98;
+        N.torsoGroup.rotation.set(0.08 * e, -0.06 * e, 0);
+        N.chestGroup.rotation.set(0.08 * e, -0.04 * e, 0);
+        N.shoulderR.rotation.set(0, -0.35 * e, 0);
+        N.armR.rotation.set(-1.92 * e, 0, -0.38 * e);
+        N.forearmR.rotation.x = -0.22 - 0.06 * e;
+        N.shoulderL.rotation.set(0, 0.35 * e, 0);
+        N.armL.rotation.set(-1.86 * e, 0, 0.38 * e);
+        N.forearmL.rotation.x = -0.22 - 0.10 * e;
+        N.legL.rotation.x = -0.20 * e;
+        N.kneeL.rotation.x = 0.24 * e;
+        N.legR.rotation.x = 0.16 * e;
+        N.kneeR.rotation.x = 0.20 * e;
       } else if (t < 2.0) {
         const p = (t - 0.8) / 1.2;
         const vib = Math.sin(t * 28) * 0.08;
-        N.torsoGroup.position.y = 0.92;
-        N.torsoGroup.rotation.set(0.18 - p * 0.22 + vib, -0.08, 0);
-        N.chestGroup.rotation.set(0.18 - p * 0.24 + vib, -0.06, 0);
-        N.shoulderR.rotation.set(0, -0.22 + 0.35 * p, 0.18 * p);
-        N.armR.rotation.set(-1.45 + p * 0.15 + vib * 1.6, 0, -0.22);
-        N.forearmR.rotation.x = -0.60 - 0.25 * p;
-        N.armL.rotation.set(-1.05 + p * 0.2, 0, 0.25);
-        N.forearmL.rotation.x = -0.57;
-        N.legL.rotation.x = -0.28;
-        N.kneeL.rotation.x = 0.34;
-        N.legR.rotation.x = 0.22;
-        N.kneeR.rotation.x = 0.26;
+        N.torsoGroup.position.y = 0.98;
+        N.torsoGroup.rotation.set(0.08 - p * 0.20 + vib, -0.06, 0);
+        N.chestGroup.rotation.set(0.08 - p * 0.22 + vib, -0.04, 0);
+        N.shoulderR.rotation.set(0, -0.35 + 0.15 * p, 0.12 * p);
+        N.armR.rotation.set(-1.92 + p * 0.28 + vib * 1.4, 0, -0.38 + p * 0.12);
+        N.forearmR.rotation.x = -0.28 - 0.32 * p;
+        N.shoulderL.rotation.set(0, 0.35 - 0.15 * p, -0.10 * p);
+        N.armL.rotation.set(-1.86 + p * 0.26 - vib * 1.1, 0, 0.38 - p * 0.10);
+        N.forearmL.rotation.x = -0.32 - 0.28 * p;
+        N.legL.rotation.x = -0.20;
+        N.kneeL.rotation.x = 0.24;
+        N.legR.rotation.x = 0.16;
+        N.kneeR.rotation.x = 0.20;
       } else if (t < 3.4) {
         const u = clamp((t - 2.0) / 0.45, 0, 1);
         const raise = u * u * (3 - 2 * u);
         N.heart.visible = true;
         const hp = heartPulse(t * 1.55);
         N.heart.scale.set(1 + hp * 0.18, 1 + hp * 0.12, 1 + hp * 0.20);
-        N.torsoGroup.rotation.set(-0.04 - raise * 0.08, 0.06 * raise, 0);
-        N.chestGroup.rotation.set(-0.04 - raise * 0.10, 0.08 * raise, 0);
+        N.torsoGroup.rotation.set(-0.12 + raise * 0.04, 0.06 * raise, 0);
+        N.chestGroup.rotation.set(-0.14 + raise * 0.04, 0.08 * raise, 0);
         N.head.rotation.x = -0.22 * raise;
-        N.shoulderR.rotation.set(0, 0, 0.18 * raise);
-        N.armR.rotation.set(-1.40 - raise * 1.05, 0, -0.15 * raise);
-        N.forearmR.rotation.x = -0.45 * raise - 0.22;
-        N.armL.rotation.set(-0.85 + raise * 0.45, 0, 0.30);
+        N.shoulderR.rotation.set(0, -0.20 * (1 - raise), 0.18 * raise);
+        N.armR.rotation.set(-1.64 - raise * 0.85, 0, -0.26 + raise * 0.11);
+        N.forearmR.rotation.x = -0.60 + raise * 0.15;
+        N.shoulderL.rotation.set(0, 0.20 * (1 - raise), 0);
+        N.armL.rotation.set(-1.60 + raise * 1.20, 0, 0.28);
+        N.forearmL.rotation.x = -0.60 + raise * 0.25;
         N.legL.rotation.x = -0.15;
         N.kneeL.rotation.x = 0.20;
         N.legR.rotation.x = 0.15;
@@ -1590,10 +1726,262 @@
           N.kneeR.rotation.x = 0.32 * (1 - e);
         }
       }
+    } else if (TP_CAM.userMode) {
+      const hs = Math.hypot(P.vel.x, P.vel.z);
+      const moveAmt = clamp(hs / 10.5, 0, 1.2);
+      const w = WEAPONS[curW()];
+      const wid = w ? w.id : 'fists';
+      const sw = P.swingT > 0;
+      const a = sw ? clamp(1 - P.swingT / (P.swingDur || 0.3), 0, 1) : 0;
+      const s = Math.sin(a * Math.PI);
+      const holding = !!(P.grabbed && !P.grabbed.dead);
+
+      N.head.rotation.x = clamp(-P.pitch * 0.35, -0.4, 0.4);
+      if (!P.onGround) {
+        N.legL.rotation.x = -0.25;
+        if (N.kneeL) N.kneeL.rotation.x = 0.42;
+        N.legR.rotation.x = 0.18;
+        if (N.kneeR) N.kneeR.rotation.x = 0.30;
+        N.torsoGroup.rotation.x = P.slamming ? 0.25 : 0.08;
+      } else {
+        const stride = Math.sin(P.bob) * 0.65 * moveAmt;
+        const kneeL = Math.max(0, -Math.cos(P.bob)) * 0.65 * moveAmt;
+        const kneeR = Math.max(0, Math.cos(P.bob)) * 0.65 * moveAmt;
+        N.legL.rotation.x = stride;
+        if (N.kneeL) N.kneeL.rotation.x = kneeL;
+        N.legR.rotation.x = -stride;
+        if (N.kneeR) N.kneeR.rotation.x = kneeR;
+        N.torsoGroup.position.y = 0.98 + Math.abs(Math.sin(P.bob)) * 0.04 * moveAmt;
+        N.torsoGroup.rotation.y = Math.sin(P.bob) * 0.06 * moveAmt;
+        N.torsoGroup.rotation.x = 0.08 * moveAmt;
+      }
+      if (P.kickT > 0) {
+        const kp = Math.sin(clamp(1 - P.kickT / 0.35, 0, 1) * Math.PI);
+        N.legR.rotation.x = -1.35 * kp;
+        if (N.kneeR) N.kneeR.rotation.x = 0.25 * kp;
+      }
+      const breath = moveAmt < 0.05 ? Math.sin(performance.now() * 0.0025) * 0.03 : 0;
+      if (N.chestGroup) N.chestGroup.rotation.x = breath;
+      const walkSwing = Math.sin(P.bob) * 0.18 * moveAmt;
+
+      switch (wid) {
+        case 'fists': {
+          // Guarda de boxeador com os dois punhos erguidos
+          N.armL.rotation.set(-0.92 - walkSwing, 0.18, 0.22);
+          if (N.forearmL) N.forearmL.rotation.x = -1.32;
+          N.armR.rotation.set(-0.98 + walkSwing, -0.18, -0.22);
+          if (N.forearmR) N.forearmR.rotation.x = -1.32;
+          if (sw) {
+            const isL = holding || P.hand === 0;
+            const arm = isL ? N.armL : N.armR;
+            const fore = isL ? N.forearmL : N.forearmR;
+            const sh = isL ? N.shoulderL : N.shoulderR;
+            const side = isL ? -1 : 1;
+            if (P.fistUpper) {
+              const u = swing3(a, 0.26, 0.56, 0.25, -1.65);
+              N.torsoGroup.rotation.y += swing3(a, 0.26, 0.56, side * 0.22, -side * 0.35);
+              N.torsoGroup.rotation.x += swing3(a, 0.26, 0.56, 0.14, -0.12);
+              arm.rotation.set(u, -side * 0.15, -side * 0.12);
+              if (fore) fore.rotation.x = swing3(a, 0.26, 0.56, -1.4, -0.85);
+            } else if (P.swingStep >= 2) {
+              N.torsoGroup.rotation.y += swing3(a, 0.18, 0.52, side * 0.25, -side * 0.40);
+              arm.rotation.set(-1.25, swing3(a, 0.18, 0.52, side * 0.45, -side * 0.65), -side * 0.35);
+              if (fore) fore.rotation.x = -0.95;
+            } else {
+              N.torsoGroup.rotation.y += -side * s * 0.25;
+              if (sh) sh.rotation.y = -side * s * 0.22;
+              arm.rotation.set(-0.98 - s * 0.62, -side * 0.12, -side * 0.08);
+              if (fore) fore.rotation.x = -1.32 + s * 1.18;
+            }
+          }
+          break;
+        }
+        case 'hammer': {
+          N.hammer.visible = true;
+          N.armR.rotation.set(-0.48 - walkSwing, -0.15, -0.24);
+          if (N.forearmR) N.forearmR.rotation.x = -0.75;
+          N.armL.rotation.set(-0.82 + walkSwing, 0.12, 0.18);
+          if (N.forearmL) N.forearmL.rotation.x = -0.85;
+          if (sw) {
+            N.torsoGroup.rotation.y += swing3(a, 0.24, 0.56, -0.42, 0.58);
+            N.chestGroup.rotation.y += swing3(a, 0.24, 0.56, -0.32, 0.45);
+            N.torsoGroup.rotation.x += swing3(a, 0.24, 0.56, -0.14, 0.22);
+            N.armL.rotation.set(
+              swing3(a, 0.24, 0.56, -2.05, -0.75),
+              swing3(a, 0.24, 0.56, -0.55, 0.95),
+              swing3(a, 0.24, 0.56, 0.35, -0.45)
+            );
+            if (N.forearmL) N.forearmL.rotation.x = swing3(a, 0.24, 0.56, -1.05, -0.25);
+          }
+          break;
+        }
+        case 'sling': {
+          if (N.sling) N.sling.visible = true;
+          const pull = sw ? slingPullCurve(a) : 0;
+          const showRock = P.rocks > 0 && (!sw || a < 0.45 || a > 0.78);
+          N.armL.rotation.set(-1.38 + walkSwing * 0.4, 0.08, 0.10);
+          if (N.forearmL) N.forearmL.rotation.x = -0.24;
+          N.armR.rotation.set(-1.22 - walkSwing * 0.4, -0.48, -0.28);
+          if (N.forearmR) N.forearmR.rotation.x = -0.88;
+          if (sw) {
+            N.torsoGroup.rotation.y += pull * 0.14;
+            N.armR.rotation.set(-1.22 + pull * 0.48, -0.48 + pull * 0.22, -0.28 + pull * 0.12);
+            if (N.forearmR) N.forearmR.rotation.x = -0.88 - pull * 0.55;
+            N.armL.rotation.x = -1.38 + Math.max(0, -pull) * 0.18;
+          }
+          animateSlingParts(N.sling, pull, showRock);
+          break;
+        }
+        case 'scythe': {
+          if (N.scythe) {
+            N.scythe.visible = true;
+            N.scythe.rotation.set(1.95, -0.70, -0.50);
+          }
+          // Braços angulados para frente e para dentro em direção ao centro do corpo (empunhadura a duas mãos)
+          if (N.shoulderL) { N.shoulderL.position.set(-0.54, 0.36, 0.06); N.shoulderL.rotation.y = 0.32; }
+          if (N.shoulderR) { N.shoulderR.position.set(0.54, 0.36, 0.06); N.shoulderR.rotation.y = -0.32; }
+          N.armL.rotation.set(-0.52 + walkSwing * 0.35, 0.42, 0.44);
+          if (N.forearmL) N.forearmL.rotation.x = -0.78;
+          N.armR.rotation.set(-0.78 - walkSwing * 0.35, -0.42, -0.42);
+          if (N.forearmR) N.forearmR.rotation.x = -0.92;
+          if (sw) {
+            if ((P.swingStep || 0) === 0) {
+              // Corte horizontal direita -> esquerda com as duas mãos no cabo
+              const ty = swing3(a, 0.25, 0.58, -0.52, 0.68);
+              N.torsoGroup.rotation.y += ty;
+              N.chestGroup.rotation.y += ty * 0.65;
+              N.armL.rotation.set(-0.62, swing3(a, 0.25, 0.58, -0.05, 0.85), 0.40);
+              N.armR.rotation.set(-0.78, swing3(a, 0.25, 0.58, -0.75, 0.15), -0.38);
+              if (N.forearmL) N.forearmL.rotation.x = -0.72;
+              if (N.forearmR) N.forearmR.rotation.x = -0.82;
+            } else {
+              // Corte de cima para baixo igual martelo pesado (cabo para frente e lâmina apontando para frente/baixo)
+              if (N.scythe) N.scythe.rotation.set(Math.PI * 0.5, -1.95, 0);
+              if (N.shoulderL) { N.shoulderL.position.set(-0.50, 0.36, 0.10); N.shoulderL.rotation.y = 0.28; }
+              if (N.shoulderR) { N.shoulderR.position.set(0.50, 0.36, 0.10); N.shoulderR.rotation.y = -0.28; }
+              const tx = swing3(a, 0.28, 0.58, -0.24, 0.40);
+              N.torsoGroup.rotation.x += tx;
+              N.armL.rotation.set(swing3(a, 0.28, 0.58, -2.42, -0.42), 0.35, 0.38);
+              N.armR.rotation.set(swing3(a, 0.28, 0.58, -2.35, -0.48), -0.35, -0.38);
+              if (N.forearmL) N.forearmL.rotation.x = swing3(a, 0.28, 0.58, -0.80, -0.30);
+              if (N.forearmR) N.forearmR.rotation.x = swing3(a, 0.28, 0.58, -0.85, -0.32);
+            }
+          }
+          snapLeftHandToShaft(N, N.scythe, 0.32);
+          break;
+        }
+        case 'demo': {
+          if (N.demo) {
+            N.demo.visible = true;
+            N.demo.rotation.set(1.95, -0.70, -0.50);
+          }
+          // Braços angulados para frente e para dentro em direção ao centro do corpo (empunhadura a duas mãos)
+          if (N.shoulderL) { N.shoulderL.position.set(-0.54, 0.36, 0.06); N.shoulderL.rotation.y = 0.32; }
+          if (N.shoulderR) { N.shoulderR.position.set(0.54, 0.36, 0.06); N.shoulderR.rotation.y = -0.32; }
+          N.armL.rotation.set(-0.52 + walkSwing * 0.35, 0.42, 0.44);
+          if (N.forearmL) N.forearmL.rotation.x = -0.78;
+          N.armR.rotation.set(-0.78 - walkSwing * 0.35, -0.42, -0.42);
+          if (N.forearmR) N.forearmR.rotation.x = -0.92;
+          if (sw) {
+            const st = P.swingStep || 0;
+            if (st === 0) {
+              const ty = swing3(a, 0.30, 0.60, -0.55, 0.70);
+              N.torsoGroup.rotation.y += ty;
+              N.chestGroup.rotation.y += ty * 0.65;
+              N.armL.rotation.set(-0.62, swing3(a, 0.30, 0.60, -0.05, 0.85), 0.40);
+              N.armR.rotation.set(-0.78, swing3(a, 0.30, 0.60, -0.75, 0.15), -0.38);
+              if (N.forearmL) N.forearmL.rotation.x = -0.72;
+              if (N.forearmR) N.forearmR.rotation.x = -0.82;
+            } else if (st === 1) {
+              const ty = swing3(a, 0.30, 0.60, 0.65, -0.58);
+              N.torsoGroup.rotation.y += ty;
+              N.chestGroup.rotation.y += ty * 0.65;
+              N.armL.rotation.set(-0.62, swing3(a, 0.30, 0.60, 0.75, -0.15), 0.40);
+              N.armR.rotation.set(-0.78, swing3(a, 0.30, 0.60, 0.15, -0.75), -0.38);
+              if (N.forearmL) N.forearmL.rotation.x = -0.72;
+              if (N.forearmR) N.forearmR.rotation.x = -0.82;
+            } else {
+              if (N.demo) N.demo.rotation.set(Math.PI * 0.5, 0.14, 0);
+              if (N.shoulderL) { N.shoulderL.position.set(-0.50, 0.36, 0.10); N.shoulderL.rotation.y = 0.28; }
+              if (N.shoulderR) { N.shoulderR.position.set(0.50, 0.36, 0.10); N.shoulderR.rotation.y = -0.28; }
+              N.torsoGroup.rotation.x += swing3(a, 0.34, 0.62, -0.26, 0.42);
+              N.chestGroup.rotation.x += swing3(a, 0.34, 0.62, -0.20, 0.30);
+              N.armL.rotation.set(swing3(a, 0.34, 0.62, -2.50, -0.40), 0.35, 0.38);
+              N.armR.rotation.set(swing3(a, 0.34, 0.62, -2.42, -0.45), -0.35, -0.38);
+              if (N.forearmL) N.forearmL.rotation.x = swing3(a, 0.34, 0.62, -0.80, -0.30);
+              if (N.forearmR) N.forearmR.rotation.x = swing3(a, 0.34, 0.62, -0.85, -0.32);
+            }
+          }
+          snapLeftHandToShaft(N, N.demo, 0.32);
+          break;
+        }
+        case 'cross': {
+          // S.cross.hand === 1: lado direito da tela (N.armL); === 0: lado esquerdo da tela (N.armR)
+          const useL = S.cross.hand === 1;
+          const held = S.cross.state === 'held';
+          if (held) {
+            if (useL && N.papalCrossL) N.papalCrossL.visible = true;
+            if (!useL && N.papalCross) N.papalCross.visible = true;
+          }
+          const activeArm = useL ? N.armL : N.armR;
+          const activeFore = useL ? N.forearmL : N.forearmR;
+          const otherArm = useL ? N.armR : N.armL;
+          const otherFore = useL ? N.forearmR : N.forearmL;
+          const aSide = useL ? 1 : -1;
+          const catchRecoil = P.crossCatchT > 0 ? Math.sin((P.crossCatchT / 0.16) * Math.PI) : 0;
+
+          if (held) {
+            activeArm.rotation.set(-1.05 + walkSwing * 0.5 + catchRecoil * 0.32, 0, aSide * 0.12);
+            if (activeFore) activeFore.rotation.x = -0.65 - catchRecoil * 0.35;
+            otherArm.rotation.set(-0.35 - walkSwing, -aSide * 0.10, -aSide * 0.20);
+            if (otherFore) otherFore.rotation.x = -0.45;
+          } else {
+            // Cruz no ar: mão receptora (otherArm) se estende para aparar
+            activeArm.rotation.set(-0.55 + walkSwing * 0.4, 0, aSide * 0.18);
+            if (activeFore) activeFore.rotation.x = -0.40;
+            otherArm.rotation.set(-1.18 - walkSwing * 0.3, -aSide * 0.18, -aSide * 0.12);
+            if (otherFore) otherFore.rotation.x = -0.55;
+          }
+          if (sw) {
+            N.torsoGroup.rotation.y += aSide * s * 0.28;
+            activeArm.rotation.x = -1.05 - s * 0.65;
+            if (activeFore) activeFore.rotation.x = -0.65 + s * 0.55;
+          }
+          break;
+        }
+        case 'heart': {
+          N.heart.visible = true;
+          N.heart.position.set(-0.18, -0.14, 0.16);
+          const idleBeat = heartPulse(S.time * 1.35);
+          const squeeze = sw ? s * 0.82 : 0;
+          const hsx = (1 + idleBeat * 0.13) * (1 - squeeze * 0.24);
+          const hsy = (1 + idleBeat * 0.08) * (1 + squeeze * 0.16);
+          const hsz = (1 + idleBeat * 0.15) * (1 + squeeze * 0.10);
+          N.heart.scale.set(hsx, hsy, hsz);
+          N.armR.rotation.set(-1.02, -0.35, -0.34 - squeeze * 0.12);
+          if (N.forearmR) N.forearmR.rotation.x = -0.95;
+          N.armL.rotation.set(-1.02, 0.35, 0.34 + squeeze * 0.12);
+          if (N.forearmL) N.forearmL.rotation.x = -0.95;
+          break;
+        }
+      }
+      if (holding) {
+        if (N.shoulderR) {
+          N.shoulderR.position.set(0.62, 0.36, 0);
+          N.shoulderR.rotation.set(0, 0, 0);
+        }
+        N.armR.rotation.set(-Math.PI * 0.5, 0, 0);
+        if (N.forearmR) N.forearmR.rotation.set(0, 0, 0);
+        if (N.handR) N.handR.rotation.set(0, 0, 0);
+      }
     } else if (P.grabbed && !P.grabbed.dead) {
-      N.shoulderL.rotation.y = 0.18;
-      N.armL.rotation.set(P.dashT > 0 ? -1.45 : -1.20, 0.18, 0.15);
-      N.forearmL.rotation.x = -0.45;
+      if (N.shoulderR) {
+        N.shoulderR.position.set(0.62, 0.36, 0);
+        N.shoulderR.rotation.set(0, 0, 0);
+      }
+      N.armR.rotation.set(-Math.PI * 0.5, 0, 0);
+      if (N.forearmR) N.forearmR.rotation.set(0, 0, 0);
+      if (N.handR) N.handR.rotation.set(0, 0, 0);
     }
   }
 
@@ -1610,20 +1998,152 @@
     return _fwd3Scratch.set(-Math.sin(P.yaw) * cp, Math.sin(P.pitch), -Math.cos(P.yaw) * cp);
   }
   function eyePos() { return _eyePosScratch.set(P.pos.x, P.pos.y + P.eye, P.pos.z); }
+  const _aimOrigin = new V3(), _aimDir = new V3(), _aimPt = new V3(), _projAimPt = new V3();
+  function getAimRay(outOrigin, outDir) {
+    if (TP_CAM.userMode && TP_CAM.active) {
+      outOrigin.copy(camera.position);
+      outDir.copy(TP_CAM.target).sub(camera.position);
+      if (outDir.lengthSq() > 1e-8) outDir.normalize();
+      else outDir.copy(fwd3());
+    } else {
+      outOrigin.copy(eyePos());
+      outDir.copy(fwd3());
+    }
+  }
+  function getAimDir(outDir) {
+    const tgt = outDir || _aimDir;
+    if (TP_CAM.userMode && TP_CAM.active) {
+      tgt.copy(TP_CAM.target).sub(camera.position);
+      if (tgt.lengthSq() > 1e-8) return tgt.normalize();
+    }
+    return tgt.copy(fwd3());
+  }
+  function getCrosshairAimPoint(maxDist, outPt) {
+    const distLim = maxDist || 90;
+    const tgt = outPt || _aimPt;
+    getAimRay(_aimOrigin, _aimDir);
+    let bestD = distLim;
+    let hitFound = false;
+
+    for (const e of enemies) {
+      if (!e || e.dead || e.downed || !e.inRender) continue;
+      const hit = findHitPartRay(e, _aimOrigin, _aimDir, 0.08, { strict: true, headBias: 0, returnInfo: true });
+      if (!hit || hit.dist >= bestD) continue;
+      if (TP_CAM.userMode && TP_CAM.active) {
+        const fwdDot = (hit.point.x - P.pos.x) * _aimDir.x + (hit.point.y - (P.pos.y + 1.1)) * _aimDir.y + (hit.point.z - P.pos.z) * _aimDir.z;
+        if (fwdDot < 0.2) continue;
+      }
+      bestD = hit.dist;
+      tgt.copy(hit.point);
+      hitFound = true;
+    }
+
+    for (const p of peasants) {
+      if (!p || p.dead || !p.inRender) continue;
+      const hit = rayHitPeasant(p, _aimOrigin, _aimDir, bestD, true);
+      if (!hit || hit.dist >= bestD) continue;
+      if (TP_CAM.userMode && TP_CAM.active) {
+        const fwdDot = (hit.point.x - P.pos.x) * _aimDir.x + (hit.point.y - (P.pos.y + 1.0)) * _aimDir.y + (hit.point.z - P.pos.z) * _aimDir.z;
+        if (fwdDot < 0.2) continue;
+      }
+      bestD = hit.dist;
+      tgt.copy(hit.point);
+      hitFound = true;
+    }
+
+    const startT = (TP_CAM.userMode && TP_CAM.active)
+      ? Math.max(0.5, _aimOrigin.distanceTo(eyePos()) + 0.35)
+      : 0.5;
+    const step = 0.65;
+    let prevT = startT;
+    for (let t = startT; t <= bestD; t += step) {
+      const rx = _aimOrigin.x + _aimDir.x * t;
+      const ry = _aimOrigin.y + _aimDir.y * t;
+      const rz = _aimOrigin.z + _aimDir.z * t;
+      const gy = A.groundAt(rx, rz, ry, 0.2);
+      if (ry <= gy + 0.08 || A.pointInWall(rx, rz)) {
+        let lo = prevT, hi = t;
+        for (let k = 0; k < 4; k++) {
+          const mid = (lo + hi) * 0.5;
+          const mx = _aimOrigin.x + _aimDir.x * mid;
+          const my = _aimOrigin.y + _aimDir.y * mid;
+          const mz = _aimOrigin.z + _aimDir.z * mid;
+          if (my <= A.groundAt(mx, mz, my, 0.2) + 0.08 || A.pointInWall(mx, mz)) hi = mid;
+          else lo = mid;
+        }
+        bestD = hi;
+        tgt.copy(_aimOrigin).addScaledVector(_aimDir, bestD);
+        hitFound = true;
+        break;
+      }
+      prevT = t;
+    }
+
+    if (!hitFound) {
+      tgt.copy(_aimOrigin).addScaledVector(_aimDir, distLim);
+    }
+    return tgt;
+  }
+  function getProjectileSpawn(weaponId, outOrigin, outDir, crossHand) {
+    if (TP_CAM.userMode && TP_CAM.active) {
+      updateNivaldo3P();
+      NIVALDO_3P.root.updateMatrixWorld(true);
+      const N = NIVALDO_3P;
+      let node = null;
+      if (weaponId === 'sling') node = (N.sling && N.sling.pouch) || N.sling || N.handL;
+      else if (weaponId === 'hammer') node = N.handL;
+      else if (weaponId === 'cross') node = crossHand === 1 ? (N.papalCrossL || N.handL) : (N.papalCross || N.handR);
+      else if (weaponId === 'heart') node = N.heart || N.handR;
+      else node = N.handL;
+
+      if (node) {
+        node.getWorldPosition(outOrigin);
+      } else {
+        outOrigin.set(P.pos.x, P.pos.y + 1.35, P.pos.z);
+      }
+      if (A.pointInWall(outOrigin.x, outOrigin.z)) {
+        outOrigin.x = P.pos.x;
+        outOrigin.z = P.pos.z;
+      }
+
+      getAimRay(_aimOrigin, _aimDir);
+      getCrosshairAimPoint(90, _projAimPt);
+      outDir.copy(_projAimPt).sub(outOrigin);
+      if (outDir.lengthSq() < 1e-6 || outDir.dot(_aimDir) < 0.2) {
+        outDir.copy(_aimDir);
+      } else {
+        outDir.normalize();
+      }
+      return;
+    }
+
+    outDir.copy(fwd3());
+    outOrigin.copy(eyePos()).addScaledVector(outDir, weaponId === 'cross' ? 1.2 : 0.85);
+    outOrigin.y -= 0.15;
+  }
   function dist2(ax, az, bx, bz) { return Math.hypot(ax - bx, az - bz); }
 
   /* ---------------- mensagens ---------------- */
+  const MSG_COLORS = {
+    'NIVALDO': '#ffd24a',
+    'SÉRGIO MAXIMO': '#ff4545',
+    'BAPHOMET': '#d946ef',
+    'RÔMULO III': '#66e0ff',
+    'SUPER-ANJO': '#93c5fd',
+    'GALIUS': '#ff6622'
+  };
   function say(text, who, dur) {
-    if (who !== 'NIVALDO' && who !== 'MAXIMUS') return;
+    if (!MSG_COLORS[who]) return;
     const whoEl = el('msgWho');
     whoEl.textContent = who + ':';
-    whoEl.style.color = who === 'MAXIMUS' ? '#ff4545' : '#ffd24a';
+    whoEl.style.color = MSG_COLORS[who];
     el('msgText').textContent = text;
     show('msg', true);
     S.msgT = dur || 3;
   }
   function baph(text, dur) {
     SFX.play('roar');
+    if (text) say(text, 'BAPHOMET', dur || 4);
   }
   const QUIPS = ['O alicerce do inferno tá fofo.', 'Amém… e AMASSOU.', 'Isso aqui é obra de Deus!', 'Vou rebocar essa tua cara!', 'Desceu pelo ralo, capeta.', 'Super-Fé na marreta!', 'Cimento e oração!', 'Me aguarda, Testus.', 'Hoje o inferno ganha uma reforma.', 'Trabalho bem feito.'];
   function quip() {
@@ -1726,7 +2246,7 @@
       if (p.id === 'sling') P.rocks = Math.max(P.rocks, 25);
       SFX.play('weapon');
       selectWeapon(idx, true);
-      const msg = { sling: 'FUNDA encontrada! Pedras são munição. [3]', scythe: 'FOICE encontrada! Acerta vários inimigos. [4]', demo: 'MARTELO DE DEMOLIÇÃO! Duas mãos, dano em área. [5]' }[p.id];
+      const msg = { sling: 'ESTILINGUE encontrado! Pedras são munição. [3]', scythe: 'FOICE encontrada! Acerta vários inimigos. [4]', demo: 'MARTELO DE DEMOLIÇÃO! Duas mãos, dano em área. [5]' }[p.id];
       say(msg, '', 4);
       updateSlots();
       return true;
@@ -1773,19 +2293,23 @@
   }
   function startSwing(w) { P.swingDur = w.dur; P.swingT = w.dur; }
 
-  function rayHitPeasant(p, eye, f, maxReach) {
+  function rayHitPeasant(p, eye, f, maxReach, skipLos) {
     const px = p.g.position.x, py = p.g.position.y, pz = p.g.position.z;
     const cx = px - eye.x, cy = (py + p.h * 0.5) - eye.y, cz = pz - eye.z;
     const t = clamp(cx * f.x + cy * f.y + cz * f.z, 0, maxReach);
     const hx = eye.x + f.x * t, hy = eye.y + f.y * t, hz = eye.z + f.z * t;
     if (hy < py - 0.15 || hy > py + p.h + 0.25) return null;
     if (Math.hypot(hx - px, hz - pz) > p.r + 0.28) return null;
-    if (!A.los(eye.x, eye.z, hx, hz) && t > 1.2) return null;
+    if (!skipLos && !A.los(eye.x, eye.z, hx, hz) && t > 1.2) return null;
     return { dist: t, point: new V3(hx, hy, hz) };
   }
 
   function meleeAttack(w, silent) {
-    const f = fwd3(), eye = eyePos();
+    const eye = eyePos();
+    const rayOrigin = new V3(), rayDir = new V3();
+    getAimRay(rayOrigin, rayDir);
+    const tp = TP_CAM.userMode && TP_CAM.active;
+    const f = rayDir;
     const cand = [];
     if (w.sweep) {
       // Arma grande de varredura (ex: Foice): acerta todos no arco amplo
@@ -1801,7 +2325,7 @@
         if (dot < cosEff) continue;
         if (Math.abs(c.y - eye.y) > e.h * 0.5 + 2.2) continue;
         if (!A.los(eye.x, eye.z, c.x, c.z) && d > e.r + 1.2) continue;
-        const hit = findHitPartRay(e, eye, f, 0.22, { returnInfo: true });
+        const hit = findHitPartRay(e, rayOrigin, rayDir, 0.22, { returnInfo: true });
         cand.push({ e, d, v, part: hit.part, hitPos: hit.point });
       }
       for (const p of peasants) {
@@ -1823,24 +2347,38 @@
       // Golpe preciso (punhos, martelo, cruz): só acerta o membro/área sob a mira
       const pad = w.id === 'fists' ? 0.04 : 0.08;
       const maxReach = w.range + 0.2;
+      const camReach = tp ? rayOrigin.distanceTo(eye) + maxReach + 2.5 : maxReach;
       for (const e of enemies) {
         if (e.dead || e.downed || !e.inRender) continue;
         const c = new V3(e.g.position.x, e.g.position.y + e.h * 0.5, e.g.position.z);
         const v = c.clone().sub(eye);
         if (v.length() > maxReach + e.r * 2 + e.h * 0.5 + 1.5) continue;
-        const hit = findHitPartRay(e, eye, f, pad, { strict: true, headBias: 0, returnInfo: true });
-        if (!hit || hit.dist > maxReach) continue;
-        if (!A.los(eye.x, eye.z, hit.point.x, hit.point.z) && hit.dist > 1.2) continue;
-        cand.push({ e, d: hit.dist, v, part: hit.part, hitPos: hit.point });
+        const hit = findHitPartRay(e, rayOrigin, rayDir, pad, { strict: true, headBias: 0, returnInfo: true });
+        if (!hit || hit.dist > camReach) continue;
+        if (tp) {
+          const fwdDot = (hit.point.x - P.pos.x) * rayDir.x + (hit.point.y - (P.pos.y + 1.1)) * rayDir.y + (hit.point.z - P.pos.z) * rayDir.z;
+          if (fwdDot < -0.35) continue;
+        }
+        const playerDist = eye.distanceTo(hit.point);
+        if (playerDist > maxReach) continue;
+        if (!A.los(eye.x, eye.z, hit.point.x, hit.point.z) && playerDist > 1.2) continue;
+        cand.push({ e, d: playerDist, v, part: hit.part, hitPos: hit.point });
       }
       for (const p of peasants) {
         if (p.dead || !p.inRender) continue;
         const c = new V3(p.g.position.x, p.g.position.y + p.h * 0.5, p.g.position.z);
         const v = c.clone().sub(eye);
         if (v.length() > maxReach + p.r * 2 + p.h * 0.5 + 1.5) continue;
-        const hit = rayHitPeasant(p, eye, f, maxReach);
+        const hit = rayHitPeasant(p, rayOrigin, rayDir, camReach, tp);
         if (!hit) continue;
-        cand.push({ peasant: p, d: hit.dist, v, hitPos: hit.point });
+        if (tp) {
+          const fwdDot = (hit.point.x - P.pos.x) * rayDir.x + (hit.point.y - (P.pos.y + 1.0)) * rayDir.y + (hit.point.z - P.pos.z) * rayDir.z;
+          if (fwdDot < -0.35) continue;
+        }
+        const playerDist = eye.distanceTo(hit.point);
+        if (playerDist > maxReach) continue;
+        if (tp && !A.los(eye.x, eye.z, hit.point.x, hit.point.z) && playerDist > 1.2) continue;
+        cand.push({ peasant: p, d: playerDist, v, hitPos: hit.point });
       }
       cand.sort((a, b) => a.d - b.d);
     }
@@ -1874,7 +2412,7 @@
   }
 
   function demoSlam(w) {
-    const f = fwd3();
+    const f = getAimDir();
     const fl = new V3(f.x, 0, f.z).normalize();
     P.vel.x += fl.x * 11; P.vel.z += fl.z * 11;
     const cx = P.pos.x + fl.x * 3.8, cz = P.pos.z + fl.z * 3.8;
@@ -1908,10 +2446,14 @@
   function throwCross() {
     const c = S.cross;
     c.state = 'out'; c.t = 0;
-    c.dir.copy(fwd3());
-    const side = c.hand === 1 ? 0.35 : -0.35;
-    c.pos.copy(eyePos()).addScaledVector(c.dir, 1.2);
-    c.pos.x += Math.cos(P.yaw) * side; c.pos.z += -Math.sin(P.yaw) * side; c.pos.y -= 0.15;
+    if (TP_CAM.userMode && TP_CAM.active) {
+      getProjectileSpawn('cross', c.pos, c.dir, c.hand);
+    } else {
+      c.dir.copy(fwd3());
+      const side = c.hand === 1 ? 0.35 : -0.35;
+      c.pos.copy(eyePos()).addScaledVector(c.dir, 1.2);
+      c.pos.x += Math.cos(P.yaw) * side; c.pos.z += -Math.sin(P.yaw) * side; c.pos.y -= 0.15;
+    }
     c.mesh = buildThrownCross();
     if (window.BloodStain) BloodStain.applyToCross(c.mesh);
     c.mesh.position.copy(c.pos);
@@ -1930,15 +2472,26 @@
     c.t += dt;
     c.mesh.rotation.y += dt * 22;
     c.mesh.rotation.z = 0.3;
+    if (c.mesh.userData && c.mesh.userData.aura) {
+      c.mesh.userData.aura.scale.setScalar(1.08 + Math.sin(c.t * 14) * 0.08);
+    }
     if (c.state === 'out') {
       c.pos.addScaledVector(c.dir, 52 * dt);
       if (c.t > 0.55 || A.pointInWall(c.pos.x, c.pos.z) || c.pos.y < 0.3 || !World.isPosInRender(c.pos.x, c.pos.z)) {
         c.state = 'back'; burst(c.pos.x, c.pos.y, c.pos.z, 0xffe080, 6, 6, 0.3, 0.14, 6);
       }
     } else {
-      const catchSide = c.hand === 1 ? -0.35 : 0.35;
-      const tgt = eyePos(); tgt.y -= 0.45;
-      tgt.x += Math.cos(P.yaw) * catchSide; tgt.z += -Math.sin(P.yaw) * catchSide;
+      const tgt = new V3();
+      if (TP_CAM.userMode && TP_CAM.active) {
+        NIVALDO_3P.root.updateMatrixWorld(true);
+        const recvNode = c.hand === 1 ? NIVALDO_3P.handR : NIVALDO_3P.handL;
+        if (recvNode) recvNode.getWorldPosition(tgt);
+        else { tgt.copy(eyePos()); tgt.y -= 0.45; }
+      } else {
+        const catchSide = c.hand === 1 ? -0.35 : 0.35;
+        tgt.copy(eyePos()); tgt.y -= 0.45;
+        tgt.x += Math.cos(P.yaw) * catchSide; tgt.z += -Math.sin(P.yaw) * catchSide;
+      }
       const d = tgt.clone().sub(c.pos);
       const L = d.length();
       if (L < 1.7) { crossRemove(); c.hand ^= 1; P.crossCatchT = 0.16; SFX.play('catchCross'); return; }
@@ -2055,8 +2608,13 @@
       case 'sling': {
         if (P.rocks <= 0) { wcd[w.id] = 0.25; SFX.play('ui'); S.ammoFlash = 0.4; return; }
         P.rocks--; startSwing(w);
-        const f = fwd3(), o = eyePos().addScaledVector(f, 0.8);
-        o.x += Math.cos(P.yaw) * 0.25; o.z += -Math.sin(P.yaw) * 0.25; o.y -= 0.2;
+        const f = new V3(), o = new V3();
+        if (TP_CAM.userMode && TP_CAM.active) {
+          getProjectileSpawn('sling', o, f);
+        } else {
+          f.copy(fwd3()); o.copy(eyePos()).addScaledVector(f, 0.8);
+          o.x += Math.cos(P.yaw) * 0.25; o.z += -Math.sin(P.yaw) * 0.25; o.y -= 0.2;
+        }
         spawnProj('rock', o, f.clone().multiplyScalar(75), w.dmg, 'p', 0.3, 2, 6);
         SFX.play('sling');
         break;
@@ -2068,9 +2626,9 @@
       case 'heart': {
         if (P.blood < 3) { wcd[w.id] = 0.25; SFX.play('ui'); S.ammoFlash = 0.4; return; }
         P.blood -= 3; startSwing(w);
-        const f = fwd3();
+        const f = new V3(), o = new V3();
+        getProjectileSpawn('heart', o, f);
         f.x += rnd(-0.015, 0.015); f.y += rnd(-0.015, 0.015); f.z += rnd(-0.015, 0.015); f.normalize();
-        const o = eyePos().addScaledVector(f, 0.9); o.y -= 0.15;
         spawnProj('blood', o, f.multiplyScalar(62), w.dmg, 'p', 0.4, 1.6, 0);
         SFX.play('blood');
         break;
@@ -2090,7 +2648,8 @@
     if (w.id === 'hammer') {
       wcd.alt = 1.35 * cdMul;
       P.swingDur = 0.35; P.swingT = 0.35;
-      const f = fwd3(), o = eyePos().addScaledVector(f, 0.85); o.y -= 0.15;
+      const f = new V3(), o = new V3();
+      getProjectileSpawn('hammer', o, f);
       spawnProj('brick', o, f.clone().multiplyScalar(54), 44, 'p', 0.38, 2.2, 9);
       SFX.play('brick');
       return;
@@ -2100,7 +2659,8 @@
       P.rocks -= 3;
       wcd.alt = 0.95 * cdMul;
       P.swingDur = 0.35; P.swingT = 0.35;
-      const f = fwd3(), o = eyePos().addScaledVector(f, 0.85); o.y -= 0.15;
+      const f = new V3(), o = new V3();
+      getProjectileSpawn('sling', o, f);
       spawnProj('boulder', o, f.clone().multiplyScalar(68), 68, 'p', 0.48, 2.4, 5);
       P.shake = Math.max(P.shake, 0.22);
       SFX.play('sling'); SFX.play('hammer');
@@ -2122,7 +2682,7 @@
       P.swingDur = 0.85; P.swingT = 0.85;
       P.pending = { t: 0.4, fn: () => {
         demoSlam(w);
-        const f = fwd3(), fl = new V3(f.x, 0, f.z).normalize();
+        const f = getAimDir(), fl = new V3(f.x, 0, f.z).normalize();
         for (let step = 1; step <= 2; step++) {
           const sx = P.pos.x + fl.x * (3.8 + step * 5.2), sz = P.pos.z + fl.z * (3.8 + step * 5.2);
           later(step * 0.12, () => {
@@ -2156,7 +2716,8 @@
       P.blood -= 15;
       wcd.alt = 0.68 * cdMul;
       P.swingDur = 0.25; P.swingT = 0.25;
-      const baseF = fwd3(), o = eyePos().addScaledVector(baseF, 0.9); o.y -= 0.15;
+      const baseF = new V3(), o = new V3();
+      getProjectileSpawn('heart', o, baseF);
       for (let i = 0; i < 6; i++) {
         const f = baseF.clone();
         f.x += rnd(-0.09, 0.09); f.y += rnd(-0.06, 0.06); f.z += rnd(-0.09, 0.09); f.normalize();
@@ -2188,7 +2749,7 @@
   }
 
   function performKick() {
-    const f = fwd3(), eye = eyePos();
+    const f = getAimDir(), eye = eyePos();
     const fl = Math.hypot(f.x, f.z) || 1;
     const fx = f.x / fl, fz = f.z / fl;
     const range = 4.4;
@@ -2299,25 +2860,61 @@
     const u = (a - t2) / (1 - t2);
     return s * (1 - u * u * (3 - 2 * u));
   }
-  const rosaryPhys = { rx: 0, rz: 0, vx: 0, vz: 0, prevYaw: 0, histX: [0, 0, 0, 0, 0, 0], histZ: [0, 0, 0, 0, 0, 0] };
+  const _rosPt = new THREE.Vector3();
+  const _rosInv = new THREE.Matrix4();
+  const rosaryPhys = {
+    t: 0, rx: 0, rz: 0, vx: 0, vz: 0,
+    prevYaw: 0, prevFwd: 0, prevSide: 0, prevBobSin: 0,
+    histX: [0, 0, 0, 0, 0, 0, 0],
+    histZ: [0, 0, 0, 0, 0, 0, 0]
+  };
   function updateRosaryPhysics(dt) {
     if (!P.hasRosary || dt <= 0) return;
+    const stepDt = Math.min(dt, 0.05);
+    rosaryPhys.t += stepDt;
     const f = fwd3();
     const rx = f.z, rz = -f.x;
     const fwdVel = P.vel.x * f.x + P.vel.z * f.z;
     const sideVel = P.vel.x * rx + P.vel.z * rz;
+    const accelFwd = (fwdVel - rosaryPhys.prevFwd) / Math.max(0.008, stepDt);
+    const accelSide = (sideVel - rosaryPhys.prevSide) / Math.max(0.008, stepDt);
+    rosaryPhys.prevFwd = fwdVel;
+    rosaryPhys.prevSide = sideVel;
+
     const dyaw = A.lerpAngle(rosaryPhys.prevYaw, P.yaw, 1) - rosaryPhys.prevYaw;
     rosaryPhys.prevYaw = P.yaw;
-    const swingBoost = (S.atkAnim > 0 ? Math.sin(S.atkAnim * Math.PI) * 1.4 : 0);
-    const targetRx = clamp(-fwdVel * 0.045 - P.vel.y * 0.03 + swingBoost, -0.95, 0.95);
-    const targetRz = clamp(sideVel * 0.055 + (dyaw / Math.max(0.008, dt)) * 0.04, -0.95, 0.95);
-    const k = 34, dampK = 6.8;
-    rosaryPhys.vx += ((targetRx - rosaryPhys.rx) * k - rosaryPhys.vx * dampK) * dt;
-    rosaryPhys.vz += ((targetRz - rosaryPhys.rz) * k - rosaryPhys.vz * dampK) * dt;
-    rosaryPhys.rx = clamp(rosaryPhys.rx + rosaryPhys.vx * dt, -1.1, 1.1);
-    rosaryPhys.rz = clamp(rosaryPhys.rz + rosaryPhys.vz * dt, -1.1, 1.1);
-    const follow = Math.min(1, dt * 18);
-    for (let i = 0; i < 6; i++) {
+
+    const hs = Math.hypot(P.vel.x, P.vel.z);
+    const walkAmt = P.onGround ? Math.min(1, hs / 8.5) : 0.18;
+    const bobSin = Math.sin(P.bob);
+    const bobImpulse = (bobSin - rosaryPhys.prevBobSin) / Math.max(0.008, stepDt);
+    rosaryPhys.prevBobSin = bobSin;
+
+    const walkSwingX = Math.sin(P.bob * 2) * 0.52 * walkAmt;
+    const walkSwingZ = bobSin * 0.68 * walkAmt;
+    const idleSwayX = Math.sin(rosaryPhys.t * 2.2) * 0.06;
+    const idleSwayZ = Math.cos(rosaryPhys.t * 1.7) * 0.05;
+    const swingBoost = (S.atkAnim > 0 ? Math.sin(S.atkAnim * Math.PI) * 1.65 : 0);
+
+    const targetRx = clamp(
+      -fwdVel * 0.042 - accelFwd * 0.015 - P.vel.y * 0.055 + walkSwingX + idleSwayX + swingBoost,
+      -1.35, 1.35
+    );
+    const targetRz = clamp(
+      sideVel * 0.052 + accelSide * 0.015 + (dyaw / Math.max(0.008, stepDt)) * 0.085 + walkSwingZ + idleSwayZ,
+      -1.35, 1.35
+    );
+
+    // Mola sub-amortecida rápida o bastante para responder a cada passo e balançar ao parar
+    const k = 78, dampK = 5.2;
+    rosaryPhys.vx += ((targetRx - rosaryPhys.rx) * k - rosaryPhys.vx * dampK) * stepDt;
+    rosaryPhys.vz += ((targetRz - rosaryPhys.rz) * k - rosaryPhys.vz * dampK + bobImpulse * 0.45 * walkAmt) * stepDt;
+    rosaryPhys.rx = clamp(rosaryPhys.rx + rosaryPhys.vx * stepDt, -1.45, 1.45);
+    rosaryPhys.rz = clamp(rosaryPhys.rz + rosaryPhys.vz * stepDt, -1.45, 1.45);
+
+    const follow = Math.min(1, stepDt * 13);
+    const nSeg = rosaryPhys.histX.length;
+    for (let i = 0; i < nSeg; i++) {
       const px = i === 0 ? rosaryPhys.rx : rosaryPhys.histX[i - 1];
       const pz = i === 0 ? rosaryPhys.rz : rosaryPhys.histZ[i - 1];
       rosaryPhys.histX[i] += (px - rosaryPhys.histX[i]) * follow;
@@ -2329,8 +2926,45 @@
         const seg = ros.segments[i];
         const hx = rosaryPhys.histX[i] || 0;
         const hz = rosaryPhys.histZ[i] || 0;
-        seg.rotation.x = (i === 0 ? hx * 0.65 : (hx - (rosaryPhys.histX[i - 1] || 0)) * 1.4 + hx * 0.14);
-        seg.rotation.z = (i === 0 ? hz * 0.65 : (hz - (rosaryPhys.histZ[i - 1] || 0)) * 1.4 + hz * 0.14);
+        const prevHx = i > 0 ? (rosaryPhys.histX[i - 1] || 0) : 0;
+        const prevHz = i > 0 ? (rosaryPhys.histZ[i - 1] || 0) : 0;
+        seg.rotation.x = (i === 0 ? hx * 0.72 : (hx - prevHx) * 2.2 + hx * 0.24);
+        seg.rotation.z = (i === 0 ? hz * 0.72 : (hz - prevHz) * 2.2 + hz * 0.24);
+        if (i === 0 || i === ros.segments.length - 1) {
+          seg.rotation.y = hz * 0.35 + Math.sin(rosaryPhys.t * 2.4 + i) * 0.12;
+        }
+      }
+      // Colisão exclusiva do rosário contra a mão/polegar do Nivaldo para não atravessar os dedos
+      if (ros.colliders && ros.colliders.length && ros.root.visible) {
+        ros.root.updateMatrixWorld(true);
+        _rosInv.copy(ros.root.matrixWorld).invert();
+        let hitHand = false;
+        for (let pass = 0; pass < 2; pass++) {
+          for (let i = 0; i < ros.segments.length; i++) {
+            const seg = ros.segments[i];
+            const tipY = (i === ros.segments.length - 1) ? -0.075 : -0.028;
+            _rosPt.set(0, tipY, 0).applyMatrix4(seg.matrixWorld).applyMatrix4(_rosInv);
+            for (let c = 0; c < ros.colliders.length; c++) {
+              const box = ros.colliders[c];
+              const pad = box.pad || 0.015;
+              if (_rosPt.y >= box.minY - pad && _rosPt.y <= box.maxY + pad &&
+                  _rosPt.z >= box.minZ - pad && _rosPt.z <= box.maxZ + pad &&
+                  _rosPt.x > box.minX - pad && _rosPt.x < box.maxX + pad) {
+                const pen = _rosPt.x - (box.minX - pad);
+                // Empurra o elo para o lado externo (-X) do dedo/punho
+                const piv = i === 0 ? seg : ros.segments[i - 1];
+                piv.rotation.z -= Math.min(0.65, pen * 9.5);
+                if (i === 0) seg.rotation.z -= Math.min(0.45, pen * 6.0);
+                hitHand = true;
+              }
+            }
+          }
+          if (!hitHand) break;
+          ros.root.updateMatrixWorld(true);
+        }
+        if (hitHand && rosaryPhys.vz > 0) {
+          rosaryPhys.vz = -rosaryPhys.vz * 0.28;
+        }
       }
     };
     if (NIVALDO_3P && NIVALDO_3P.rosary) applyChain(NIVALDO_3P.rosary);
@@ -2589,11 +3223,22 @@
           }
         }
         break;
-      case 'sling': r.position.z += sw ? s * 0.12 : 0; r.rotation.x += sw ? s * 0.35 : 0; break;
+      case 'sling': {
+        const pull = sw ? slingPullCurve(a) : 0;
+        const showRock = P.rocks > 0 && (!sw || a < 0.45 || a > 0.78);
+        animateSlingParts(vm.root, pull, showRock);
+        r.position.z += sw ? Math.max(0, -pull) * 0.12 : 0;
+        r.rotation.x += sw ? Math.max(0, -pull) * 0.32 : 0;
+        break;
+      }
       case 'cross': {
         const isLeft = S.cross.hand === 0;
         r.scale.x = isLeft ? -1 : 1;
         r.position.x = (isLeft ? -b.p.x : b.p.x) + bx;
+        if (vm.root.aura) {
+          const ap = 1 + Math.sin(S.time * 4.5) * 0.06;
+          vm.root.aura.scale.setScalar(ap);
+        }
         if (P.crossCatchT > 0) {
           const ct = Math.sin((P.crossCatchT / 0.16) * Math.PI);
           r.position.z += ct * 0.14;
@@ -3097,7 +3742,8 @@
   }
 
   function updateHUD(dt) {
-    show('crosshair', !isThirdPersonActive() && !P.dead && S.started && !S.paused);
+    const hideCrosshair = !!S.glory || S.cutscene > 0;
+    show('crosshair', !hideCrosshair && !P.dead && S.started && !S.paused);
     const w = WEAPONS[curW()];
     setText('hpNum', Math.ceil(P.hp));
     el('hpNum').style.color = P.hp < 50 ? '#ff3030' : '#ff5a4a';
@@ -3165,58 +3811,59 @@
 
   /* ---------------- salas / história ---------------- */
   const ROOMS = {
-    a1: { name: 'EP. 1 · ÁREA 1 · BAIRRO ALTO', obj: 'Elimine todos os demônios do Bairro Alto',
+    a1: { name: 'EP. 1 · ÁREA 1 · BAIRRO ALTO', obj: 'Elimine todos os demônios do Bairro Alto', track: 'ep1_a1',
       onClear() {
         unlockExitGate(); SFX.play('gate');
         say('Bairro Alto purificado! Atravesse o Portão de Saída!', 'NIVALDO', 4.5);
         setObj('Atravesse o Portão de Saída para os Campos da Perdição', { x: World.exitGate.x, z: World.exitGate.z });
         S.stage = 'a1done';
       } },
-    a2: { name: 'EP. 1 · ÁREA 2 · CAMPOS DA PERDIÇÃO', obj: 'Limpe os campos e celeiros em chamas',
+    a2: { name: 'EP. 1 · ÁREA 2 · CAMPOS DA PERDIÇÃO', obj: 'Limpe os campos e celeiros em chamas', track: 'ep1_a2',
       onClear() {
         unlockExitGate(); SFX.play('gate');
         say('Campos purificados! O Portão para o Subúrbio Exterior está aberto!', 'NIVALDO', 4.5);
         setObj('Atravesse o Portão de Saída para o Subúrbio Exterior', { x: World.exitGate.x, z: World.exitGate.z });
         S.stage = 'a2done';
       } },
-    a3: { name: 'EP. 1 · ÁREA 3 · SUBÚRBIO EXTERIOR', obj: 'Elimine os demônios e guardas do Subúrbio',
+    a3: { name: 'EP. 1 · ÁREA 3 · SUBÚRBIO EXTERIOR', obj: 'Elimine os demônios e guardas do Subúrbio', track: 'ep1_a3',
       onClear() {
         unlockExitGate(); SFX.play('gate');
         say('Episódio 1 concluído! Atravesse o Portão rumo à Cidade Baixa!', 'NIVALDO', 4.5);
         setObj('Atravesse o Portão de Saída para os Casarões dos Super-Ricos', { x: World.exitGate.x, z: World.exitGate.z });
         S.stage = 'a3done';
       } },
-    a4: { name: 'EP. 2 · ÁREA 4 · CASARÕES DOS SUPER-RICOS', obj: 'Elimine os demônios das mansões em chamas',
+    a4: { name: 'EP. 2 · ÁREA 4 · CASARÕES DOS SUPER-RICOS', obj: 'Elimine os demônios das mansões em chamas', track: 'ep2_a1',
       onClear() {
         unlockExitGate(); SFX.play('gate');
         say('Mansões purificadas! O Portão para a Avenida do Horror se abriu!', 'NIVALDO', 4.5);
         setObj('Atravesse o Portão de Saída para a Avenida do Horror', { x: World.exitGate.x, z: World.exitGate.z });
         S.stage = 'a4done';
       } },
-    a5: { name: 'EP. 2 · ÁREA 5 · AVENIDA DO HORROR', obj: 'Rompa os ninhos infernais rumo à Ultra-Igreja',
+    a5: { name: 'EP. 2 · ÁREA 5 · AVENIDA DO HORROR', obj: 'Rompa os ninhos infernais rumo à Ultra-Igreja', track: 'ep2_a2',
       onClear() {
         unlockExitGate(); SFX.play('gate');
         say('Episódio 2 concluído! A Ultra-Igreja aguarda além do Portão!', 'NIVALDO', 4.5);
         setObj('Atravesse o Portão de Saída para os Portões da Ultra-Igreja', { x: World.exitGate.x, z: World.exitGate.z });
         S.stage = 'a5done';
       } },
-    a6_gate: { name: 'EP. 3 · ÁREA 6 · PORTÕES DA ULTRA-IGREJA', obj: 'Elimine todos os inimigos nos portões', onClear: spawnMaximus },
-    a6_maximus: { name: 'EP. 3 · ÁREA 6 · PORTÕES DA ULTRA-IGREJA', obj: 'Derrote MAXIMUS, Líder da Super-Guarda Real', noCount: true, onClear: maximusDead },
-    a6_nave: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Esmigalhe os demônios da Ultra-Igreja', onClear: galiusEvent },
-    a6_galius1: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Enfrente Galius, o Super-Ateu!', noCount: true, noClear: true },
-    a6_crypt1: { name: 'EP. 3 · CATACUMBAS · ENTRADA', obj: 'Elimine os endemoniados das catacumbas',
+    a6_gate: { name: 'EP. 3 · ÁREA 6 · PORTÕES DA ULTRA-IGREJA', obj: 'Elimine todos os inimigos nos portões', track: 'ep3_gate', onClear: spawnMaximus },
+    a6_maximus: { name: 'EP. 3 · ÁREA 6 · PORTÕES DA ULTRA-IGREJA', obj: 'Derrote SÉRGIO MAXIMO, Líder da Super-Guarda Real', track: 'ep3_maximus', noCount: true, onClear: maximusDead },
+    a6_nave: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Esmigalhe os demônios da Ultra-Igreja', track: 'ep3_nave', onClear: galiusEvent },
+    a6_galius1: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Enfrente Galius, o Super-Ateu!', track: 'ep3_galius', noCount: true, noClear: true },
+    a6_crypt1: { name: 'EP. 3 · CATACUMBAS · ENTRADA', obj: 'Elimine os endemoniados das catacumbas', track: 'ep3_crypt',
       onClear() { openGate('g_c1'); SFX.play('gate'); setObj('Avance para o Salão dos Mortos', { x: 58, z: -14 }); } },
-    a6_crypt2: { name: 'EP. 3 · CATACUMBAS · SALÃO DOS MORTOS', obj: 'Elimine os guardiões do Salão dos Mortos',
+    a6_crypt2: { name: 'EP. 3 · CATACUMBAS · SALÃO DOS MORTOS', obj: 'Elimine os guardiões do Salão dos Mortos', track: 'ep3_crypt',
       onClear() { openGate('g_c2'); SFX.play('gate'); setObj('Avance para a Galeria dos Ossos', { x: 58, z: -76 }); } },
-    a6_crypt3: { name: 'EP. 3 · CATACUMBAS · GALERIA DOS OSSOS', obj: 'Elimine os horrores da Galeria dos Ossos',
+    a6_crypt3: { name: 'EP. 3 · CATACUMBAS · GALERIA DOS OSSOS', obj: 'Elimine os horrores da Galeria dos Ossos', track: 'ep3_crypt',
       onClear() { openGate('g_c3'); SFX.play('gate'); setObj('Chegue à Câmara Sacra', { x: -4, z: -86 }); } },
-    a6_galius2: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Derrote Galius com a Sacra Cruz Papal', noCount: true, noClear: true }
+    a6_galius2: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Derrote Galius com a Sacra Cruz Papal', track: 'ep3_galius', noCount: true, noClear: true }
   };
   for (const id in ROOMS) S.rooms[id] = { spawned: false, cleared: false };
 
   function startRoom(id, silent) {
     const r = S.rooms[id];
     r.spawned = true; r.cleared = false;
+    if (ROOMS[id] && ROOMS[id].track && SFX.setTrack) SFX.setTrack(ROOMS[id].track);
     const list = SPAWNS[id] || [];
     const spawnMul = A.getDifficulty().spawnMul;
     const bosses = [];
@@ -3424,10 +4071,22 @@
   function spawnMaximus() {
     startRoom('a6_maximus');
     const m = S.boss;
+    // Posiciona Nivaldo numa distância limpa no pátio olhando para onde Máximo vai cair
+    const dToM = dist2(P.pos.x, P.pos.z, 0, -148);
+    if (dToM < 8.5 || P.pos.z < -150) {
+      P.pos.x = clamp(P.pos.x, -5.5, 5.5);
+      P.pos.z = -134.5;
+      P.pos.y = A.groundAt(P.pos.x, P.pos.z, 4, P.r);
+    }
+    P.vel.set(0, 0, 0);
+    P.yaw = Math.atan2(-(0 - P.pos.x), -(-148 - P.pos.z));
+    P.pitch = 0;
+
     captureCutsceneCamStart();
-    S.cutscene = 4.2;
+    S.cutscene = 14.5;
     S.csKind = 'maximusIntro';
     S.csT = 0;
+    S.csMaxStep = 0;
     S.cinemaBoss = m;
     setCinemaUI(true);
     if (m) {
@@ -3442,12 +4101,8 @@
       m.maximusIntro = 'fall';
       m.maximusIntroT = 0;
       if (m.rig && m.rig.sword) m.rig.sword.visible = false;
-      m.onMaximusReady = () => {
-        setCinemaUI(true, 'MAXIMUS', 'LÍDER DA SUPER-GUARDA REAL', 'maximus');
-      };
-      m.onMaximusDone = () => {
-        say('MAXIMUS: NINGUÉM PASSA PELOS PORTÕES DA ULTRA-IGREJA!', '', 4);
-      };
+      m.onMaximusReady = null;
+      m.onMaximusDone = null;
     }
     setObj(ROOMS.a6_maximus.obj, { x: 0, z: -148 });
     setCheckpoint(0, -108, 0);
@@ -3508,10 +4163,11 @@
     P.yaw = 0; P.pitch = 0;
     captureCutsceneCamStart();
     setCinemaUI(true);
-    S.cutscene = 8.4;
+    S.cutscene = 13.5;
     S.csKind = 'maximusDeath';
     S.csT = 0;
     S.csMaxSaid = false;
+    S.csMaxSaid2 = false;
     S.csRosaryGiven = false;
     S.csRageSaid = false;
     TP_CAM.angle = 0.72;
@@ -3535,9 +4191,9 @@
       const dx = mp.x - P.pos.x, dz = mp.z - P.pos.z;
       P.yaw = A.lerpAngle(P.yaw, Math.atan2(-dx, -dz), Math.min(1, dt * 8));
       P.pitch += (0 - P.pitch) * Math.min(1, dt * 8);
-      if (S.csT < 1.4) {
-        const u = clamp(S.csT / 1.4, 0, 1);
-        P.pos.x += (mp.x - P.pos.x) * Math.min(1, dt * 3.5);
+      if (S.csT < 2.2) {
+        const u = clamp(S.csT / 2.2, 0, 1);
+        P.pos.x += (mp.x - P.pos.x) * Math.min(1, dt * 3.0);
         P.pos.z = mp.z + 5.2 - u * 2.8;
         P.pos.y = A.groundAt(P.pos.x, P.pos.z, 4, 0.6);
       } else {
@@ -3545,29 +4201,33 @@
         P.pos.z = standZ;
         P.pos.y = A.groundAt(P.pos.x, P.pos.z, 4, 0.6);
       }
-      if (S.csT >= 1.2 && S.csT < 3.8 && S.maximusSpirit) {
+      if (S.csT >= 1.8 && S.csT < 5.2 && S.maximusSpirit) {
         S.maximusSpirit.visible = true;
-        const st = (S.csT - 1.2) / 2.6;
-        S.maximusSpirit.position.set(mp.x + Math.sin(S.csT * 5) * 0.25, mp.y + 0.8 + st * 4.5, mp.z);
+        const st = (S.csT - 1.8) / 3.4;
+        S.maximusSpirit.position.set(mp.x + Math.sin(S.csT * 5) * 0.25, mp.y + 0.8 + st * 4.8, mp.z);
         S.maximusSpirit.rotation.y += dt * 2.4;
         if (S.maximusSpiritMat) S.maximusSpiritMat.opacity = st < 0.2 ? st * 4 : Math.max(0, (1 - st) * 1.1);
         if (Math.random() < dt * 10) burst(S.maximusSpirit.position.x, S.maximusSpirit.position.y, S.maximusSpirit.position.z, 0xff2230, 2, 3, 0.4, 0.14, 6);
-      } else if (S.maximusSpirit && S.csT >= 3.8) {
+      } else if (S.maximusSpirit && S.csT >= 5.2) {
         S.maximusSpirit.visible = false;
       }
-      if (S.csT >= 2.0 && !S.csMaxSaid) {
+      if (S.csT >= 3.6 && !S.csMaxSaid) {
         S.csMaxSaid = true;
-        say('"Forgive-me... For i... have... sinned... Oh Holy Warrior... Take this... and defeat... all Evil..."', 'MAXIMUS', 4.6);
+        say('"Nivaldo... me perdoe... o mal de Satã me cegou..."', 'SÉRGIO MAXIMO', 2.8);
       }
-      if (S.maximusRig && S.maximusRig.armL && S.csT >= 4.0) {
-        const offer = clamp((S.csT - 4.0) / 0.7, 0, 1);
+      if (S.csT >= 6.2 && !S.csMaxSaid2) {
+        S.csMaxSaid2 = true;
+        say('"Ó Guerreiro Sagrado... pegue meu rosário... e destrua todo o Mal..."', 'SÉRGIO MAXIMO', 3.4);
+      }
+      if (S.maximusRig && S.maximusRig.armL && S.csT >= 7.2) {
+        const offer = clamp((S.csT - 7.2) / 0.8, 0, 1);
         S.maximusRig.armL.rotation.x = -1.25 * offer;
       }
-      if (S.csT >= 4.9 && S.maximusRig && S.maximusRig.rosaryProp && S.maximusRig.rosaryProp.visible) {
+      if (S.csT >= 8.5 && S.maximusRig && S.maximusRig.rosaryProp && S.maximusRig.rosaryProp.visible) {
         S.maximusRig.rosaryProp.visible = false;
         SFX.play('pickup');
       }
-      if (S.csT >= 6.1 && !S.csRosaryGiven) {
+      if (S.csT >= 10.2 && !S.csRosaryGiven) {
         S.csRosaryGiven = true;
         P.hasRosary = true;
         P.maxhp = 300;
@@ -3575,15 +4235,15 @@
         SFX.play('cross');
         burst(P.pos.x, P.pos.y + 1.8, P.pos.z, 0xffe066, 28, 10, 0.8, 0.28, 12);
       }
-      if (S.csT >= 6.45 && !S.csRageSaid) {
+      if (S.csT >= 10.65 && !S.csRageSaid) {
         S.csRageSaid = true;
         SFX.play('roar');
-        P.shake = Math.max(P.shake, 0.85);
-        burst(P.pos.x, P.pos.y + 1.5, P.pos.z, 0xff2818, 22, 9, 0.6, 0.24, 10);
-        say('MALDITO INFERNO... EU VOU DESTRUIR TODOS VOCÊS!', 'NIVALDO', 2.4);
+        P.shake = Math.max(P.shake, 0.9);
+        burst(P.pos.x, P.pos.y + 1.5, P.pos.z, 0xff2818, 24, 9, 0.6, 0.24, 10);
+        say('ELES VÃO PAGAR POR ISSO... MALDITO INFERNO! EU VOU DESTRUIR TODOS VOCÊS!', 'NIVALDO', 3.2);
       }
-      if (S.csT >= 6.5 && S.csT < 8.4) {
-        P.shake = Math.max(P.shake, 0.32);
+      if (S.csT >= 10.7 && S.csT < 13.5) {
+        P.shake = Math.max(P.shake, 0.34);
       }
       if (S.cutscene <= 0) {
         if (S.maximusSpirit) { scene.remove(S.maximusSpirit); S.maximusSpirit = null; }
@@ -3591,7 +4251,7 @@
         S.maximusRig = null;
         // Transiciona direto para Nivaldo socando a porta com MUITA IRA!
         S.csKind = 'door';
-        S.cutscene = 3.35;
+        S.cutscene = 4.5;
         S.csT = 0;
         S.csHit = false;
         S.csPunchIdx = -1;
@@ -3601,18 +4261,18 @@
       updateRosaryPhysics(dt);
       P.yaw = A.lerpAngle(P.yaw, 0, Math.min(1, dt * 10));
       P.pitch += (0 - P.pitch) * Math.min(1, dt * 8);
-      if (S.csT < 0.85) {
-        P.pos.x += (0 - P.pos.x) * Math.min(1, dt * 6);
-        P.pos.z += (-164.6 - P.pos.z) * Math.min(1, dt * 4.5);
+      if (S.csT < 1.1) {
+        P.pos.x += (0 - P.pos.x) * Math.min(1, dt * 5);
+        P.pos.z += (-164.6 - P.pos.z) * Math.min(1, dt * 4.0);
         P.pos.y = A.groundAt(P.pos.x, P.pos.z, 4, 0.6);
       } else if (!S.csHit) {
         P.pos.x = 0;
         P.pos.z = -164.6;
         P.pos.y = A.groundAt(0, -164.6, 4, 0.6);
-        const pt = (S.csT - 0.85) / 0.24;
+        const pt = (S.csT - 1.1) / 0.25;
         const idx = Math.floor(pt);
         const f = pt - idx;
-        if (idx > (S.csPunchIdx == null ? -1 : S.csPunchIdx) && f >= 0.30 && idx < 7) {
+        if (idx > (S.csPunchIdx == null ? -1 : S.csPunchIdx) && f >= 0.30 && idx < 10) {
           S.csPunchIdx = idx;
           SFX.play('slam');
           SFX.play('boom');
@@ -3620,15 +4280,15 @@
           burst((idx % 2 === 0 ? 0.6 : -0.6), 3.0, -168.4, 0xffaa40, 18, 12, 0.55, 0.25, 11);
           burst((idx % 2 === 0 ? 0.6 : -0.6), 3.0, -168.4, 0x6a5a4a, 14, 9, 0.65, 0.30, 11, false);
         }
-        if (S.csT >= 2.65) {
+        if (S.csT >= 3.65) {
           S.csHit = true;
-          S.cutscene = 0.70;
+          S.cutscene = 0.85;
           P.vel.set(0, 0, 2);
           openGate('door'); SFX.play('door'); SFX.play('boom'); SFX.play('slam');
           P.shake = 2.0;
           burst(0, 5, -169, 0x6a5a4a, 50, 18, 1.4, 0.55, 16, false);
           burst(0, 5, -169, 0xffa040, 26, 15, 0.8, 0.30, 12);
-          say('A Ultra-Igreja está aberta! Entre no santuário!', 'NIVALDO', 3);
+          say('ABRAM CAMINHO! A ULTRA-IGREJA VAI CAIR HOJE!', 'NIVALDO', 3.2);
           setObj('Entre na Ultra-Igreja', { x: 0, z: -176 });
         }
       } else {
@@ -3679,14 +4339,64 @@
         }
       }
       P.pitch += (0 - P.pitch) * Math.min(1, dt * 8);
-      if (S.csT >= 6.26 && !S.galiusCrossPlanted) plantGaliusCross();
+      if (S.csT >= 7.26 && !S.galiusCrossPlanted) plantGaliusCross();
       if (S.cutscene <= 0) {
         S.ripTarget = null;
         S.ripStandPos = null;
         S.ripTargetYaw = null;
       }
+    } else if (S.csKind === 'tomb') {
+      P.vel.set(0, 0, 0);
+      const dx = -4 - P.pos.x, dz = -86 - P.pos.z;
+      P.yaw = A.lerpAngle(P.yaw, Math.atan2(-dx, -dz), Math.min(1, dt * 6));
+      P.pitch += (0 - P.pitch) * Math.min(1, dt * 6);
+      if (S.cutscene <= 0.45) setCinemaUI(false);
+      if (S.cutscene <= 0) {
+        setCinemaUI(false);
+        S.csCamStart = null;
+      }
     } else if (S.csKind === 'maximusIntro' || S.csKind === 'galiusIntro') {
       P.vel.set(0, 0, 0);
+      if (S.csKind === 'maximusIntro') {
+        const b = S.cinemaBoss;
+        const bx = b ? b.g.position.x : 0;
+        const bz = b ? b.g.position.z : -148;
+        P.yaw = A.lerpAngle(P.yaw, Math.atan2(-(bx - P.pos.x), -(bz - P.pos.z)), Math.min(1, dt * 8));
+        P.pitch += (0 - P.pitch) * Math.min(1, dt * 8);
+        if (S.csT >= 3.5 && (S.csMaxStep || 0) < 1) {
+          S.csMaxStep = 1;
+          say('Serjão? O que aconteceu com você, meu amigo?', 'NIVALDO', 3.4);
+        }
+        if (S.csT >= 6.9 && (S.csMaxStep || 0) < 2) {
+          S.csMaxStep = 2;
+          say('Não sou mais o antigo Serjão...', 'SÉRGIO MAXIMO', 2.2);
+        }
+        if (S.csT >= 8.9 && (S.csMaxStep || 0) < 3) {
+          S.csMaxStep = 3;
+          setCinemaUI(true, 'SÉRGIO MAXIMO', 'LÍDER DA SUPER-GUARDA REAL · DISCÍPULO DE SATÃ', 'maximus');
+          say('Sou Sérgio Máximo, o Líder da Super-Guarda Real... DISCÍPULO DE SATÃ!', 'SÉRGIO MAXIMO', 3.4);
+          SFX.play('roar');
+          P.shake = Math.max(P.shake, 0.85);
+          spawnRing(bx, bz, 12, 22, 0, 0xff2222, 'e');
+        }
+        if (S.csT >= 11.6 && (S.csMaxStep || 0) < 4) {
+          S.csMaxStep = 4;
+          SFX.play('roar');
+          P.shake = Math.max(P.shake, 0.95);
+          burst(P.pos.x, P.pos.y + 1.4, P.pos.z, 0xff2818, 26, 9, 0.65, 0.25, 10);
+          say('TRAIDOR DESGRAÇADO! EU VOU TE MOER NA PORRADA!', 'NIVALDO', 3.0);
+        }
+      } else if (S.csKind === 'galiusIntro') {
+        const b = S.cinemaBoss;
+        const bx = b ? b.g.position.x : 0;
+        const bz = b ? b.g.position.z : -148;
+        P.yaw = A.lerpAngle(P.yaw, Math.atan2(-(bx - P.pos.x), -(bz - P.pos.z)), Math.min(1, dt * 8));
+        P.pitch += (0 - P.pitch) * Math.min(1, dt * 8);
+        if (S.csT >= 8.0 && (S.csGalStep || 0) < 1) {
+          S.csGalStep = 1;
+          say('Mais um boneco de Satã pra virar entulho. Vem pra cima, lata velha!', 'NIVALDO', 3.2);
+        }
+      }
       if (S.cutscene <= 0.55) {
         const card = el('bossTitleCard');
         if (card) card.classList.remove('on');
@@ -3738,9 +4448,10 @@
     };
     if (g) {
       captureCutsceneCamStart();
-      S.cutscene = 5.6;
+      S.cutscene = 11.2;
       S.csKind = 'galiusIntro';
       S.csT = 0;
+      S.csGalStep = 0;
       S.cinemaBoss = g;
       setCinemaUI(true);
       g.g.position.set(0, 0, -158);
@@ -3757,13 +4468,14 @@
       g._grabbedCross = false;
       if (g.rig && g.rig.weapon) g.rig.weapon.visible = false;
       g.onGaliusBurst = () => {
-        baph('“JAMAIS PODERÁ DERROTAR MINHA CRIAÇÃO, GALIUS, O SUPER-ATEU! DESISTA NIVALDO VOCÊ NÃO TEM CHANCE!”', 6);
+        baph('JAMAIS PODERÁ DERROTAR MINHA CRIAÇÃO SUPREMA: GALIUS, O SUPER-ATEU!', 3.8);
         if (P.pos.z < -128) {
           P.vel.z += 20; P.vel.y = 6; P.onGround = false;
         }
       };
       g.onGaliusRoar = () => {
         setCinemaUI(true, 'GALIUS', 'O SUPER-ATEU', 'galius');
+        baph('DESISTA, NIVALDO! VOCÊ NÃO TEM CHANCE CONTRA A CIÊNCIA PROFANA!', 3.4);
       };
       g.onGaliusGrab = startGaliusBossfight;
     } else {
@@ -3781,24 +4493,26 @@
     fade('#000', 0.5, () => {
       loadMap('a6_crypt', { keepPlayer: true, x: 0, z: -4, room: 'a6_crypt1' });
       S.rooms.a6_galius1.cleared = true;
-      say('Catacumbas… o Super-Papa Romulus III está enterrado por aqui.', 'NIVALDO', 4);
+      say('Catacumbas… o Super-Papa Rômulo III está enterrado por aqui.', 'NIVALDO', 4);
       SFX.setIntensity(0.4);
     });
   }
 
   function tombSequence() {
-    S.cutscene = 9; S.csKind = 'tomb'; S.csT = 0;
-    say('Super-Papa Romulus… permita que eu empunhe sua relíquia.', 'NIVALDO', 3);
-    later(3.2, () => { SFX.play('ghost'); say('Leve-a, filho. Que a Super-Fé guie seu braço.', 'ROMULUS III', 3.2); });
-    later(6.2, () => {
+    captureCutsceneCamStart();
+    setCinemaUI(true);
+    S.cutscene = 12.0; S.csKind = 'tomb'; S.csT = 0;
+    later(0.5, () => { say('Super-Papa Rômulo III… permita que eu empunhe sua relíquia sagrada.', 'NIVALDO', 3.5); });
+    later(4.2, () => { SFX.play('ghost'); say('Leve-a, filho. Que a Super-Fé guie seu braço contra as trevas.', 'RÔMULO III', 3.8); });
+    later(8.2, () => {
       WEAPONS[5].owned = true; S.hasCross = true; World.crossPickup.visible = false;
       SFX.play('weapon'); updateSlots();
-      say('SACRA CRUZ PAPAL adquirida! [6] · Clique: arremessar · Botão dir.: golpe/recall', '', 4.5);
+      say('A SACRA CRUZ PAPAL É MINHA! VAMOS ACABAR COM ESSA ABERRAÇÃO!', 'NIVALDO', 3.2);
       selectWeapon(5, true);
       P.shake = 1.2; SFX.play('boom');
       burst(-4, 8, -86, 0x6a5a4a, 40, 14, 1.4, 0.6, 14, false);
     });
-    later(8, () => {
+    later(11.2, () => {
       fade('#fff', 0.5, () => {
         loadMap('a6_nave', { keepPlayer: true, x: 0, z: -24, room: 'a6_galius2' });
         if (World.breakWall) { World.breakWall.visible = false; World.breakWall.userData.col.active = false; }
@@ -3806,6 +4520,7 @@
         closeAltarInstant();
         S.stage = 'galius2';
         S.cutscene = 0;
+        setCinemaUI(false);
         baph('IMPOSSÍVEL!! ESSA RELÍQUIA… MATE-O, GALIUS!!', 5);
         SFX.setIntensity(1);
       });
@@ -3901,14 +4616,15 @@
   }
 
   function ripSequence(g) {
-    S.cutscene = 7.5; S.csKind = 'rip'; S.csT = 0; S.rip = true; S.galiusCrossPlanted = false; S.galiusMeatPos = null;
+    setCinemaUI(true);
+    S.cutscene = 9.0; S.csKind = 'rip'; S.csT = 0; S.rip = true; S.galiusCrossPlanted = false; S.galiusMeatPos = null;
     P.vel.set(0, 0, 0);
     const gp = g.g.position;
     let dx = gp.x - P.pos.x, dz = gp.z - P.pos.z;
     let d = Math.hypot(dx, dz);
     if (d < 0.05) { dx = 0; dz = -1; d = 1; }
     const nx = dx / d, nz = dz / d;
-    const standDist = 1.78;
+    const standDist = 1.52;
     const standPos = new V3(gp.x - nx * standDist, P.pos.y, gp.z - nz * standDist);
     resolveCircle(standPos, P.r, standPos.y);
     standPos.y = Math.max(standPos.y, A.groundAt(standPos.x, standPos.z, standPos.y, P.r));
@@ -3968,9 +4684,13 @@
     });
     later(6.4, () => {
       World.portal.g.visible = true; World.portal.active = true; SFX.play('portal');
-      say('Existe um caminho mais fundo… um portal se abriu no altar.', 'SUPER-ANJO', 5);
+      say('DESCANSE NO INFERNO, SUPER-ATEU!', 'NIVALDO', 2.4);
       setObj('Entre no portal', { x: World.portal.x, z: World.portal.z });
       S.stage = 'portal'; S.rip = false;
+    });
+    later(8.5, () => {
+      setCinemaUI(false);
+      say('Existe um caminho mais fundo… um portal se abriu no altar.', 'SUPER-ANJO', 5);
     });
   }
 
@@ -4219,7 +4939,7 @@
   }
 
   function findGloryTarget() {
-    const f = fwd3();
+    const f = getAimDir();
     let best = null, bestScore = -Infinity;
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i];
@@ -4242,7 +4962,7 @@
     return !!(e && e.T && !e.T.boss && e.r <= 0.8);
   }
   function findGrabTarget() {
-    const f = fwd3();
+    const f = getAimDir();
     let best = null, bestScore = -Infinity;
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i];
@@ -4293,10 +5013,10 @@
     const fx = -sy, fz = -cy, rx = cy, rz = -sy;
     if (P.dashT > 0) {
       const dfx = P.dashDir.x, dfz = P.dashDir.z;
-      const ramDist = 1.45 + e.r * 0.5;
+      const ramDist = 0.95 + e.r * 0.35;
       e.g.position.set(
         P.pos.x + dfx * ramDist,
-        P.pos.y + P.eye - e.h * 0.55 - 0.1,
+        P.pos.y + 1.637 - e.h * 0.60,
         P.pos.z + dfz * ramDist
       );
       e.yaw = Math.atan2(dfx, dfz);
@@ -4321,15 +5041,15 @@
       }
     } else {
       P.ramHitSet = null;
-      const holdDist = 1.25 + e.r * 0.35;
-      const sideOff = -0.68;
+      const holdDist = 0.85 + e.r * 0.35;
+      const sideOff = -0.76;
       const bob = Math.sin(P.grabT * 9) * 0.03;
       e.g.position.set(
         P.pos.x + fx * holdDist + rx * sideOff,
-        P.pos.y + P.eye - e.h * 0.62 - 0.12 + bob,
+        P.pos.y + 1.637 - e.h * 0.60 + bob,
         P.pos.z + fz * holdDist + rz * sideOff
       );
-      e.yaw = wrapAngle(P.yaw + Math.PI * 0.85);
+      e.yaw = wrapAngle(P.yaw + Math.PI);
       e.g.rotation.set(0, e.yaw, Math.sin(P.grabT * 11) * 0.08);
       const R = e.rig;
       if (R) {
@@ -4529,11 +5249,11 @@
     if (World.currentMap === 'a6_nave' && S.stage === 'galius1' && World.hatch && World.hatch.active &&
         px > -3.2 && px < 3.2 && pz < -138.5 && pz > -149.5 && P.pos.y < 1.2 && !S.fade) goCrypt();
 
-    // Túmulo de Romulus III
+    // Túmulo de Rômulo III
     if (World.currentMap === 'a6_crypt' && S.stage === 'crypt' && S.rooms.a6_crypt3.cleared && !S.hasCross && S.cutscene <= 0) {
       const d = dist2(px, pz, -4, -86);
       if (d < 12) {
-        S.prompt = '[E] PEDIR PERMISSÃO AO FANTASMA DE ROMULUS III';
+        S.prompt = '[E] PEDIR PERMISSÃO AO FANTASMA DE RÔMULO III';
         if (P.wantUse) tombSequence();
       }
     }
@@ -4647,26 +5367,46 @@
     const input = !P.dead && S.cutscene <= 0;
     const inv = SAVE.invertY ? -1 : 1;
     if (input) {
-      if (mouseGuard.pendingX !== 0 || mouseGuard.pendingY !== 0) {
-        const k = 0.0022 * SAVE.sens;
-        P.yaw = wrapAngle(P.yaw - mouseGuard.pendingX * k);
-        P.pitch = clamp(P.pitch - mouseGuard.pendingY * k * inv, -1.45, 1.45);
-        mouseGuard.pendingX = 0;
-        mouseGuard.pendingY = 0;
+      if (TP_CAM.userMode) {
+        if (mouseGuard.pendingX !== 0 || mouseGuard.pendingY !== 0) {
+          const k = 0.0022 * SAVE.sens;
+          TP_CAM.angle = wrapAngle(TP_CAM.angle - mouseGuard.pendingX * k);
+          TP_CAM.pitch = clamp(TP_CAM.pitch + mouseGuard.pendingY * k * inv, -0.45, 1.15);
+          mouseGuard.pendingX = 0;
+          mouseGuard.pendingY = 0;
+        }
+        const look = 2.2 * dt * SAVE.sens;
+        if (keys.ArrowLeft) TP_CAM.angle = wrapAngle(TP_CAM.angle + look);
+        if (keys.ArrowRight) TP_CAM.angle = wrapAngle(TP_CAM.angle - look);
+        if (keys.ArrowUp) TP_CAM.pitch = clamp(TP_CAM.pitch - look * inv, -0.45, 1.15);
+        if (keys.ArrowDown) TP_CAM.pitch = clamp(TP_CAM.pitch + look * inv, -0.45, 1.15);
+        P.pitch = clamp(-TP_CAM.pitch, -1.45, 1.45);
+      } else {
+        if (mouseGuard.pendingX !== 0 || mouseGuard.pendingY !== 0) {
+          const k = 0.0022 * SAVE.sens;
+          P.yaw = wrapAngle(P.yaw - mouseGuard.pendingX * k);
+          P.pitch = clamp(P.pitch - mouseGuard.pendingY * k * inv, -1.45, 1.45);
+          mouseGuard.pendingX = 0;
+          mouseGuard.pendingY = 0;
+        }
+        const look = 2.2 * dt * SAVE.sens;
+        if (keys.ArrowLeft) P.yaw = wrapAngle(P.yaw + look);
+        if (keys.ArrowRight) P.yaw = wrapAngle(P.yaw - look);
+        if (keys.ArrowUp) P.pitch = clamp(P.pitch + look * inv, -1.45, 1.45);
+        if (keys.ArrowDown) P.pitch = clamp(P.pitch - look * inv, -1.45, 1.45);
       }
-      const look = 2.2 * dt * SAVE.sens;
-      if (keys.ArrowLeft) P.yaw = wrapAngle(P.yaw + look);
-      if (keys.ArrowRight) P.yaw = wrapAngle(P.yaw - look);
-      if (keys.ArrowUp) P.pitch = clamp(P.pitch + look * inv, -1.45, 1.45);
-      if (keys.ArrowDown) P.pitch = clamp(P.pitch - look * inv, -1.45, 1.45);
     } else {
       mouseGuard.pendingX = 0;
       mouseGuard.pendingY = 0;
     }
     const f = input ? ((bindDown('forward') ? 1 : 0) - (bindDown('back') ? 1 : 0)) : 0;
     const s = input ? ((bindDown('right') ? 1 : 0) - (bindDown('left') ? 1 : 0)) : 0;
-    const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
+    const moveYaw = TP_CAM.userMode ? TP_CAM.angle : P.yaw;
+    const sy = Math.sin(moveYaw), cy = Math.cos(moveYaw);
     let wx = -sy * f + cy * s, wz = -cy * f - sy * s;
+    if (TP_CAM.userMode && input && (f !== 0 || s !== 0 || P.dashT > 0 || P.swingT > 0 || P.kickT > 0 || mouseL || mouseR)) {
+      P.yaw = wrapAngle(A.lerpAngle(P.yaw, TP_CAM.angle, Math.min(1, dt * 16)));
+    }
     const wl = Math.hypot(wx, wz);
     if (wl > 1) { wx /= wl; wz /= wl; }
     const spd = P.faithMode > 0 ? 12.5 : 10.5;
@@ -4916,7 +5656,7 @@
     const targetRoll = -strafe * 0.022 * rollK + (P.dead ? 0.6 : 0);
     CAM.roll = damp(CAM.roll, targetRoll, 14, dt);
 
-    const cinemaBossCam = S.cutscene > 0 && (S.csKind === 'maximusIntro' || S.csKind === 'galiusIntro' || S.csKind === 'maximusPhaseTrans' || S.csKind === 'maximusDeath' || S.csKind === 'door');
+    const cinemaBossCam = S.cutscene > 0 && (S.csKind === 'maximusIntro' || S.csKind === 'galiusIntro' || S.csKind === 'maximusPhaseTrans' || S.csKind === 'maximusDeath' || S.csKind === 'door' || S.csKind === 'tomb');
     const tpActive = !cinemaBossCam && isThirdPersonActive();
     updateNivaldo3P();
     if (cinemaBossCam) {
@@ -4932,53 +5672,88 @@
         const bx = b ? b.g.position.x : 0;
         const bz = b ? b.g.position.z : -148;
         const by = b ? b.g.position.y : gy;
-        const push = smooth((S.csT - 1.2) / 3.2);
-        cPos.set(bx + 3.6 - push * 1.4, gy + 4.0 - push * 0.9, bz + 13.0 - push * 3.2);
-        cLook.set(bx, clamp(by + 2.3, gy + 2.3, gy + 18), bz);
+        const t = S.csT;
+        const pfx = -Math.sin(P.yaw), pfz = -Math.cos(P.yaw);
+        const prx = Math.cos(P.yaw), prz = -Math.sin(P.yaw);
+        if (t < 3.4) {
+          const push = smooth((t - 0.8) / 2.6);
+          cPos.set(bx + 4.4 - push * 1.6, gy + 4.2 - push * 1.0, bz + 13.5 - push * 3.8);
+          cLook.set(bx, clamp(by + 2.3, gy + 2.3, gy + 18), bz);
+          shakeMult = 1.2;
+        } else if (t < 6.8) {
+          const u = smooth((t - 3.4) / 3.4);
+          cPos.set(P.pos.x + pfx * (3.1 - u * 0.4) + prx * 1.35, P.pos.y + 2.1, P.pos.z + pfz * (3.1 - u * 0.4) + prz * 1.35);
+          cLook.set(P.pos.x, P.pos.y + 2.05, P.pos.z);
+        } else if (t < 11.6) {
+          const u = smooth((t - 6.8) / 4.2);
+          cPos.set(bx - 3.0 + u * 1.2, gy + 2.3 + u * 0.6, bz + 8.6 - u * 2.2);
+          cLook.set(bx, gy + 2.4, bz);
+          shakeMult = t >= 8.9 ? 1.15 : 0.6;
+        } else {
+          const u = smooth((t - 11.6) / 2.2);
+          cPos.set(P.pos.x + pfx * (2.8 - u * 0.7) - prx * 1.1, P.pos.y + 1.65 + u * 0.35, P.pos.z + pfz * (2.8 - u * 0.7) - prz * 1.1);
+          cLook.set(P.pos.x, P.pos.y + 2.1, P.pos.z);
+          shakeMult = 1.5;
+        }
       } else if (S.csKind === 'maximusPhaseTrans') {
         const bx = b ? b.g.position.x : 0;
         const bz = b ? b.g.position.z : -148;
         const by = b ? b.g.position.y : 0;
-        const push = smooth(S.csT / 2.2);
+        const push = smooth(S.csT / 4.2);
         const yaw = b ? b.yaw : 0;
         const fx = Math.sin(yaw), fz = Math.cos(yaw);
         const rx = fz, rz = -fx;
-        const dist = 6.8 - push * 2.2;
-        cPos.set(bx + fx * dist + rx * (2.2 - push * 1.0), by + 2.1 + push * 0.8, bz + fz * dist + rz * (2.2 - push * 1.0));
+        const dist = 7.4 - push * 2.6;
+        cPos.set(bx + fx * dist + rx * (2.4 - push * 1.2), by + 2.1 + push * 0.9, bz + fz * dist + rz * (2.4 - push * 1.2));
         cLook.set(bx, by + 2.4 + push * 0.7, bz);
         shakeMult = 1.1;
       } else if (S.csKind === 'maximusDeath') {
         const mp = S.maximusPos || { x: 0, y: 0, z: -148 };
         const t = S.csT;
-        if (t < 1.5) {
-          cPos.set(mp.x + 4.8, mp.y + 2.5, mp.z + 4.6);
+        if (t < 2.2) {
+          cPos.set(mp.x + 5.0, mp.y + 2.6, mp.z + 4.8);
           cLook.set((P.pos.x + mp.x) * 0.5, mp.y + 1.2, (P.pos.z + mp.z) * 0.5);
-        } else if (t < 4.0) {
-          const u = smooth((t - 1.5) / 2.2);
-          cPos.set(mp.x - 3.6 + u * 0.6, mp.y + 2.1 + u * 0.8, mp.z + 2.8);
-          cLook.set(mp.x, mp.y + 0.9 + u * 1.1, mp.z);
-        } else if (t < 6.3) {
-          const u = smooth((t - 4.0) / 1.5);
-          cPos.set(mp.x + 2.4 - u * 0.5, mp.y + 2.1, mp.z + 1.6);
+        } else if (t < 7.2) {
+          const u = smooth((t - 2.2) / 4.0);
+          cPos.set(mp.x - 3.8 + u * 0.8, mp.y + 2.1 + u * 0.9, mp.z + 2.9);
+          cLook.set(mp.x, mp.y + 0.9 + u * 1.0, mp.z);
+        } else if (t < 10.5) {
+          const u = smooth((t - 7.2) / 2.2);
+          cPos.set(mp.x + 2.5 - u * 0.6, mp.y + 2.1, mp.z + 1.7);
           cLook.set(P.pos.x, P.pos.y + 1.6, P.pos.z - 0.6);
         } else {
-          const u = smooth((t - 6.3) / 1.4);
-          cPos.set(P.pos.x + 2.6 - u * 0.9, P.pos.y + 1.6 + u * 0.5, P.pos.z - 2.6 + u * 0.5);
+          const u = smooth((t - 10.5) / 2.2);
+          cPos.set(P.pos.x + 2.7 - u * 1.0, P.pos.y + 1.6 + u * 0.5, P.pos.z - 2.7 + u * 0.6);
           cLook.set(P.pos.x, P.pos.y + 2.1, P.pos.z);
           shakeMult = 1.6;
         }
       } else if (S.csKind === 'door') {
-        const u = smooth(S.csT / 1.2);
-        cPos.set(4.2 - u * 1.0, 2.2, -160.2 - u * 2.2);
+        const u = smooth(S.csT / 1.4);
+        cPos.set(4.4 - u * 1.2, 2.2, -160.0 - u * 2.4);
         cLook.set(0, 2.3, -167.2);
         shakeMult = 2.4;
+      } else if (S.csKind === 'tomb') {
+        const u = smooth(S.csT / 9.5);
+        const ang = -0.5 + u * 1.2;
+        cPos.set(-4 + Math.sin(ang) * 5.2, 2.6 + u * 1.0, -86 + Math.cos(ang) * 5.2);
+        cLook.set((P.pos.x - 4) * 0.5, 2.2, (P.pos.z - 86) * 0.5);
+        shakeMult = 0.6;
       } else {
+        const t = S.csT;
         const bx = b ? b.g.position.x : 0;
         const bz = b ? b.g.position.z : -148.2;
         const by = b ? b.g.position.y : 1.85;
-        const roarPush = (b && b.galiusIntro === 'roar') ? smooth((b.galiusIntroT || 0) / 0.5) : 0;
-        cPos.set(-4.6 + roarPush * 2.4, 5.0 - roarPush * 0.5, -128.5 - roarPush * 6.0);
-        cLook.set(bx, clamp(by + 3.4, 4.4, 7.2) + roarPush * 0.6, Math.max(-150, bz));
+        if (t < 8.0) {
+          const roarPush = (b && b.galiusIntro === 'roar') ? smooth((b.galiusIntroT || 0) / 0.65) : 0;
+          cPos.set(-4.8 + roarPush * 2.5, 5.2 - roarPush * 0.6, -128.0 - roarPush * 6.5);
+          cLook.set(bx, clamp(by + 3.4, 4.4, 7.2) + roarPush * 0.6, Math.max(-150, bz));
+        } else {
+          const pfx = -Math.sin(P.yaw), pfz = -Math.cos(P.yaw);
+          const prx = Math.cos(P.yaw), prz = -Math.sin(P.yaw);
+          const u = smooth((t - 8.0) / 2.4);
+          cPos.set(P.pos.x + pfx * (3.0 - u * 0.5) + prx * 1.2, P.pos.y + 1.8 + u * 0.3, P.pos.z + pfz * (3.0 - u * 0.5) + prz * 1.2);
+          cLook.set(P.pos.x, P.pos.y + 2.05, P.pos.z);
+        }
       }
       if (S.csCamStart && arrive < 1) {
         const st = S.csCamStart;
@@ -5015,6 +5790,25 @@
         const desiredZ = TP_CAM.target.z + Math.cos(TP_CAM.angle) * horizDist;
         const desiredY = TP_CAM.target.y + Math.sin(TP_CAM.pitch) * dist;
         TP_CAM.pos.set(desiredX, desiredY, desiredZ);
+      } else if (TP_CAM.userMode) {
+        const shoulderDist = 4.8;
+        const shoulderRight = 1.15;
+        const fx = -Math.sin(TP_CAM.angle);
+        const fz = -Math.cos(TP_CAM.angle);
+        const rx = Math.cos(TP_CAM.angle);
+        const rz = -Math.sin(TP_CAM.angle);
+        const horizDist = Math.cos(TP_CAM.pitch) * shoulderDist;
+        const camOffY = Math.sin(TP_CAM.pitch) * shoulderDist;
+        TP_CAM.target.set(
+          P.pos.x + rx * shoulderRight,
+          P.pos.y + 2.25 + CAM.landDip * bobK * 0.5,
+          P.pos.z + rz * shoulderRight
+        );
+        TP_CAM.pos.set(
+          TP_CAM.target.x - fx * horizDist,
+          TP_CAM.target.y + camOffY,
+          TP_CAM.target.z - fz * horizDist
+        );
       } else {
         const camYaw = P.yaw + 0.58;
         TP_CAM.angle = wrapAngle(A.lerpAngle(TP_CAM.angle, camYaw, Math.min(1, dt * 10)));
@@ -5155,7 +5949,7 @@
     if (S.boss && S.boss.state === 'phaseTrans' && S.cutscene <= 0 && !S.boss._transCamDone) {
       S.boss._transCamDone = true;
       captureCutsceneCamStart();
-      S.cutscene = 3.05;
+      S.cutscene = 5.2;
       S.csKind = 'maximusPhaseTrans';
       S.csT = 0;
       S.cinemaBoss = S.boss;
@@ -5265,6 +6059,7 @@
 
   function initTitleShowcase() {
     clearTitleShowcase();
+    if (SFX.setTrack) SFX.setTrack('title');
     World.updateChunks(TITLE_SHOTS[0].from.x, TITLE_SHOTS[0].from.z, true);
     A.spawnMapPeasants('a1');
     for (const sp of TITLE_SPAWNS) {
@@ -5699,6 +6494,7 @@
     if (e.code === 'F1') { e.preventDefault(); WEAPONS.forEach(w => w.owned = true); P.rocks = 80; P.blood = 100; P.hp = P.maxhp; P.faith = 100; updateSlots(); say('[DEV] Arsenal completo', '', 2); }
     if (e.code === 'F2') { e.preventDefault(); P.god = !P.god; say('[DEV] Modo deus: ' + (P.god ? 'ON' : 'OFF'), '', 2); }
     if (e.code === 'F3') { e.preventDefault(); devClear(); }
+    if (e.code === 'F5') { e.preventDefault(); toggleThirdPerson(); }
   });
   document.addEventListener('keyup', (e) => { keys[e.code] = false; });
   window.addEventListener('blur', () => {
@@ -6297,7 +7093,7 @@
     {
       title: 'ÀS MARGENS DO INFERNO',
       badge: 'ÁREAS 1–3',
-      desc: 'Bairro Alto, Campos da Perdição e Subúrbio Exterior. Recupere sua funda na casinha, pegue a foice nos celeiros e abra caminho até a cidade.',
+      desc: 'Bairro Alto, Campos da Perdição e Subúrbio Exterior. Recupere seu estilingue na casinha, pegue a foice nos celeiros e abra caminho até a cidade.',
       preview: { map: 'a1', pos: [-14, 6.5, 10], look: [-4, 2.2, -32], env: 'hell' },
       data: null
     },
@@ -6312,8 +7108,8 @@
     {
       title: 'A ULTRA-IGREJA',
       badge: 'ÁREA 6',
-      desc: 'Enfrente Maximus no pátio, invada a mega-estrutura, desça às catacumbas e encare Galius, o Super-Ateu criado por Baphomet.',
-      intro: 'ÁREA 6 — A ULTRA-IGREJA. Maximus guarda os portões da Mega-Estrutura.',
+      desc: 'Enfrente Sérgio Maximo no pátio, invada a mega-estrutura, desça às catacumbas e encare Galius, o Super-Ateu criado por Baphomet.',
+      intro: 'ÁREA 6 — A ULTRA-IGREJA. Sérgio Maximo guarda os portões da Mega-Estrutura.',
       preview: { map: 'a6_gate', pos: [0, 9.5, -18], look: [0, 22, -165], env: 'hell' },
       data: { x: 0, z: 10, yaw: 0, stage: 'a5done', objRoom: 'a6_gate', hp: 200, rocks: 50, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4', 'a5'] }
     }
@@ -6457,7 +7253,7 @@
       data: { x: 0, z: 10, yaw: 0, stage: 'a4done', objRoom: 'a5', hp: 200, rocks: 45, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4'] }
     },
     {
-      title: 'Área 6 · Portões da Ultra-Igreja (Maximus)',
+      title: 'Área 6 · Portões da Ultra-Igreja (Sérgio Maximo)',
       meta: 'Ep. 3 · Confronto contra o Líder da Guarda Real',
       badge: 'ÁREA 6',
       data: { x: 0, z: 10, yaw: 0, stage: 'a5done', objRoom: 'a6_gate', hp: 200, rocks: 50, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4', 'a5'] }
@@ -6469,7 +7265,7 @@
       data: { x: 0, z: -8, yaw: 0, stage: 'door', objRoom: 'a6_nave', hp: 200, rocks: 60, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6_gate'] }
     },
     {
-      title: 'Área 6 · Catacumbas de Romulus III',
+      title: 'Área 6 · Catacumbas de Rômulo III',
       meta: 'Ep. 3 · Subsolo em busca da Sacra Cruz Papal',
       badge: 'CRIPTA',
       data: { x: 0, z: -4, yaw: 0, stage: 'crypt', objRoom: 'a6_crypt1', hp: 200, rocks: 60, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6_gate', 'a6_nave', 'a6_galius1'] }

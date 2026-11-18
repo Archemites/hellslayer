@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<title>HELLSLAYER — Beta 1</title>
+<title>CABRUNCO — Beta 1</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -12,13 +12,9 @@
 <!-- ================= HUD ================= -->
 <div id="hud" class="hidden">
   <div id="damage"></div>
+  <div id="healFlash"></div>
   <div id="flash"></div>
   <div id="faithTint"></div>
-
-  <div id="topleft" class="panel">
-    <div id="areaName">EP. 1 · ÁREA 1 · BAIRRO ALTO</div>
-    <div id="objective">—</div>
-  </div>
 
   <div id="topright">
     <canvas id="radar" width="120" height="120"></canvas>
@@ -37,24 +33,61 @@
     <div id="bossTrack"><div id="bossFill"></div></div>
   </div>
 
-  <div id="crosshair"><i></i><i></i></div>
+  <div id="cinemaBars" aria-hidden="true">
+    <div class="cinema-bar top"></div>
+    <div class="cinema-bar bot"></div>
+    <div id="bossTitleCard">
+      <div id="bossTitleMain"></div>
+      <div id="bossTitleSub"></div>
+    </div>
+  </div>
+
+  <div id="fpsCounter" class="hidden">60 FPS</div>
+  <div id="crosshair" class="ch-cross"><i></i><i></i><i></i><i></i></div>
   <div id="hitmarker"></div>
+  <div id="peasantLabels"></div>
 
   <div id="baph" class="hidden"></div>
   <div id="msg" class="hidden"><span id="msgWho"></span><span id="msgText"></span></div>
   <div id="prompt" class="hidden"></div>
 
+  <div id="slots"></div>
+
   <div id="bottom">
-    <div class="panel" id="vitals">
-      <canvas id="face" width="24" height="24"></canvas>
-      <div id="bars">
-        <div class="row"><span class="lbl">VIDA</span><div class="bar"><div id="hpFill"></div><b id="hpNum">200</b></div></div>
-        <div class="row"><span class="lbl">FÉ</span><div class="bar faith"><div id="faithFill"></div><b id="faithTxt">0%</b></div></div>
-        <div class="row"><span class="lbl">DASH</span><div class="bar dash"><div id="dashFill"></div></div></div>
+    <div id="hudLeft">
+      <div id="faceWrap">
+        <canvas id="face" width="32" height="32"></canvas>
+      </div>
+      <div id="vitalsBox">
+        <div class="vital-row vital-hp">
+          <svg class="vital-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M5 1h6v4h4v6h-4v4H5v-4H1V5h4z" fill="#180202"/>
+            <path d="M6 2h4v4h4v4h-4v4H6v-4H2V6h4z" fill="#e62222"/>
+            <path d="M6 2h4v1H6zm-4 4h4v1H2zm8 0h4v1h-4z" fill="#ff7066"/>
+          </svg>
+          <span id="hpNum">200</span>
+        </div>
+        <div class="vital-row vital-armor">
+          <svg class="vital-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4 2h8v2h2v7h-2v3H9v-2H7v2H4v-3H2V4h2z" fill="#0d131a"/>
+            <path d="M5 3h6v2h2v5h-2v3H9v-2H7v2H5v-3H3V5h2z" fill="#88aecf"/>
+            <path d="M5 3h6v2H5zM4 5h8v1H4z" fill="#c2dff7"/>
+            <path d="M4 7h3v1H4zm5 0h3v1H9zM7 6h2v4H7z" fill="#18222d"/>
+          </svg>
+          <span id="armorNum">0</span>
+        </div>
       </div>
     </div>
-    <div id="slots"></div>
-    <div class="panel" id="ammoBox">
+
+    <div id="faithTop">
+      <div class="row faith-row">
+        <span class="lbl">SUPER-FÉ</span>
+        <div class="bar faith"><div id="faithFill"></div><b id="faithTxt">0%</b></div>
+      </div>
+      <div class="bar dash"><div id="dashFill"></div></div>
+    </div>
+
+    <div id="ammoBox">
       <div id="weaponName">PUNHOS</div>
       <div id="ammoNum">∞</div>
       <div id="ammoLabel">—</div>
@@ -69,7 +102,7 @@
   <div class="title-left">
     <div class="title-brand">
       <div class="title-eyebrow">ANO 666 D.S.C. · CAPÍTULO 1 — NOS PORTÕES DO INFERNO</div>
-      <h1 class="logo title-logo">HELLSLAYER</h1>
+      <h1 class="logo title-logo">CABRUNCO</h1>
     </div>
 
     <nav class="title-menu" aria-label="Menu Principal">
@@ -81,6 +114,17 @@
     </nav>
 
     <div id="bestRecord" class="small recordBox"></div>
+  </div>
+
+  <!-- Sub-painel: Seleção de Dificuldade -->
+  <div id="titleDifficultyModal" class="title-modal hidden">
+    <div class="title-modal-card wide-modal">
+      <div class="title-modal-header">SELECIONAR DIFICULDADE</div>
+      <div id="difficultyList" class="save-slots-list"></div>
+      <div class="title-modal-actions">
+        <button id="closeDifficultyBtn" class="menu-btn small-btn">Voltar</button>
+      </div>
+    </div>
   </div>
 
   <!-- Sub-painel: Seleção de Capítulo -->
@@ -131,30 +175,6 @@
     </div>
   </div>
 
-  <!-- Sub-painel: Configurações -->
-  <div id="titleSettingsModal" class="title-modal hidden">
-    <div class="title-modal-card">
-      <div class="title-modal-header">CONFIGURAÇÕES</div>
-      <div class="settingsRow">
-        <label>SENSIBILIDADE <input id="sensSlider" type="range" min="0.3" max="2.5" step="0.1" value="1.0"><span id="sensVal">1.0x</span></label>
-        <label>VOLUME <input id="volSlider" type="range" min="0" max="1" step="0.05" value="0.55"><span id="volVal">55%</span></label>
-        <label>GORE / IMPACTO <input id="goreVolSlider" type="range" min="0" max="1" step="0.05" value="0.55"><span id="goreVolVal">55%</span></label>
-        <label>DURAÇÃO DO GORE <input id="goreDurSlider" type="range" min="1" max="61" step="1" value="20"><span id="goreDurVal">20s</span></label>
-      </div>
-      <div class="controls">
-        <div><b>WASD</b> mover</div><div><b>MOUSE</b> mirar</div>
-        <div><b>CLIQUE ESQ.</b> atacar</div><div><b>BOTÃO DIR.</b> Parry / Golpe Sec. / Recall Cruz</div>
-        <div><b>ESPAÇO</b> pular</div><div><b>SHIFT</b> investida (Dash)</div>
-        <div><b>CTRL / C (no ar)</b> Queda de 450 kg</div><div><b>Q</b> Super-Fé (barra cheia)</div>
-        <div><b>1-7 / RODA</b> armas</div><div><b>E</b> interagir · <b>M</b> mudo · <b>ESC</b> pausa</div>
-      </div>
-      <div class="small">Dica de dev: F1 arsenal completo · F2 modo deus · F3 limpa a sala atual</div>
-      <div class="title-modal-actions">
-        <button id="closeSettingsBtn" class="menu-btn small-btn">Voltar</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Sub-painel: Sair -->
   <div id="titleExitModal" class="title-modal hidden">
     <div class="title-modal-card">
@@ -171,15 +191,639 @@
 </div>
 
 <div id="pause" class="overlay hidden">
-  <div class="card">
+  <div class="pause-card">
     <div class="logo small">PAUSADO</div>
-    <div class="settingsRow">
-      <label>SENSIBILIDADE <input id="sensSliderPause" type="range" min="0.3" max="2.5" step="0.1" value="1.0"></label>
-      <label>VOLUME <input id="volSliderPause" type="range" min="0" max="1" step="0.05" value="0.55"></label>
-      <label>GORE / IMPACTO <input id="goreVolSliderPause" type="range" min="0" max="1" step="0.05" value="0.55"></label>
-      <label>DURAÇÃO DO GORE <input id="goreDurSliderPause" type="range" min="1" max="61" step="1" value="20"><span id="goreDurValPause">20s</span></label>
+    <div class="pause-sub">CAPÍTULO 1 · NOS PORTÕES DO INFERNO</div>
+    <div class="pause-preset-box">
+      <div class="pause-preset-label">QUALIDADE DO JOGO</div>
+      <div class="preset-strip compact" id="pausePresetStrip">
+        <button type="button" class="preset-chip" data-preset="batata">Batata</button>
+        <button type="button" class="preset-chip" data-preset="muito_baixo">M. Baixo</button>
+        <button type="button" class="preset-chip" data-preset="baixo">Baixo</button>
+        <button type="button" class="preset-chip" data-preset="medio">Médio</button>
+        <button type="button" class="preset-chip" data-preset="alto">Alto</button>
+        <button type="button" class="preset-chip" data-preset="muito_alto">M. Alto</button>
+        <button type="button" class="preset-chip" data-preset="ultra">Ultra</button>
+      </div>
     </div>
-    <button id="resumeBtn">▶ CONTINUAR</button>
+    <div class="pause-actions">
+      <button id="resumeBtn" class="menu-btn pause-btn">▶ Continuar</button>
+      <button id="pauseSettingsBtn" class="menu-btn pause-btn">⚙ Configurações Completas</button>
+      <button id="pauseMainMenuBtn" class="menu-btn pause-btn">⌂ Menu Principal</button>
+      <button id="pauseExitBtn" class="menu-btn pause-btn menu-btn-exit">✕ Sair do Jogo</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= DIALOGO DE CONFIGURAÇÕES (VALVE-STYLE) ================= -->
+<div id="optionsModal" class="title-modal options-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="optionsTitle">
+  <div class="valve-dialog">
+    <div class="valve-titlebar">
+      <div class="valve-titlebar-left">
+        <span class="valve-title-icon">⚙</span>
+        <span id="optionsTitle" class="valve-title-text">CONFIGURAÇÕES DO JOGO</span>
+      </div>
+      <button id="optCloseX" class="valve-close-x" type="button" aria-label="Fechar">✕</button>
+    </div>
+
+    <!-- Barra Global de Presets de Qualidade -->
+    <div class="valve-preset-bar">
+      <div class="valve-preset-head">
+        <span class="valve-preset-title">PRESET DE QUALIDADE:</span>
+        <span id="presetActiveBadge" class="valve-preset-badge">ALTO</span>
+      </div>
+      <div class="preset-strip" id="modalPresetStrip">
+        <button type="button" class="preset-chip" data-preset="batata" title="120p · Sem SSAO · Sem Gibs/Poças · Levíssimo">Batata</button>
+        <button type="button" class="preset-chip" data-preset="muito_baixo" title="160p · Sem SSAO · Gore Mínimo">Muito Baixo</button>
+        <button type="button" class="preset-chip" data-preset="baixo" title="216p · Sem SSAO · Gore Reduzido">Baixo</button>
+        <button type="button" class="preset-chip" data-preset="medio" title="270p PS1 · SSAO Baixo · Equilibrado">Médio</button>
+        <button type="button" class="preset-chip" data-preset="alto" title="360p · SSAO Alto · Brasas e Gore Completo">Alto</button>
+        <button type="button" class="preset-chip" data-preset="muito_alto" title="540p HD · SSAO Alto · 150% Partículas e Gore">Muito Alto</button>
+        <button type="button" class="preset-chip" data-preset="ultra" title="720p · SSAO Ultra 16x · Carnificina Infinita">Ultra</button>
+      </div>
+    </div>
+
+    <div class="valve-tabs" role="tablist">
+      <button class="valve-tab active" data-tab="video" role="tab" aria-selected="true" type="button">QUALIDADE &amp; VÍDEO</button>
+      <button class="valve-tab" data-tab="gore" role="tab" aria-selected="false" type="button">SANGUE &amp; EFEITOS</button>
+      <button class="valve-tab" data-tab="game" role="tab" aria-selected="false" type="button">JOGABILIDADE &amp; HUD</button>
+      <button class="valve-tab" data-tab="mouse" role="tab" aria-selected="false" type="button">MOUSE &amp; MIRA</button>
+      <button class="valve-tab" data-tab="audio" role="tab" aria-selected="false" type="button">ÁUDIO</button>
+      <button class="valve-tab" data-tab="keyboard" role="tab" aria-selected="false" type="button">TECLADO</button>
+    </div>
+
+    <div class="valve-body">
+      <!-- ABA 1: QUALIDADE & VÍDEO -->
+      <section class="valve-pane active" data-pane="video">
+        <div class="valve-group-title">PERFIL GRÁFICO &amp; RESOLUÇÃO</div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Predefinição Geral de Qualidade</span>
+            <small>Ajusta automaticamente resolução, iluminação, visão, partículas e gore</small>
+          </div>
+          <div class="valve-ctrl">
+            <select id="optQualityPreset" class="valve-select">
+              <option value="batata">Batata (Ultra Leve)</option>
+              <option value="muito_baixo">Muito Baixo</option>
+              <option value="baixo">Baixo</option>
+              <option value="medio">Médio (PS1 Original)</option>
+              <option value="alto">Alto</option>
+              <option value="muito_alto">Muito Alto</option>
+              <option value="ultra">Ultra (Máximo)</option>
+              <option value="custom">Personalizado</option>
+            </select>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Resolução Interna de Renderização</span>
+            <small>Define a contagem vertical de pixels da cena 3D e do pós-processamento</small>
+          </div>
+          <div class="valve-ctrl">
+            <select id="optResH" class="valve-select">
+              <option value="120">120p (Batata · 213×120)</option>
+              <option value="160">160p (Muito Baixo · 284×160)</option>
+              <option value="216">216p (Baixo · 384×216)</option>
+              <option value="270">270p (Médio PS1 · 480×270)</option>
+              <option value="360">360p (Alto · 640×360)</option>
+              <option value="540">540p (Muito Alto · 960×540)</option>
+              <option value="720">720p (Ultra HD · 1280×720)</option>
+              <option value="1080">1080p (Full HD · 1920×1080)</option>
+            </select>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Distância de Renderização (Chunks)</span>
+            <small>Raio de blocos de 16m ativos ao redor de Nivaldo (congela entidades distantes)</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optRenderDist" type="range" min="2" max="16" step="1" value="10">
+            <span id="optRenderDistVal" class="valve-val">10 ch</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Alcance da Neblina &amp; Horizonte</span>
+            <small>Multiplica a distância da neblina atmosférica e do plano de corte da câmera</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optFogScale" type="range" min="0.5" max="1.8" step="0.05" value="1.0">
+            <span id="optFogScaleVal" class="valve-val">100%</span>
+          </div>
+        </div>
+
+        <div class="valve-divider"></div>
+        <div class="valve-group-title">SOMBREAMENTO, ILUMINAÇÃO &amp; CENÁRIO</div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Oclusão Ambiental (SSAO)</span>
+            <small>Sombras de contato em cantos e frestas baseadas no buffer de profundidade</small>
+          </div>
+          <div class="valve-ctrl">
+            <select id="optSsaoQuality" class="valve-select">
+              <option value="off">Desligado (Mais FPS)</option>
+              <option value="low">Baixo (4 amostras s/ filtro)</option>
+              <option value="med">Médio (8 amostras + filtro)</option>
+              <option value="high">Alto (12 amostras + filtro)</option>
+              <option value="ultra">Ultra (16 amostras + raio amplo)</option>
+            </select>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Qualidade de Iluminação Dinâmica</span>
+            <small>Controla luz pontual do jogador, sol direcional, relâmpagos e clarões</small>
+          </div>
+          <div class="valve-ctrl">
+            <select id="optLighting" class="valve-select">
+              <option value="min">Mínima (Apenas Luz Ambiente)</option>
+              <option value="low">Baixa (Sol + Ambiente, s/ Luz Ponto)</option>
+              <option value="med">Média (Luz do Jogador + Sol)</option>
+              <option value="high">Alta (Dinâmica + Relâmpagos)</option>
+              <option value="ultra">Ultra (Intensa + Alcance Estendido)</option>
+            </select>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Detalhes do Mundo &amp; Chamas</span>
+            <small>Controla horizonte externo, animação de tochas/fogueiras e fagulhas no ar</small>
+          </div>
+          <div class="valve-ctrl">
+            <select id="optWorldDetail" class="valve-select">
+              <option value="min">Mínimo (Sem Chamas e Sem Horizonte)</option>
+              <option value="low">Baixo (Chamas Estáticas, s/ Horizonte)</option>
+              <option value="med">Médio (Chamas Animadas + Horizonte)</option>
+              <option value="high">Alto (Completo + Brasas Voadoras)</option>
+              <option value="ultra">Ultra (Máximo + Chuva de Fagulhas)</option>
+            </select>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Sombras dos Personagens no Chão</span>
+            <small>Projeta sombras circulares abaixo de demônios, voadores e camponeses</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optBlobShadows" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+
+        <div class="valve-divider"></div>
+        <div class="valve-group-title">ESTÉTICA RETRÔ PS1 &amp; TAXA DE QUADROS</div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Tremor de Vértices PS1 (Vertex Jitter)</span>
+            <small>Intensidade do encaixe de polígonos na grade de pixels do PlayStation 1</small>
+          </div>
+          <div class="valve-ctrl">
+            <select id="optPsxJitter" class="valve-select">
+              <option value="off">Desligado (Geometria 3D Estável)</option>
+              <option value="soft">Suave (Discreto)</option>
+              <option value="normal">Clássico PS1 (Original)</option>
+              <option value="extreme">Extremo (Batata / Intenso)</option>
+            </select>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Filtragem de Texturas</span>
+            <small>Pixelado preserva os texels crocantes; Suavizado aplica filtro bilinear</small>
+          </div>
+          <div class="valve-ctrl">
+            <select id="optTexFilter" class="valve-select">
+              <option value="nearest">Pixelado (Nearest · PS1)</option>
+              <option value="linear">Suavizado (Bilinear)</option>
+            </select>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Escalonamento Nítido da Tela (Pixelated Canvas)</span>
+            <small>Mantém os pixels definidos ao esticar para a resolução do monitor</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optPixelatedCanvas" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Tipo de Sangue</span>
+            <small>Realista quebra o sangue em milhares de gotículas com jatos contínuos e respingos (mais pesado). O volume segue Qualidade de Gore e Multiplicador de Partículas.</small>
+          </div>
+          <div class="valve-ctrl">
+            <select id="optBloodMode" class="valve-select">
+              <option value="simple">Sangue Simples</option>
+              <option value="realistic">Sangue Realista</option>
+            </select>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Campo de Visão (FOV)</span>
+            <small>Ângulo de visão horizontal da câmera em primeira pessoa (padrão: 75°)</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optFov" type="range" min="60" max="110" step="1" value="75">
+            <span id="optFovVal" class="valve-val">75°</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Limite de Taxa de Quadros (FPS Cap)</span>
+            <small>Restringe o máximo de quadros por segundo para economizar energia/GPU</small>
+          </div>
+          <div class="valve-ctrl">
+            <select id="optFpsCap" class="valve-select">
+              <option value="0">Ilimitado (Taxa Nativa)</option>
+              <option value="120">120 FPS</option>
+              <option value="60">60 FPS</option>
+              <option value="30">30 FPS (Cinematográfico / Leve)</option>
+            </select>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Modo de Exibição</span>
+            <small>Alterna entre tela cheia e janela</small>
+          </div>
+          <div class="valve-ctrl">
+            <button id="optFullscreenBtn" class="valve-mini-btn" type="button">Alternar Tela Cheia</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA 2: SANGUE, GORE & EFEITOS -->
+      <section class="valve-pane" data-pane="gore">
+        <div class="valve-group-title">SISTEMA DE GORE, VÍSCERAS &amp; PARTÍCULAS</div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Qualidade e Densidade de Gore</span>
+            <small>Controla a quantidade máxima de pedaços de carne, ossos e poças de sangue</small>
+          </div>
+          <div class="valve-ctrl">
+            <select id="optGoreQuality" class="valve-select">
+              <option value="min">Mínimo (Sem Pedaços/Poças)</option>
+              <option value="very_low">Muito Baixo (20%)</option>
+              <option value="low">Baixo (45%)</option>
+              <option value="med">Médio (75%)</option>
+              <option value="high">Alto (100% Padrão)</option>
+              <option value="very_high">Muito Alto (150% Brutal)</option>
+              <option value="ultra">Ultra (220% Carnificina Total)</option>
+            </select>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Multiplicador de Partículas</span>
+            <small>Escala a quantidade de faíscas, escombros, jatos de sangue e fumaça</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optParticleScale" type="range" min="0.15" max="2.2" step="0.05" value="1.0">
+            <span id="optParticleScaleVal" class="valve-val">100%</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Escala &amp; Impacto das Poças de Sangue</span>
+            <small>Tamanho das manchas de sangue e multiplicador de persistência no chão</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optGoreImpact" type="range" min="0" max="1" step="0.05" value="0.55">
+            <span id="optGoreImpactVal" class="valve-val">55%</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Duração do Gore no Chão</span>
+            <small>Tempo que membros decepados e vísceras permanecem antes de desaparecer</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optGoreDur" type="range" min="1" max="61" step="1" value="20">
+            <span id="optGoreDurVal" class="valve-val">20s</span>
+          </div>
+        </div>
+
+        <div class="valve-divider"></div>
+        <div class="valve-group-title">DETALHES ANATÔMICOS DE COMBATE</div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Desmembramento e Decapitação de Inimigos</span>
+            <small>Permite arrancar braços, pernas, asas e cabeças com golpes localizados</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optDismember" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Sangramento Arterial Contínuo nos Cotos</span>
+            <small>Inimigos com membros amputados continuam jorrando sangue enquanto andam</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optBleedJoints" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Rastro de Gotas nos Pedaços em Voo</span>
+            <small>Pedaços de carne e membros arremessados pingam sangue pelo ar</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optGibDrips" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA 3: JOGABILIDADE & HUD -->
+      <section class="valve-pane" data-pane="game">
+        <div class="valve-group-title">MOVIMENTO DE CÂMERA &amp; SENSAÇÃO DE IMPACTO</div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Balanço da Câmera ao Caminhar (View Bob)</span>
+            <small>Oscilação vertical e horizontal da visão durante a corrida</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optBob" type="range" min="0" max="1.5" step="0.05" value="1.0">
+            <span id="optBobVal" class="valve-val">100%</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Inclinação Lateral ao Estrafar (Strafe Roll)</span>
+            <small>Inclinação da câmera ao mover-se para a esquerda ou direita</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optRoll" type="range" min="0" max="1.5" step="0.05" value="1.0">
+            <span id="optRollVal" class="valve-val">100%</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Tremor de Tela (Screen Shake)</span>
+            <small>Intensidade dos tremores em explosões, marretadas, quedas e rugidos</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optShake" type="range" min="0" max="2.0" step="0.05" value="1.0">
+            <span id="optShakeVal" class="valve-val">100%</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Congelamento de Impacto (Hitstop)</span>
+            <small>Micro-pausa dramática ao acertar golpes pesados, parries e esmagamentos</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optHitstop" type="range" min="0" max="1.5" step="0.05" value="1.0">
+            <span id="optHitstopVal" class="valve-val">100%</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Balanço das Armas na Mão (Viewmodel Bob)</span>
+            <small>Movimento dos braços e armas em primeira pessoa ao andar</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optVmBob" type="range" min="0" max="1.5" step="0.05" value="1.0">
+            <span id="optVmBobVal" class="valve-val">100%</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Intensidade de Flashes na Tela</span>
+            <small>Opacidade dos clarões de dano recebido, cura, parry e Super-Fé</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optScreenFlash" type="range" min="0" max="1.0" step="0.05" value="1.0">
+            <span id="optScreenFlashVal" class="valve-val">100%</span>
+          </div>
+        </div>
+
+        <div class="valve-divider"></div>
+        <div class="valve-group-title">ELEMENTOS DA INTERFACE (HUD) &amp; IMERSÃO</div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Exibir Braços e Armas em 1ª Pessoa</span>
+            <small>Mostra o modelo 3D da arma equipada na parte inferior da tela</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optShowVM" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Exibir Radar no HUD</span>
+            <small>Mostra o minimapa tático com inimigos, camponeses e objetivos</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optShowRadar" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Exibir Retrato do Nivaldo no HUD</span>
+            <small>Mostra o rosto reagindo à vida e à Super-Fé no painel inferior</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optShowFace" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Exibir Medidor de Estilo e Rank</span>
+            <small>Mostra a barra de rank de combate abaixo do contador de chacina</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optShowStyle" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Provocações de Combate do Nivaldo (Quips)</span>
+            <small>Frases automáticas do Nivaldo ao esmagar demônios</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optQuips" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Balões de Agradecimento dos Camponeses</span>
+            <small>Exibe "Obrigado Nivaldo!" acima dos sobreviventes resgatados</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optPeasantLabels" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Contador de FPS &amp; Info Gráfica</span>
+            <small>Exibe a taxa de quadros, resolução atual e preset no topo da tela</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optShowFps" type="checkbox"><span>Ativado</span></label>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA 4: MOUSE & MIRA -->
+      <section class="valve-pane" data-pane="mouse">
+        <div class="valve-group-title">CONTROLE DO MOUSE</div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Sensibilidade do Mouse</span>
+            <small>Multiplicador de velocidade de rotação da câmera e setas direcionais</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optSens" type="range" min="0.2" max="3.5" step="0.05" value="1.0">
+            <span id="optSensVal" class="valve-val">1.00x</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Inverter Eixo Vertical (Eixo Y)</span>
+            <small>Mover o mouse para frente olha para baixo (estilo aviação/clássico)</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optInvertY" type="checkbox"><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Entrada Bruta do Mouse (Raw Input)</span>
+            <small>Ignora aceleração de ponteiro do sistema operacional quando suportado</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optRawInput" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+
+        <div class="valve-divider"></div>
+        <div class="valve-group-title">MIRA (CROSSHAIR) &amp; CONFIRMAÇÃO DE ACERTO</div>
+        <div class="valve-crosshair-layout">
+          <div class="valve-crosshair-preview-box">
+            <div id="crosshairPreview" class="ch-cross"><i></i><i></i><i></i><i></i></div>
+            <span>PRÉVIA</span>
+          </div>
+          <div class="valve-crosshair-fields">
+            <div class="valve-row compact">
+              <div class="valve-label"><span>Estilo</span></div>
+              <div class="valve-ctrl">
+                <select id="optChStyle" class="valve-select">
+                  <option value="cross">Cruz Clássica</option>
+                  <option value="open">Cruz Aberta</option>
+                  <option value="dot">Ponto Central</option>
+                  <option value="hidden">Oculta</option>
+                </select>
+              </div>
+            </div>
+            <div class="valve-row compact">
+              <div class="valve-label"><span>Cor</span></div>
+              <div class="valve-ctrl">
+                <select id="optChColor" class="valve-select">
+                  <option value="#ffd24a">Ouro Sagrado</option>
+                  <option value="#ff3a2a">Sangue Infernal</option>
+                  <option value="#4aff7a">Verde Tático</option>
+                  <option value="#4ad8ff">Ciano</option>
+                  <option value="#ffffff">Branco</option>
+                </select>
+              </div>
+            </div>
+            <div class="valve-row compact">
+              <div class="valve-label"><span>Tamanho</span></div>
+              <div class="valve-ctrl">
+                <input id="optChSize" type="range" min="0.5" max="2.0" step="0.1" value="1.0">
+                <span id="optChSizeVal" class="valve-val">1.0x</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Exibir Indicador de Acerto (Hitmarker)</span>
+            <small>Mostra o "X" vermelho no centro da mira ao atingir inimigos</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optShowHitmarker" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA 5: ÁUDIO -->
+      <section class="valve-pane" data-pane="audio">
+        <div class="valve-group-title">MIXAGEM DE ÁUDIO</div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Volume Geral (Master)</span>
+            <small>Controla o volume mestre de todos os efeitos sonoros e música</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optVol" type="range" min="0" max="1" step="0.05" value="0.55">
+            <span id="optVolVal" class="valve-val">55%</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Volume da Música</span>
+            <small>Trilha sonora procedural dinâmica durante a exploração e combate</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optMusicVol" type="range" min="0" max="1" step="0.05" value="0.50">
+            <span id="optMusicVolVal" class="valve-val">50%</span>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Volume de Gore &amp; Impactos</span>
+            <small>Volume dos efeitos de pancada, cortes, explosões de carne e sangue</small>
+          </div>
+          <div class="valve-ctrl">
+            <input id="optGoreVol" type="range" min="0" max="1" step="0.05" value="0.55">
+            <span id="optGoreVolVal" class="valve-val">55%</span>
+          </div>
+        </div>
+        <div class="valve-divider"></div>
+        <div class="valve-group-title">VOZES &amp; MUDO</div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Gritos de Demônios e Camponeses</span>
+            <small>Ativa os gritos sintetizados ao eliminar inimigos ou quando aliados fogem</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optScreams" type="checkbox" checked><span>Ativado</span></label>
+          </div>
+        </div>
+        <div class="valve-row">
+          <div class="valve-label">
+            <span>Silenciar Todo o Áudio (Mudo)</span>
+            <small>Desativa temporariamente todo o som do jogo</small>
+          </div>
+          <div class="valve-ctrl">
+            <label class="valve-check"><input id="optMuted" type="checkbox"><span>Ativado</span></label>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABA 6: TECLADO -->
+      <section class="valve-pane" data-pane="keyboard">
+        <div class="valve-group-title">ATALHOS DE TECLADO · CLIQUE EM UMA AÇÃO PARA REDEFINIR</div>
+        <div class="valve-binds-table" id="valveBindsList"></div>
+        <div class="valve-binds-hint">
+          <div><b>CLIQUE ESQ.</b> Atacar · <b>BOTÃO DIR.</b> Golpe Sec. / Recall Cruz · <b>1–7 / RODA</b> Trocar Arma · <b>ESC</b> Pausa</div>
+          <div class="dev-hint">Dev: <b>F1</b> Arsenal completo · <b>F2</b> Modo Deus · <b>F3</b> Limpar sala atual</div>
+        </div>
+      </section>
+    </div>
+
+    <div class="valve-footer">
+      <button id="optDefaultsBtn" class="valve-btn secondary" type="button">Restaurar Padrões</button>
+      <div class="valve-footer-right">
+        <button id="optOkBtn" class="valve-btn primary" type="button">OK</button>
+        <button id="optCancelBtn" class="valve-btn" type="button">Cancelar</button>
+        <button id="optApplyBtn" class="valve-btn" type="button" disabled>Aplicar</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -215,8 +859,11 @@
 
 <script src="vendor/three.min.js"></script>
 <script src="js/textures.js"></script>
+<script src="js/thrash.js"></script>
 <script src="js/audio.js"></script>
+<script src="js/realblood.js"></script>
 <script src="js/models.js"></script>
+<script src="js/bloodstain.js"></script>
 <script src="js/level.js"></script>
 <script src="js/game.js"></script>
 <script src="js/game2.js"></script>

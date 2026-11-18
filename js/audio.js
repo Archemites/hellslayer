@@ -3,14 +3,16 @@
    HELLSLAYER - áudio 100% procedural (WebAudio)
    ============================================================ */
 const SFX = (() => {
-  let ctx = null, master = null, noiseBuf = null, muted = false, userVol = 0.55, goreVol = 0.55;
-  let intensity = 0, step = 0, nextT = 0, timer = null, musicVol = null;
+  let ctx = null, master = null, noiseBuf = null, muted = false, userVol = 0.55, goreVol = 0.55, userMusicVol = 0.5, screamsEnabled = true;
+  let musicCtx = null, musicMaster = null, schedWorker = null;
+  let intensity = 0, step = 0, nextT = 0, timer = null;
   const SAMPLE_URLS = {
     gore0: 'soundeffect/gore/gore-explode.mp3',
     gore1: 'soundeffect/gore/gore-gush.mp3',
     hitGeneral: 'soundeffect/impact/generalimpact/body-impact.mp3',
     hitCut: 'soundeffect/impact/cutimpact/knife-cut.mp3',
-    hitCross: 'soundeffect/impact/crossimpact/stab-2.mp3'
+    hitCross: 'soundeffect/impact/crossimpact/stab-2.mp3',
+    lowlifeHeartbeat: 'soundeffect/lowlife/single-heatbeat.mp3'
   };
   // Ganhos calibrados pelo RMS ativo de cada arquivo para equalizar gore e impacto
   const SAMPLE_GAIN = {
@@ -18,7 +20,8 @@ const SFX = (() => {
     gore1: 0.48,
     hitGeneral: 1.00,
     hitCut: 0.88,
-    hitCross: 0.70
+    hitCross: 0.70,
+    lowlifeHeartbeat: 0.90
   };
   const sampleBufs = {};
   const sampleEls = {};
@@ -34,10 +37,11 @@ const SFX = (() => {
     }).catch(() => {});
   }
 
-  function playSample(k, rate, vol) {
-    if (goreVol <= 0.001) return true;
+  function playSample(k, rate, vol, useGoreVol) {
+    const applyGore = useGoreVol !== false;
+    if (applyGore && goreVol <= 0.001) return true;
     const baseGain = SAMPLE_GAIN[k] == null ? 1 : SAMPLE_GAIN[k];
-    const effVol = baseGain * (vol == null ? 1 : vol) * goreVol;
+    const effVol = baseGain * (vol == null ? 1 : vol) * (applyGore ? goreVol : 1);
     const buf = sampleBufs[k];
     if (ctx && buf) {
       const s = ctx.createBufferSource();
@@ -63,23 +67,61 @@ const SFX = (() => {
     return false;
   }
 
+  function updateMusicGain() {
+    if (musicMaster) musicMaster.gain.value = muted ? 0 : userVol * userMusicVol;
+  }
+
+  function startMusicScheduler() {
+    if (schedWorker || timer) return;
+    try {
+      const code = 'setInterval(function(){postMessage(1);},40);';
+      const blob = new Blob([code], { type: 'application/javascript' });
+      const url = URL.createObjectURL(blob);
+      schedWorker = new Worker(url);
+      URL.revokeObjectURL(url);
+      schedWorker.onmessage = sched;
+      sched();
+      return;
+    } catch (e) {
+      schedWorker = null;
+    }
+    timer = setInterval(sched, 40);
+    sched();
+  }
+
   function init() {
-    if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
+    if (ctx) {
+      if (ctx.state === 'suspended') ctx.resume();
+      if (musicCtx && musicCtx.state === 'suspended') musicCtx.resume();
+      return;
+    }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     ctx = new AC();
     master = ctx.createGain();
     master.gain.value = muted ? 0 : userVol;
     master.connect(ctx.destination);
-    musicVol = ctx.createGain();
-    musicVol.gain.value = 0.5;
-    musicVol.connect(master);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     for (const k in SAMPLE_URLS) loadSample(k, SAMPLE_URLS[k]);
-    nextT = ctx.currentTime + 0.1;
-    timer = setInterval(sched, 90);
+
+    // Contexto dedicado para música com buffer de playback, isolado de picos de SFX e gargalos de render
+    try {
+      musicCtx = new AC({ latencyHint: 'playback' });
+    } catch (e) {
+      musicCtx = new AC();
+    }
+    musicMaster = musicCtx.createGain();
+    updateMusicGain();
+    musicMaster.connect(musicCtx.destination);
+    const musicNoiseBuf = musicCtx.createBuffer(1, musicCtx.sampleRate, musicCtx.sampleRate);
+    const md = musicNoiseBuf.getChannelData(0);
+    for (let i = 0; i < md.length; i++) md[i] = Math.random() * 2 - 1;
+
+    if (window.ThrashMusic) window.ThrashMusic.init(musicCtx, musicMaster, musicNoiseBuf);
+    nextT = musicCtx.currentTime + 0.1;
+    startMusicScheduler();
   }
 
   function tone(f, dur, type, vol, slideTo, delay, dest) {
@@ -110,7 +152,7 @@ const SFX = (() => {
   }
 
   function vocalScream(pitch) {
-    if (!ctx) return;
+    if (!ctx || !screamsEnabled) return;
     const p = (pitch || 1) * (0.9 + Math.random() * 0.2);
     const t = ctx.currentTime;
     const dur = (pitch < 0.7 ? 0.65 : 0.45) + Math.random() * 0.16;
@@ -162,53 +204,12 @@ const SFX = (() => {
   }
 
   // ---------- música ----------
-  const BASS = [82.4, 0, 82.4, 0, 82.4, 87.3, 0, 82.4, 98, 0, 82.4, 0, 116.5, 98, 87.3, 0];
-  const LEAD = [329.6, 0, 0, 311, 0, 329.6, 0, 392, 0, 0, 349.2, 0, 311, 0, 293.7, 0];
-
-  function playStep(s, t) {
-    const vol = 0.14;
-    if (BASS[s]) {
-      const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
-      o.type = 'sawtooth'; o.frequency.value = BASS[s];
-      f.type = 'lowpass'; f.frequency.value = 380 + intensity * 500;
-      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-      o.connect(f); f.connect(g); g.connect(musicVol);
-      o.start(t); o.stop(t + 0.22);
-    }
-    if (s % 4 === 0) {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'sine'; o.frequency.setValueAtTime(130, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.15);
-      g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-      o.connect(g); g.connect(musicVol); o.start(t); o.stop(t + 0.2);
-    }
-    if (s % 8 === 4) {
-      const sn = ctx.createBufferSource(); sn.buffer = noiseBuf;
-      const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 1500;
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.18, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-      sn.connect(f); f.connect(g); g.connect(musicVol); sn.start(t); sn.stop(t + 0.14);
-    }
-    if (intensity > 0.3 && s % 2 === 1) {
-      const sn = ctx.createBufferSource(); sn.buffer = noiseBuf;
-      const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 6000;
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
-      sn.connect(f); f.connect(g); g.connect(musicVol); sn.start(t); sn.stop(t + 0.05);
-    }
-    if (intensity > 0.6 && LEAD[s]) {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'square'; o.frequency.value = LEAD[s];
-      g.gain.setValueAtTime(0.045, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-      o.connect(g); g.connect(musicVol); o.start(t); o.stop(t + 0.2);
-    }
-  }
-
   function sched() {
-    if (!ctx || muted) { if (ctx) nextT = ctx.currentTime + 0.1; return; }
-    const bpm = 140 + intensity * 30;
-    while (nextT < ctx.currentTime + 0.25) {
-      playStep(step, nextT);
-      nextT += 60 / bpm / 4;
-      step = (step + 1) % 16;
+    if (window.ThrashMusic) {
+      window.ThrashMusic.sched(intensity, muted);
+      return;
     }
+    if (!ctx || muted) { if (ctx) nextT = ctx.currentTime + 0.1; }
   }
 
   // ---------- efeitos ----------
@@ -246,6 +247,14 @@ const SFX = (() => {
         tone(75, 0.42, 'square', 0.32 * goreVol, 28);
       }
     },
+    gore(kind) {
+      const k = kind === 'explode' ? 'gore0' : kind === 'gush' ? 'gore1' : (Math.random() < 0.5 ? 'gore0' : 'gore1');
+      const rate = 0.8 + Math.random() * 0.25;
+      if (!playSample(k, rate, 1.0)) {
+        noise(0.35, 0.55 * goreVol, 650, 0, 'lowpass', 80);
+        noise(0.22, 0.32 * goreVol, 1700, 0.02, 'bandpass', 400);
+      }
+    },
     scream(p) { vocalScream(p); },
     hurt() { tone(220, 0.2, 'sawtooth', 0.4, 80); noise(0.15, 0.35, 700, 0, 'lowpass'); },
     pickup() { tone(660, 0.08, 'square', 0.15); tone(990, 0.12, 'square', 0.15, null, 0.07); },
@@ -261,6 +270,11 @@ const SFX = (() => {
     ui() { tone(520, 0.06, 'square', 0.12); },
     faith() { tone(220, 0.8, 'triangle', 0.3, 880); tone(330, 0.8, 'triangle', 0.25, 1320); noise(0.5, 0.15, 3000, 0, 'highpass'); },
     heart() { tone(60, 0.18, 'sine', 0.6, 40); tone(60, 0.18, 'sine', 0.5, 40, 0.22); },
+    lowlifeHeartbeat(vol) {
+      if (!playSample('lowlifeHeartbeat', 1, vol == null ? 1 : vol, false)) {
+        tone(58, 0.16, 'sine', 0.55 * (vol == null ? 1 : vol), 36);
+      }
+    },
     portal() { tone(200, 1.6, 'sine', 0.3, 900); tone(300, 1.6, 'triangle', 0.2, 1200); },
     shock() { tone(100, 0.5, 'sawtooth', 0.4, 30); noise(0.5, 0.5, 500, 0, 'lowpass', 60); },
     ghost() { tone(300, 1.2, 'sine', 0.2, 200); tone(450, 1.2, 'sine', 0.15, 300); },
@@ -279,11 +293,19 @@ const SFX = (() => {
 
   function play(name, arg) { if (ctx && !muted && FX[name]) FX[name](arg); }
   function setIntensity(v) { intensity = v; }
-  function toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : userVol; return muted; }
-  function setVolume(v) { userVol = Math.max(0, Math.min(1, v)); if (master && !muted) master.gain.value = userVol; }
+  function setTrack(id) { if (window.ThrashMusic && window.ThrashMusic.setTrack) window.ThrashMusic.setTrack(id); }
+  function getTrack() { return (window.ThrashMusic && window.ThrashMusic.getTrack) ? window.ThrashMusic.getTrack() : null; }
+  function toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : userVol; updateMusicGain(); return muted; }
+  function setMuted(on) { muted = !!on; if (master) master.gain.value = muted ? 0 : userVol; updateMusicGain(); return muted; }
+  function isMuted() { return muted; }
+  function setVolume(v) { userVol = Math.max(0, Math.min(1, v)); if (master && !muted) master.gain.value = userVol; updateMusicGain(); }
   function getVolume() { return userVol; }
+  function setMusicVolume(v) { userMusicVol = Math.max(0, Math.min(1, v)); updateMusicGain(); }
+  function getMusicVolume() { return userMusicVol; }
   function setGoreVolume(v) { goreVol = Math.max(0, Math.min(1, v)); }
   function getGoreVolume() { return goreVol; }
+  function setScreams(on) { screamsEnabled = !!on; }
+  function getScreams() { return screamsEnabled; }
 
-  return { init, play, setIntensity, toggleMute, setVolume, getVolume, setGoreVolume, getGoreVolume };
+  return { init, play, setIntensity, setTrack, getTrack, toggleMute, setMuted, isMuted, setVolume, getVolume, setMusicVolume, getMusicVolume, setGoreVolume, getGoreVolume, setScreams, getScreams };
 })();

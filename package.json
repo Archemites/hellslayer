@@ -1,7 +1,7 @@
 {
   "name": "hellslayer",
   "version": "0.1.0",
-  "description": "HELLSLAYER — Beta 1",
+  "description": "CABRUNCO — Beta 1",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
@@ -9,7 +9,7 @@
   },
   "build": {
     "appId": "com.hellslayer.game",
-    "productName": "HELLSLAYER",
+    "productName": "CABRUNCO",
     "directories": {
       "output": "dist"
     },

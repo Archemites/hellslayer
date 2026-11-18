@@ -1,16 +1,156 @@
 'use strict';
 /* ============================================================
-   HELLSLAYER - construção dos mapas separados (Beta 1+)
+   HELLSLAYER - construção dos mapas separados (Beta 1+) + Sistema de Chunks
    Convenção: "frente" = -Z.  hall(x1,z1,x2,z2): x1<x2, z1<z2
    ============================================================ */
+const CHUNK_SIZE = 16;
+
 const World = {
+  CHUNK_SIZE,
+  renderChunks: 8,
+  viewerX: 0, viewerZ: 0,
+  viewerChunkX: 0, viewerChunkZ: 0,
+  _lastRenderChunks: -1,
+  chunks: new Map(),
   scene: null, group: null, currentMap: 'a1',
-  colliders: [], triggers: [], gates: {}, flames: [], anim: [], meshes: [],
+  colliders: [], dynamicColliders: [], colliderGrid: new Map(), _queryStamp: 0,
+  triggers: [], gates: {}, flames: [], anim: [], meshes: [],
+  distantMeshes: [], detailMode: 'high', onFlameEmber: null,
   terrainY: null, terrainBaseFn: null, pads: [], pendingFloors: [],
   exitGate: null, breakWall: null, hatch: null, altar: null, portal: null,
   altarCross: null, ghost: null, crossPickup: null, doorMesh: null, skyPortal: null,
   addTrigger(t) {
     World.triggers.push(Object.assign({ active: true, once: true, triggered: false }, t));
+  },
+  toChunk(v) {
+    return Math.floor(v / CHUNK_SIZE);
+  },
+  chunkKey(cx, cz) {
+    return cx + ',' + cz;
+  },
+  isChunkInRender(cx, cz) {
+    const R = World.renderChunks || 8;
+    const dx = cx - World.viewerChunkX;
+    const dz = cz - World.viewerChunkZ;
+    return Math.abs(dx) <= R && Math.abs(dz) <= R && (dx * dx + dz * dz) <= (R + 0.45) * (R + 0.45);
+  },
+  isPosInRender(x, z) {
+    return World.isChunkInRender(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE));
+  },
+  getChunk(cx, cz) {
+    const key = cx + ',' + cz;
+    let ch = World.chunks.get(key);
+    if (!ch) {
+      const grp = new THREE.Group();
+      const active = World.isChunkInRender(cx, cz);
+      grp.visible = active;
+      if (World.group || World.scene) (World.group || World.scene).add(grp);
+      ch = { cx, cz, key, group: grp, objects: [], active };
+      World.chunks.set(key, ch);
+    }
+    return ch;
+  },
+  getChunkAt(x, z) {
+    return World.getChunk(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE));
+  },
+  setRenderDistance(chunks) {
+    const n = Number(chunks);
+    World.renderChunks = Number.isFinite(n) ? Math.max(2, Math.min(16, Math.round(n))) : 8;
+    World.updateChunks(World.viewerX || 0, World.viewerZ || 0, true);
+  },
+  updateChunks(vx, vz, force) {
+    World.viewerX = vx;
+    World.viewerZ = vz;
+    const vcx = Math.floor(vx / CHUNK_SIZE);
+    const vcz = Math.floor(vz / CHUNK_SIZE);
+    if (!force && vcx === World.viewerChunkX && vcz === World.viewerChunkZ && World._lastRenderChunks === World.renderChunks) {
+      return false;
+    }
+    World.viewerChunkX = vcx;
+    World.viewerChunkZ = vcz;
+    World._lastRenderChunks = World.renderChunks;
+    for (const ch of World.chunks.values()) {
+      const vis = World.isChunkInRender(ch.cx, ch.cz);
+      if (ch.active !== vis) {
+        ch.active = vis;
+        ch.group.visible = vis;
+        if (vis) {
+          for (let i = 0; i < ch.objects.length; i++) {
+            const o = ch.objects[i];
+            if (o.userData && o.userData.savedPos && !o.userData.dynamicPos) {
+              o.position.copy(o.userData.savedPos);
+            }
+          }
+        } else {
+          for (let i = 0; i < ch.objects.length; i++) {
+            const o = ch.objects[i];
+            if (o.userData && !o.userData.dynamicPos) {
+              if (!o.userData.savedPos) o.userData.savedPos = o.position.clone();
+              else o.userData.savedPos.copy(o.position);
+            }
+          }
+        }
+      } else {
+        ch.group.visible = vis;
+      }
+    }
+    return true;
+  },
+  rebuildColliderGrid() {
+    World.colliderGrid.clear();
+    World.dynamicColliders.length = 0;
+    const cs = World.colliders;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i];
+      if (!c) continue;
+      c._qStamp = 0;
+      if (c._dyn) {
+        World.dynamicColliders.push(c);
+        continue;
+      }
+      const cMinX = Math.floor(c.x1 / CHUNK_SIZE);
+      const cMaxX = Math.floor(c.x2 / CHUNK_SIZE);
+      const cMinZ = Math.floor(c.z1 / CHUNK_SIZE);
+      const cMaxZ = Math.floor(c.z2 / CHUNK_SIZE);
+      for (let cx = cMinX; cx <= cMaxX; cx++) {
+        for (let cz = cMinZ; cz <= cMaxZ; cz++) {
+          const k = cx + ',' + cz;
+          let bucket = World.colliderGrid.get(k);
+          if (!bucket) { bucket = []; World.colliderGrid.set(k, bucket); }
+          bucket.push(c);
+        }
+      }
+    }
+  },
+  queryColliders(minX, minZ, maxX, maxZ, out) {
+    out.length = 0;
+    const stamp = ++World._queryStamp;
+    const cMinX = Math.floor(minX / CHUNK_SIZE);
+    const cMaxX = Math.floor(maxX / CHUNK_SIZE);
+    const cMinZ = Math.floor(minZ / CHUNK_SIZE);
+    const cMaxZ = Math.floor(maxZ / CHUNK_SIZE);
+    for (let cx = cMinX; cx <= cMaxX; cx++) {
+      for (let cz = cMinZ; cz <= cMaxZ; cz++) {
+        const bucket = World.colliderGrid.get(cx + ',' + cz);
+        if (!bucket) continue;
+        for (let i = 0; i < bucket.length; i++) {
+          const c = bucket[i];
+          if (c._qStamp !== stamp) {
+            c._qStamp = stamp;
+            out.push(c);
+          }
+        }
+      }
+    }
+    const dyn = World.dynamicColliders;
+    for (let i = 0; i < dyn.length; i++) {
+      const c = dyn[i];
+      if (c._qStamp !== stamp) {
+        c._qStamp = stamp;
+        out.push(c);
+      }
+    }
+    return out;
   }
 };
 window.CHAPTERS = window.CHAPTERS || {};
@@ -58,8 +198,16 @@ function envAt(x, z) {
   return 'hell';
 }
 
-function addW(obj) {
-  (World.group || World.scene).add(obj);
+function addW(obj, refX, refZ) {
+  obj.userData = obj.userData || {};
+  const rx = refX != null ? refX : (obj.userData.chunkPos ? obj.userData.chunkPos.x : obj.position.x);
+  const rz = refZ != null ? refZ : (obj.userData.chunkPos ? obj.userData.chunkPos.z : obj.position.z);
+  obj.userData.savedPos = obj.position.clone();
+  obj.userData.worldRef = { x: rx, z: rz };
+  const ch = World.getChunkAt(rx, rz);
+  obj.userData.chunk = ch;
+  ch.objects.push(obj);
+  ch.group.add(obj);
   return obj;
 }
 
@@ -79,8 +227,9 @@ function wbox(x1, z1, x2, z2, h, tex, o) {
   const y0 = o.y0 || 0, tile = o.tile || 4;
   const w = Math.abs(x2 - x1), d = Math.abs(z2 - z1);
   const m = new THREE.Mesh(tiledBox(w, h, d, tile), o.mat || TX.mat(tex));
-  m.position.set((x1 + x2) / 2, y0 + h / 2, (z1 + z2) / 2);
-  addW(m);
+  const cx = (x1 + x2) / 2, cz = (z1 + z2) / 2;
+  m.position.set(cx, y0 + h / 2, cz);
+  addW(m, cx, cz);
   let col = null;
   if (o.collide !== false) {
     const walkable = o.walkable != null ? o.walkable : (h <= 2.2);
@@ -95,32 +244,67 @@ function wbox(x1, z1, x2, z2, h, tex, o) {
   return m;
 }
 
+function wterrainPatch(sx1, sz1, sx2, sz2, minX, maxZ, tex, yLift, tile, step, fn, mat, renderOrder) {
+  const w = sx2 - sx1, d = sz2 - sz1;
+  const segX = Math.max(1, Math.min(24, Math.round(w / step)));
+  const segZ = Math.max(1, Math.min(24, Math.round(d / step)));
+  const g = new THREE.PlaneGeometry(w, d, segX, segZ);
+  const uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    const wx = sx1 + uv.getX(i) * w;
+    const wz = sz1 + (1 - uv.getY(i)) * d;
+    uv.setXY(i, (wx - minX) / tile, (maxZ - wz) / tile);
+  }
+  g.rotateX(-Math.PI / 2);
+  const cx = (sx1 + sx2) / 2, cz = (sz1 + sz2) / 2;
+  const pos = g.attributes.position;
+  const nrm = g.attributes.normal;
+  const eps = 0.35;
+  for (let i = 0; i < pos.count; i++) {
+    const vx = pos.getX(i) + cx, vz = pos.getZ(i) + cz;
+    pos.setY(i, fn(vx, vz) + yLift);
+    if (nrm) {
+      const nx = fn(vx - eps, vz) - fn(vx + eps, vz);
+      const nz = fn(vx, vz - eps) - fn(vx, vz + eps);
+      const ny = 2 * eps;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      nrm.setXYZ(i, nx / nl, ny / nl, nz / nl);
+    }
+  }
+  if (!nrm) g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat);
+  m.position.set(cx, 0, cz);
+  if (renderOrder) m.renderOrder = renderOrder;
+  return addW(m, cx, cz);
+}
+
 function wterrain(x1, z1, x2, z2, tex, yOff, tile, segStep, customFn) {
   tile = tile || 4;
   const yPos = yOff || 0;
-  const step = segStep || 5;
-  const w = x2 - x1, d = z2 - z1;
-  const segX = Math.max(1, Math.min(56, Math.round(Math.abs(w) / step)));
-  const segZ = Math.max(1, Math.min(56, Math.round(Math.abs(d) / step)));
-  const g = new THREE.PlaneGeometry(w, d, segX, segZ);
-  const uv = g.attributes.uv;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / tile, uv.getY(i) * d / tile);
-  g.rotateX(-Math.PI / 2);
-  const cx = (x1 + x2) / 2, cz = (z1 + z2) / 2;
-  const pos = g.attributes.position;
+  const yLift = yPos > 0 ? Math.max(yPos, 0.07) : yPos;
+  const step = segStep || (yPos > 0 ? 2.5 : 4);
+  const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+  const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
   const fn = customFn || getGroundY;
-  for (let i = 0; i < pos.count; i++) {
-    const vx = pos.getX(i) + cx, vz = pos.getZ(i) + cz;
-    pos.setY(i, fn(vx, vz) + yPos);
+  const polyOffset = yLift < 0 ? 4 : (yLift >= 0.06 ? -6 : (yLift > 0 ? -2 : 0));
+  const mat = TX.mat(tex, polyOffset);
+  const renderOrder = yLift < 0 ? -1 : (yLift >= 0.06 ? 2 : (yLift > 0 ? 1 : 0));
+
+  const cMinX = Math.floor(minX / CHUNK_SIZE), cMaxX = Math.ceil(maxX / CHUNK_SIZE) - 1;
+  const cMinZ = Math.floor(minZ / CHUNK_SIZE), cMaxZ = Math.ceil(maxZ / CHUNK_SIZE) - 1;
+  let lastMesh = null;
+  for (let cxIdx = cMinX; cxIdx <= cMaxX; cxIdx++) {
+    const sx1 = Math.max(minX, cxIdx * CHUNK_SIZE);
+    const sx2 = Math.min(maxX, (cxIdx + 1) * CHUNK_SIZE);
+    if (sx2 - sx1 < 0.01) continue;
+    for (let czIdx = cMinZ; czIdx <= cMaxZ; czIdx++) {
+      const sz1 = Math.max(minZ, czIdx * CHUNK_SIZE);
+      const sz2 = Math.min(maxZ, (czIdx + 1) * CHUNK_SIZE);
+      if (sz2 - sz1 < 0.01) continue;
+      lastMesh = wterrainPatch(sx1, sz1, sx2, sz2, minX, maxZ, tex, yLift, tile, step, fn, mat, renderOrder);
+    }
   }
-  g.computeVertexNormals();
-  const polyOffset = yPos < 0 ? 4 : (yPos >= 0.06 ? -5 : (yPos > 0 ? -2 : 0));
-  const m = new THREE.Mesh(g, TX.mat(tex, polyOffset));
-  m.position.set(cx, 0, cz);
-  if (yPos < 0) m.renderOrder = -1;
-  else if (yPos >= 0.06) m.renderOrder = 2;
-  else if (yPos > 0) m.renderOrder = 1;
-  return addW(m);
+  return lastMesh;
 }
 
 function flushTerrain() {
@@ -135,34 +319,81 @@ function wfloor(x1, z1, x2, z2, tex, y, tile, flat) {
   tile = tile || 4;
   const yPos = y || 0;
   if (World.terrainY && !flat) {
-    World.pendingFloors.push({ x1, z1, x2, z2, tex, y: yPos, tile, segStep: 5 });
+    World.pendingFloors.push({ x1, z1, x2, z2, tex, y: yPos, tile });
     return null;
   }
-  const w = x2 - x1, d = z2 - z1;
-  const segX = Math.max(1, Math.min(32, Math.round(Math.abs(w) / 12)));
-  const segZ = Math.max(1, Math.min(32, Math.round(Math.abs(d) / 12)));
-  const g = new THREE.PlaneGeometry(w, d, segX, segZ);
-  const uv = g.attributes.uv;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / tile, uv.getY(i) * d / tile);
-  g.rotateX(-Math.PI / 2);
+  const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+  const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
   const polyOffset = yPos < 0 ? 4 : (yPos >= 0.06 ? -5 : (yPos > 0 ? -2 : 0));
-  const m = new THREE.Mesh(g, TX.mat(tex, polyOffset));
-  m.position.set((x1 + x2) / 2, yPos, (z1 + z2) / 2);
-  if (yPos < 0) m.renderOrder = -1;
-  else if (yPos >= 0.06) m.renderOrder = 2;
-  else if (yPos > 0) m.renderOrder = 1;
-  return addW(m);
+  const mat = TX.mat(tex, polyOffset);
+  const renderOrder = yPos < 0 ? -1 : (yPos >= 0.06 ? 2 : (yPos > 0 ? 1 : 0));
+
+  const cMinX = Math.floor(minX / CHUNK_SIZE), cMaxX = Math.ceil(maxX / CHUNK_SIZE) - 1;
+  const cMinZ = Math.floor(minZ / CHUNK_SIZE), cMaxZ = Math.ceil(maxZ / CHUNK_SIZE) - 1;
+  let lastMesh = null;
+  for (let cxIdx = cMinX; cxIdx <= cMaxX; cxIdx++) {
+    const sx1 = Math.max(minX, cxIdx * CHUNK_SIZE);
+    const sx2 = Math.min(maxX, (cxIdx + 1) * CHUNK_SIZE);
+    const sw = sx2 - sx1;
+    if (sw < 0.01) continue;
+    for (let czIdx = cMinZ; czIdx <= cMaxZ; czIdx++) {
+      const sz1 = Math.max(minZ, czIdx * CHUNK_SIZE);
+      const sz2 = Math.min(maxZ, (czIdx + 1) * CHUNK_SIZE);
+      const sd = sz2 - sz1;
+      if (sd < 0.01) continue;
+      const segX = Math.max(1, Math.min(4, Math.round(sw / 8)));
+      const segZ = Math.max(1, Math.min(4, Math.round(sd / 8)));
+      const g = new THREE.PlaneGeometry(sw, sd, segX, segZ);
+      const uv = g.attributes.uv;
+      for (let i = 0; i < uv.count; i++) {
+        const wx = sx1 + uv.getX(i) * sw;
+        const wz = sz1 + (1 - uv.getY(i)) * sd;
+        uv.setXY(i, (wx - minX) / tile, (maxZ - wz) / tile);
+      }
+      g.rotateX(-Math.PI / 2);
+      const cx = (sx1 + sx2) / 2, cz = (sz1 + sz2) / 2;
+      const m = new THREE.Mesh(g, mat);
+      m.position.set(cx, yPos, cz);
+      if (renderOrder) m.renderOrder = renderOrder;
+      lastMesh = addW(m, cx, cz);
+    }
+  }
+  return lastMesh;
 }
+
 function wceil(x1, z1, x2, z2, tex, y, tile) {
   tile = tile || 4;
-  const w = x2 - x1, d = z2 - z1;
-  const g = new THREE.PlaneGeometry(w, d);
-  const uv = g.attributes.uv;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / tile, uv.getY(i) * d / tile);
-  g.rotateX(Math.PI / 2);
-  const m = new THREE.Mesh(g, TX.mat(tex));
-  m.position.set((x1 + x2) / 2, y, (z1 + z2) / 2);
-  return addW(m);
+  const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+  const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+  const mat = TX.mat(tex);
+  const cMinX = Math.floor(minX / CHUNK_SIZE), cMaxX = Math.ceil(maxX / CHUNK_SIZE) - 1;
+  const cMinZ = Math.floor(minZ / CHUNK_SIZE), cMaxZ = Math.ceil(maxZ / CHUNK_SIZE) - 1;
+  let lastMesh = null;
+  for (let cxIdx = cMinX; cxIdx <= cMaxX; cxIdx++) {
+    const sx1 = Math.max(minX, cxIdx * CHUNK_SIZE);
+    const sx2 = Math.min(maxX, (cxIdx + 1) * CHUNK_SIZE);
+    const sw = sx2 - sx1;
+    if (sw < 0.01) continue;
+    for (let czIdx = cMinZ; czIdx <= cMaxZ; czIdx++) {
+      const sz1 = Math.max(minZ, czIdx * CHUNK_SIZE);
+      const sz2 = Math.min(maxZ, (czIdx + 1) * CHUNK_SIZE);
+      const sd = sz2 - sz1;
+      if (sd < 0.01) continue;
+      const g = new THREE.PlaneGeometry(sw, sd);
+      const uv = g.attributes.uv;
+      for (let i = 0; i < uv.count; i++) {
+        const wx = sx1 + uv.getX(i) * sw;
+        const wz = sz1 + (1 - uv.getY(i)) * sd;
+        uv.setXY(i, (wx - minX) / tile, (maxZ - wz) / tile);
+      }
+      g.rotateX(Math.PI / 2);
+      const cx = (sx1 + sx2) / 2, cz = (sz1 + sz2) / 2;
+      const m = new THREE.Mesh(g, mat);
+      m.position.set(cx, y, cz);
+      lastMesh = addW(m, cx, cz);
+    }
+  }
+  return lastMesh;
 }
 
 function hall(x1, z1, x2, z2, o) {
@@ -201,6 +432,23 @@ function hall(x1, z1, x2, z2, o) {
       }
       const cy0 = isLintel ? (baseY + y0) : (baseY + y0 - sink);
       const ch = isLintel ? hh : (hh + sink);
+      const len = sb - sa;
+      if (len > CHUNK_SIZE) {
+        if (collide) {
+          const col = S.ax === 'x'
+            ? { x1: Math.min(sa, sb), z1: S.f - t / 2, x2: Math.max(sa, sb), z2: S.f + t / 2, y0: cy0, yMax: cy0 + ch, walkable: false, active: true }
+            : { x1: S.f - t / 2, z1: Math.min(sa, sb), x2: S.f + t / 2, z2: Math.max(sa, sb), y0: cy0, yMax: cy0 + ch, walkable: false, active: true };
+          World.colliders.push(col);
+        }
+        const nSegs = Math.max(1, Math.ceil(len / CHUNK_SIZE));
+        const step = len / nSegs;
+        for (let i = 0; i < nSegs; i++) {
+          const ca = sa + i * step, cb = sa + (i + 1) * step;
+          if (S.ax === 'x') wbox(ca, S.f - t / 2, cb, S.f + t / 2, ch, tex, { y0: cy0, collide: false, walkable: false });
+          else wbox(S.f - t / 2, ca, S.f + t / 2, cb, ch, tex, { y0: cy0, collide: false, walkable: false });
+        }
+        return;
+      }
       if (S.ax === 'x') wbox(sa, S.f - t / 2, sb, S.f + t / 2, ch, tex, { y0: cy0, collide, walkable: false });
       else wbox(S.f - t / 2, sa, S.f + t / 2, sb, ch, tex, { y0: cy0, collide, walkable: false });
     };
@@ -218,9 +466,10 @@ function hall(x1, z1, x2, z2, o) {
     const roof = new THREE.Mesh(new THREE.ConeGeometry(m * 0.78, o.roofH || 3, 4), TX.mat('roof'));
     roof.rotation.y = Math.PI / 4;
     roof.scale.set(w / m, 1, d / m);
-    roof.position.set((x1 + x2) / 2, baseY + h + (o.roofH || 3) / 2, (z1 + z2) / 2);
-    addW(roof);
-    if (o.burn) flame((x1 + x2) / 2, baseY + h + (o.roofH || 3) - 0.2, (z1 + z2) / 2, 2.2);
+    const rcx = (x1 + x2) / 2, rcz = (z1 + z2) / 2;
+    roof.position.set(rcx, baseY + h + (o.roofH || 3) / 2, rcz);
+    addW(roof, rcx, rcz);
+    if (o.burn) flame(rcx, baseY + h + (o.roofH || 3) - 0.2, rcz, 2.2);
   }
 }
 
@@ -252,8 +501,8 @@ function flame(x, y, z, s, cols) {
   const b = new THREE.Mesh(new THREE.ConeGeometry(0.2 * s, 0.9 * s, 4), MT(cols[1], { basic: true }));
   b.position.y = 0.45 * s;
   g.add(a); g.add(b);
-  addW(g);
-  World.flames.push({ g, ph: Math.random() * 10 });
+  addW(g, x, z);
+  World.flames.push({ g, ph: Math.random() * 10, chunk: g.userData.chunk });
   return g;
 }
 
@@ -265,7 +514,7 @@ function deadTree(x, z) {
   const b1 = part(g, 0.25, 2.2, 0.25, 0x2a1c12, 0.8, 4.0, 0); b1.rotation.z = -0.9;
   const b2 = part(g, 0.25, 1.8, 0.25, 0x2a1c12, -0.7, 3.4, 0.2); b2.rotation.z = 0.9;
   const b3 = part(g, 0.2, 1.4, 0.2, 0x2a1c12, 0.1, 4.6, -0.6); b3.rotation.x = 0.8;
-  addW(g);
+  addW(g, x, z);
   World.colliders.push({ x1: x - 0.4, z1: z - 0.4, x2: x + 0.4, z2: z + 0.4, active: true });
 }
 function crate(x, z, s) {
@@ -296,7 +545,7 @@ function scarecrow(x, z) {
   part(g, 0.1, 0.08, 0.02, 0xff2200, -0.1, 3.15, 0.26, { basic: true });
   part(g, 0.1, 0.08, 0.02, 0xff2200, 0.1, 3.15, 0.26, { basic: true });
   part(g, 0.9, 1.0, 0.3, 0x4a3a2a, 0, 2.0, 0);
-  addW(g);
+  addW(g, x, z);
 }
 function fountain(cx, cz) {
   const ty = World.terrainY ? addPad(cx, cz, 4.2, 4.2, 5.0) : 0;
@@ -305,7 +554,7 @@ function fountain(cx, cz) {
   const sg = new THREE.Group(); sg.position.set(cx, ty + 5, cz);
   part(sg, 1.2, 1.6, 0.8, 0x6a6a7a, 0, 0.8, 0); part(sg, 0.6, 0.6, 0.6, 0x6a6a7a, 0, 1.9, 0);
   part(sg, 2.4, 0.2, 0.2, 0x6a6a7a, 0, 1.3, 0);
-  addW(sg);
+  addW(sg, cx, cz);
 }
 
 function makeGate(id, cx, cz, w, axis, h, style) {
@@ -336,7 +585,7 @@ function makeGate(id, cx, cz, w, axis, h, style) {
     part(grp, w, 1.2, 0.1, 0xc9a227, 0, h * 0.7, 0.55);
     World.doorMesh = dm;
   }
-  addW(grp);
+  addW(grp, cx, cz);
   World.gates[id] = { col, grp, style, open: false, t: 0, h, axis };
 }
 function openGate(id) {
@@ -391,7 +640,7 @@ function makeExitGate(cx, cz, nextMap, nextLabel) {
   ring.visible = true;
   grp.add(ring);
 
-  addW(grp);
+  addW(grp, cx, cz);
   const col = { x1: cx - w / 2 - 1, z1: cz - 1.2, x2: cx + w / 2 + 1, z2: cz + 1.2, active: false };
   World.colliders.push(col);
   World.exitGate = { x: cx, z: cz, r: 7.5, unlocked: true, nextMap, nextLabel, grp, lockPl, openPl, beam, ring, col };
@@ -413,7 +662,8 @@ function addSkyPortal(x, y, z) {
   ring.position.set(x, y, z); ring.rotation.x = 1.15;
   const disc = new THREE.Mesh(new THREE.CircleGeometry(65, 18), MT(0x701000, { basic: true, tr: 0.7, add: true, dbl: true, nofog: true }));
   disc.position.copy(ring.position); disc.rotation.x = 1.15;
-  addW(ring); addW(disc);
+  addW(ring, x, z); addW(disc, x, z);
+  World.distantMeshes.push(ring, disc);
   World.skyPortal = ring;
 }
 
@@ -444,12 +694,13 @@ function addDistantChurch(x, y, z, s) {
   const rose = new THREE.Mesh(new THREE.CircleGeometry(5.5, 12), MT(0xb82048, dark));
   rose.position.set(0, 26, 12.2); g.add(rose);
   part(g, 8, 14, 1, 0x501020, 0, 7, 12.1, dark);
-  addW(g);
+  addW(g, x, z);
+  World.distantMeshes.push(g);
   return g;
 }
 
 function addOuterHills(x1, z1, x2, z2, tex, hillFn, segStep) {
-  World.pendingFloors.push({ x1, z1, x2, z2, tex, y: -0.35, tile: 16, segStep: segStep || 12, customFn: hillFn });
+  World.pendingFloors.push({ x1, z1, x2, z2, tex, y: -0.35, tile: 16, segStep: segStep || 8, customFn: hillFn });
 }
 
 function hillWall(x1, z1, x2, z2, h, tex) {
@@ -479,12 +730,13 @@ function buildMapA1() {
     const dx = x < -45 ? (-45 - x) : (x > 140 ? (x - 140) : 0);
     const dz = z < -150 ? (-150 - z) : (z > 20 ? (z - 20) : 0);
     const out = Math.hypot(dx, dz);
-    if (out < 2) return base - 0.5;
+    if (out < 2.5) return base - 8.0;
     // Morros altos ao redor, mas abrindo um vale para a Ultra-Igreja ao norte (-Z)
     const ridge = (Math.sin(x * 0.032) * Math.cos(z * 0.035) + 1) * 9.5 + Math.sin((x + z) * 0.02) * 4;
     const valleyN = z < -155 ? smoothstep(-155, -240, z) * Math.max(0, 1 - Math.abs(x) / 95) * 18 : 0;
-    return base + Math.min(1, out / 30) * ridge - valleyN;
-  }, 12);
+    const ramp = smoothstep(2.5, 28, out);
+    return base - 2.0 * (1 - ramp) + ramp * ridge - valleyN;
+  }, 8);
   addDistantChurch(-10, -16, -290, 0.72);
   // 1. Bairro Sul (Spawn + Casa de Nivaldo) — saída apenas pelo Leste!
   wfloor(-45, -55, 45, 20, 'dirt', 0, 8);
@@ -545,11 +797,12 @@ function buildMapA2() {
   addOuterHills(-280, -290, 280, 130, 'hellfloor', (x, z) => {
     const base = getGroundY(x, z);
     const out = Math.max(0, Math.abs(x) - 135, z < -185 ? (-185 - z) : (z > 20 ? z - 20 : 0));
-    if (out < 2) return base - 0.5;
+    if (out < 2.5) return base - 8.0;
     const ridge = (Math.sin(x * 0.035) * Math.cos(z * 0.035) + 1) * 7.5;
     const valleyN = z < -190 ? smoothstep(-190, -260, z) * Math.max(0, 1 - Math.abs(x) / 100) * 14 : 0;
-    return base + Math.min(1, out / 30) * ridge - valleyN;
-  }, 12);
+    const ramp = smoothstep(2.5, 28, out);
+    return base - 2.0 * (1 - ramp) + ramp * ridge - valleyN;
+  }, 8);
   addDistantChurch(0, -8, -265, 1.0);
   // 1. Encruzilhada Central
   wfloor(-45, -80, 45, 20, 'dirt', 0, 8);
@@ -604,11 +857,12 @@ function buildMapA3() {
   addOuterHills(-260, -280, 260, 120, 'hellfloor', (x, z) => {
     const base = getGroundY(x, z);
     const out = Math.max(0, Math.abs(x) - 130, z < -195 ? (-195 - z) : (z > 20 ? z - 20 : 0));
-    if (out < 2) return base - 0.5;
+    if (out < 2.5) return base - 8.0;
     const ridge = (Math.sin(x * 0.03) * Math.cos(z * 0.03) + 1) * 4.5;
     const valleyN = z < -200 ? smoothstep(-200, -260, z) * Math.max(0, 1 - Math.abs(x) / 100) * 8 : 0;
-    return base + Math.min(1, out / 30) * ridge - valleyN;
-  }, 12);
+    const ramp = smoothstep(2.5, 28, out);
+    return base - 2.0 * (1 - ramp) + ramp * ridge - valleyN;
+  }, 8);
   addDistantChurch(0, -3, -245, 1.35);
   // 1. Mercado em Ruínas
   wfloor(-45, -75, 45, 20, 'dirt', 0, 8);
@@ -657,9 +911,11 @@ function buildMapA4() {
   addOuterHills(-240, -260, 240, 100, 'hellfloor', (x, z) => {
     const base = getGroundY(x, z);
     const out = Math.max(0, Math.abs(x) - 140, z < -200 ? (-200 - z) : (z > 20 ? z - 20 : 0));
-    if (out < 2) return base - 0.5;
-    return base + Math.min(1, out / 30) * (Math.sin(x * 0.03) * Math.cos(z * 0.03) + 1) * 2.5;
-  }, 14);
+    if (out < 2.5) return base - 8.0;
+    const ramp = smoothstep(2.5, 28, out);
+    const ridge = (Math.sin(x * 0.03) * Math.cos(z * 0.03) + 1) * 2.5;
+    return base - 2.0 * (1 - ramp) + ramp * ridge;
+  }, 8);
   addDistantChurch(0, 0, -230, 1.75);
   // 1. Praça da Fonte
   wfloor(-55, -90, 55, 20, 'cobble', 0, 6);
@@ -787,16 +1043,16 @@ function buildMapA6Gate() {
     const spire = new THREE.Mesh(new THREE.ConeGeometry(5, 18, 4), TX.mat('roof'));
     spire.rotation.y = Math.PI / 4;
     spire.position.set(tx, 98, -170);
-    addW(spire);
+    addW(spire, tx, -170);
     flame(tx, 74.5, -166.5, 2.4);
   });
   const topCross = new THREE.Group(); topCross.position.set(0, 42, -168);
   part(topCross, 1.8, 22, 1.8, 0xd4a017, 0, 11, 0, { em: 0x5a2800 });
   part(topCross, 11, 1.8, 1.8, 0xd4a017, 0, 15, 0, { em: 0x5a2800 });
-  addW(topCross);
+  addW(topCross, 0, -168);
   const rose = new THREE.Mesh(new THREE.CircleGeometry(5.2, 12), MT(0xff3a10, { basic: true }));
   rose.position.set(0, 20, -168.7);
-  addW(rose);
+  addW(rose, 0, -168.7);
 
   [[-36, -148], [36, -148], [-36, -102], [36, -102]].forEach(p => deadTree(p[0], p[1]));
   addSkyPortal(0, 150, -100);
@@ -837,7 +1093,7 @@ function buildMapA6Nave() {
   wfloor(-3, -150, 3, -148.5, 'marble', 0, 8);
   hall(-28, -150, 28, 0, {
     h: 19, t: 2, wall: 'church', ceil: 'dark',
-    openings: [{ side: 'w', c: -102, w: 20 }, { side: 'w', c: -60, w: 22 }, { side: 'e', c: -60, w: 22 }]
+    openings: [{ side: 'n', c: 0, w: 20 }, { side: 'w', c: -60, w: 22 }, { side: 'e', c: -60, w: 22 }]
   });
 
   // Transepto Oeste & Transepto Leste (catedral em formato de cruz)
@@ -869,16 +1125,17 @@ function buildMapA6Nave() {
   wbox(-3.0, -148.5, 3.0, -146.0, 1.2, 'bonefloor', { y0: -3.4 - 1.2, tile: 2, walkable: true });
   const cryptDoor = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 3.2), MT(0x051812, { basic: true }));
   cryptDoor.position.set(0, -1.8, -148.42);
-  addW(cryptDoor);
+  addW(cryptDoor, 0, -148.42);
   const cryptGlow = new THREE.Mesh(new THREE.PlaneGeometry(3.8, 2.8), MT(0x30ffc0, { basic: true, tr: 0.38, add: true }));
   cryptGlow.position.set(0, -1.8, -148.38);
-  addW(cryptGlow);
+  addW(cryptGlow, 0, -148.38);
   flame(-2.2, -1.9, -147.6, 0.75, [0x40ffd0, 0xc0fff0]);
   flame(2.2, -1.9, -147.6, 0.75, [0x40ffd0, 0xc0fff0]);
 
   // Altar bipartido
   const mkAltarHalf = (side) => {
     const g = new THREE.Group();
+    g.userData.dynamicPos = true;
     const b1 = new THREE.Mesh(tiledBox(7.0, 0.45, 12.8, 3), TX.mat('marble'));
     b1.position.set(side * 3.5, 0.225, -142.2); g.add(b1);
     const b2 = new THREE.Mesh(tiledBox(6.0, 1.1, 10.6, 3), TX.mat('marble'));
@@ -888,13 +1145,13 @@ function buildMapA6Nave() {
     part(g, 0.32, 1.42, 11.25, 0xd4a017, side * 0.16, 1.13, -142.5, { em: 0x3a2800 });
     part(g, 5.8, 0.22, 0.14, 0xd4a017, side * 3.0, 1.15, -137.15, { em: 0x3a2800 });
     part(g, 0.5, 0.9, 0.5, 0xd4a017, side * 4.6, 2.25, -142.5, { em: 0x3a2800 });
-    addW(g);
+    addW(g, side * 3.5, -142.5);
     return g;
   };
   const leftGrp = mkAltarHalf(-1);
   const rightGrp = mkAltarHalf(1);
-  const colL = { x1: -7.0, z1: -148.6, x2: 0, z2: -135.8, y0: 0, yMax: 1.85, walkable: true, active: true };
-  const colR = { x1: 0, z1: -148.6, x2: 7.0, z2: -135.8, y0: 0, yMax: 1.85, walkable: true, active: true };
+  const colL = { x1: -7.0, z1: -148.6, x2: 0, z2: -135.8, y0: 0, yMax: 1.85, walkable: true, active: true, _dyn: true };
+  const colR = { x1: 0, z1: -148.6, x2: 7.0, z2: -135.8, y0: 0, yMax: 1.85, walkable: true, active: true, _dyn: true };
   World.colliders.push(colL, colR);
   World.altar = {
     leftGrp, rightGrp, colL, colR, open: false, t: 0,
@@ -905,14 +1162,14 @@ function buildMapA6Nave() {
   const ac = new THREE.Group(); ac.position.set(0, 0, -146.5);
   part(ac, 1.3, 15, 1.3, 0xd4a017, 0, 8.5, 0, { em: 0x4a3400 });
   part(ac, 7, 1.3, 1.3, 0xd4a017, 0, 12, 0, { em: 0x4a3400 });
-  addW(ac); World.altarCross = ac;
+  addW(ac, 0, -146.5); World.altarCross = ac;
   const cols = [0xcc2020, 0x8a30cc, 0xd0a020, 0x2050d0];
   [-24, -44, -84, -104, -124].forEach((z, i) => {
     [-1, 1].forEach(side => {
       const gl = new THREE.Mesh(new THREE.PlaneGeometry(4, 8), MT(cols[(i + (side > 0 ? 1 : 0)) % 4], { basic: true, tr: 0.85 }));
       gl.position.set(side * 26.9, 10, z);
       gl.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
-      addW(gl);
+      addW(gl, side * 26.9, z);
     });
   });
   [[-24, -10], [24, -10], [-60, -60], [60, -60], [-24, -140], [24, -140]].forEach(p => {
@@ -920,16 +1177,16 @@ function buildMapA6Nave() {
     flame(p[0], 1.3, p[1], 1.1, [0x8a30ff, 0xffa0ff]);
   });
 
-  // parede que Galius vai explodir
-  World.breakWall = wbox(-29, -112, -27, -92, 19, 'church', { tile: 3 });
-  wfloor(-64, -118, -29, -86, 'hellfloor', 0, 6);
-  wceil(-64, -118, -28, -86, 'dark', 19, 8);
-  hall(-64, -118, -30, -86, { h: 19, t: 2, wall: 'crypt', skip: ['e'] });
+  // parede atrás da cruz do altar que Galius vai explodir
+  World.breakWall = wbox(-10, -151, 10, -149, 19, 'church', { tile: 3 });
+  wfloor(-18, -184, 18, -151, 'hellfloor', 0, 6);
+  wceil(-18, -184, 18, -150, 'dark', 19, 8);
+  hall(-18, -184, 18, -151, { h: 19, t: 2, wall: 'crypt', skip: ['s'] });
 
   const hatchBeam = new THREE.Mesh(new THREE.BoxGeometry(5.2, 12, 11.5), MT(0x40ffd0, { basic: true, tr: 0.16, add: true, dbl: true }));
   hatchBeam.position.set(0, 4.5, -142.2);
   const hg = new THREE.Group(); hg.add(hatchBeam);
-  hg.visible = false; addW(hg);
+  hg.visible = false; addW(hg, 0, -142.2);
   World.hatch = { g: hg, x: 0, z: -140, r: 3.2, active: false };
 
   const pg = new THREE.Group(); pg.position.set(0, 0, -130);
@@ -938,7 +1195,7 @@ function buildMapA6Nave() {
   const pr = new THREE.Mesh(new THREE.TorusGeometry(3.4, 0.35, 5, 12), MT(0x90ffb0, { basic: true }));
   pr.position.y = 4.5; pr.rotation.x = 0;
   pg.add(pc); pg.add(pr);
-  pg.visible = false; addW(pg);
+  pg.visible = false; addW(pg, 0, -130);
   World.portal = { g: pg, ring: pr, x: 0, z: -130, r: 3, active: false };
 }
 
@@ -986,9 +1243,11 @@ function buildMapA6Crypt() {
   wbox(-7, -89, -1, -83, 0.6, 'stone', { tile: 2, y0: 1.4, collide: false });
   [[-18, -70], [12, -70], [-18, -102], [12, -102]].forEach(p => { wbox(p[0] - 0.5, p[1] - 0.5, p[0] + 0.5, p[1] + 0.5, 1.6, 'crypt', { tile: 1 }); flame(p[0], 1.6, p[1], 1.0, gc); });
   const cg = buildThrownCross(); cg.position.set(-4, 3.0, -86); cg.scale.set(0.7, 0.7, 0.7);
-  addW(cg); World.crossPickup = cg;
+  cg.userData.dynamicPos = true;
+  addW(cg, -4, -86); World.crossPickup = cg;
   const gh = new THREE.Group(); gh.position.set(-12, 2.6, -86);
   gh.rotation.y = Math.PI / 2;
+  gh.userData.dynamicPos = true;
   const gm = { basic: true, tr: 0.45, add: true };
   part(gh, 1.2, 1.8, 0.7, 0x80c8ff, 0, 0, 0, gm);
   part(gh, 0.8, 0.8, 0.8, 0xb0e0ff, 0, 1.4, 0, gm);
@@ -996,7 +1255,7 @@ function buildMapA6Crypt() {
   part(gh, 0.9, 0.1, 0.1, 0x000000, 0, 1.45, 0.41, { basic: true });
   part(gh, 0.3, 1.0, 0.3, 0x80c8ff, -0.75, -0.1, 0, gm);
   part(gh, 0.3, 1.0, 0.3, 0x80c8ff, 0.75, -0.1, 0, gm);
-  addW(gh); World.ghost = gh;
+  addW(gh, -12, -86); World.ghost = gh;
 }
 
 /* ============ SPAWNS & PICKUPS POR MAPA ============ */
@@ -1118,7 +1377,7 @@ const SPAWNS = {
     ['gargula', -14, -84, 5], ['gargula', 14, -84, 5], ['gargula', 0, -104, 5],
     ['padre', -16, -118], ['padre', 16, -118], ['padre', -12, -132], ['padre', 12, -132], ['guarda', -22, -126], ['guarda', 22, -126]
   ],
-  a6_galius1: [['galius1', -48, -102]],
+  a6_galius1: [['galius1', 0, -162]],
   a6_crypt1: [
     ['diabrete', -6, -10, 3], ['diabrete', 6, -14, 3], ['diabrete', 0, -22, 3], ['diabrete', -8, -20, 3.2], ['diabrete', 8, -20, 3.2],
     ['campones', -8, -18], ['campones', 8, -8], ['campones', 0, -12], ['campones', -4, -24], ['campones', 4, -24]
@@ -1181,6 +1440,46 @@ const PICKUPS = {
   ]
 };
 
+const PEASANTS = {
+  a1: [
+    [0, -12], [-14, -20], [10, -28],
+    [76, -20], [100, -14],
+    [82, -88], [104, -112],
+    [0, -104], [-16, -118]
+  ],
+  a2: [
+    [-8, -28], [10, -52],
+    [-80, -44], [-88, -72],
+    [82, -52], [96, -78],
+    [-14, -136], [14, -148]
+  ],
+  a3: [
+    [-8, -30], [10, -46],
+    [-80, -58], [-90, -82],
+    [80, -58], [88, -84],
+    [-16, -152], [16, -152]
+  ],
+  a4: [
+    [-16, -28], [16, -44],
+    [-88, -68], [-96, -98],
+    [92, -62], [96, -98],
+    [-24, -160], [24, -160]
+  ],
+  a5: [
+    [-14, -32], [14, -52],
+    [-90, -72], [-92, -102],
+    [90, -72], [92, -102],
+    [-24, -170], [24, -170]
+  ],
+  a6_gate: [
+    [-12, -42], [12, -58], [-78, -75], [78, -75]
+  ],
+  a6_nave: [
+    [-12, -32], [12, -48], [-44, -60], [44, -60]
+  ],
+  a6_crypt: []
+};
+
 const MAP_BUILDERS = {
   a1: buildMapA1,
   a2: buildMapA2,
@@ -1192,6 +1491,153 @@ const MAP_BUILDERS = {
   a6_crypt: buildMapA6Crypt
 };
 
+function mergeBufferGeometries(geos) {
+  let totalVerts = 0;
+  let totalIdx = 0;
+  let hasNorm = true;
+  let hasUv = true;
+  const prepared = [];
+  for (let i = 0; i < geos.length; i++) {
+    const g = geos[i];
+    const pos = g.attributes.position;
+    if (!pos) continue;
+    if (!g.attributes.normal) hasNorm = false;
+    if (!g.attributes.uv) hasUv = false;
+    const idx = g.index;
+    const vCount = pos.count;
+    const iCount = idx ? idx.count : vCount;
+    prepared.push({ g, pos, nrm: g.attributes.normal, uv: g.attributes.uv, idx, vCount, iCount });
+    totalVerts += vCount;
+    totalIdx += iCount;
+  }
+  if (!prepared.length) return null;
+
+  const posArr = new Float32Array(totalVerts * 3);
+  const nrmArr = hasNorm ? new Float32Array(totalVerts * 3) : null;
+  const uvArr = hasUv ? new Float32Array(totalVerts * 2) : null;
+  const idxArr = totalVerts > 65535 ? new Uint32Array(totalIdx) : new Uint16Array(totalIdx);
+
+  let vOff = 0;
+  let iOff = 0;
+  for (let p = 0; p < prepared.length; p++) {
+    const it = prepared[p];
+    posArr.set(it.pos.array, vOff * 3);
+    if (nrmArr && it.nrm) nrmArr.set(it.nrm.array, vOff * 3);
+    if (uvArr && it.uv) uvArr.set(it.uv.array, vOff * 2);
+    if (it.idx) {
+      const src = it.idx.array;
+      for (let j = 0; j < it.iCount; j++) idxArr[iOff + j] = src[j] + vOff;
+    } else {
+      for (let j = 0; j < it.iCount; j++) idxArr[iOff + j] = vOff + j;
+    }
+    vOff += it.vCount;
+    iOff += it.iCount;
+  }
+
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+  if (nrmArr) out.setAttribute('normal', new THREE.BufferAttribute(nrmArr, 3));
+  if (uvArr) out.setAttribute('uv', new THREE.BufferAttribute(uvArr, 2));
+  out.setIndex(new THREE.BufferAttribute(idxArr, 1));
+  return out;
+}
+
+function mergeStaticChunks() {
+  const dynSet = new Set();
+  const markDyn = (o) => { if (o) { dynSet.add(o); o.userData = o.userData || {}; o.userData.noMerge = true; } };
+  for (let i = 0; i < World.flames.length; i++) if (World.flames[i]) markDyn(World.flames[i].g);
+  for (const id in World.gates) if (World.gates[id]) markDyn(World.gates[id].grp);
+  if (World.exitGate) markDyn(World.exitGate.grp);
+  if (World.altar) { markDyn(World.altar.leftGrp); markDyn(World.altar.rightGrp); }
+  if (World.portal) markDyn(World.portal.g);
+  markDyn(World.ghost);
+  markDyn(World.crossPickup);
+  markDyn(World.altarCross);
+  markDyn(World.skyPortal);
+  markDyn(World.breakWall);
+  markDyn(World.hatch);
+  markDyn(World.doorMesh);
+  for (let i = 0; i < World.distantMeshes.length; i++) markDyn(World.distantMeshes[i]);
+
+  for (const ch of World.chunks.values()) {
+    ch.group.updateMatrixWorld(true);
+    const chInv = new THREE.Matrix4().copy(ch.group.matrixWorld).invert();
+    const groups = new Map();
+    const toRemove = [];
+
+    const collect = (node, blocked) => {
+      const isBlocked = blocked || dynSet.has(node) || (node.userData && (node.userData.noMerge || node.userData.dynamicPos));
+      if (node.isMesh && !isBlocked && node.geometry && node.material && !Array.isArray(node.material)) {
+        const key = node.material.id + '|' + (node.renderOrder || 0);
+        let entry = groups.get(key);
+        if (!entry) { entry = { mat: node.material, renderOrder: node.renderOrder || 0, meshes: [] }; groups.set(key, entry); }
+        entry.meshes.push(node);
+        return;
+      }
+      const kids = node.children;
+      for (let i = 0; i < kids.length; i++) collect(kids[i], isBlocked);
+    };
+    collect(ch.group, false);
+
+    const localMat = new THREE.Matrix4();
+    for (const entry of groups.values()) {
+      if (entry.meshes.length < 2) {
+        if (entry.meshes.length === 1) {
+          entry.meshes[0].updateMatrix();
+          entry.meshes[0].matrixAutoUpdate = false;
+        }
+        continue;
+      }
+      const geos = [];
+      for (let i = 0; i < entry.meshes.length; i++) {
+        const m = entry.meshes[i];
+        localMat.multiplyMatrices(chInv, m.matrixWorld);
+        const g = m.geometry.clone();
+        g.applyMatrix4(localMat);
+        geos.push(g);
+        toRemove.push(m);
+      }
+      const merged = mergeBufferGeometries(geos);
+      for (let i = 0; i < geos.length; i++) geos[i].dispose();
+      if (merged) {
+        const mm = new THREE.Mesh(merged, entry.mat);
+        if (entry.renderOrder) mm.renderOrder = entry.renderOrder;
+        mm.updateMatrix();
+        mm.matrixAutoUpdate = false;
+        mm.userData = { savedPos: new THREE.Vector3(0, 0, 0), chunk: ch };
+        ch.group.add(mm);
+      }
+    }
+
+    for (let i = 0; i < toRemove.length; i++) {
+      const m = toRemove[i];
+      if (m.parent) m.parent.remove(m);
+    }
+
+    // Remove empty static groups left behind and freeze remaining static objects
+    const prune = (node) => {
+      for (let i = node.children.length - 1; i >= 0; i--) {
+        const c = node.children[i];
+        if (!dynSet.has(c) && !(c.userData && c.userData.dynamicPos)) {
+          prune(c);
+          if (!c.isMesh && c.children.length === 0) node.remove(c);
+        }
+      }
+    };
+    prune(ch.group);
+
+    ch.objects.length = 0;
+    for (let i = 0; i < ch.group.children.length; i++) {
+      const c = ch.group.children[i];
+      ch.objects.push(c);
+      if (!dynSet.has(c) && !(c.userData && c.userData.dynamicPos)) {
+        c.updateMatrix();
+        c.matrixAutoUpdate = false;
+      }
+    }
+  }
+}
+
 function buildMap(mapId) {
   if (!World.scene) return;
   if (!World.group) {
@@ -1199,9 +1645,14 @@ function buildMap(mapId) {
     World.scene.add(World.group);
   }
   while (World.group.children.length) World.group.remove(World.group.children[0]);
+  World.chunks.clear();
+  World._lastRenderChunks = -1;
   World.colliders.length = 0;
+  World.dynamicColliders.length = 0;
+  World.colliderGrid.clear();
   World.triggers.length = 0;
   World.flames.length = 0;
+  World.distantMeshes.length = 0;
   World.terrainY = null;
   World.terrainBaseFn = null;
   World.pads.length = 0;
@@ -1221,7 +1672,23 @@ function buildMap(mapId) {
   World.currentMap = MAP_BUILDERS[mapId] ? mapId : 'a1';
   MAP_BUILDERS[World.currentMap]();
   flushTerrain();
+  mergeStaticChunks();
+  World.rebuildColliderGrid();
+  World.updateChunks(World.viewerX || 0, World.viewerZ || 0, true);
+  World.setWorldDetail(World.detailMode);
 }
+
+World.setWorldDetail = function (mode) {
+  World.detailMode = mode || 'high';
+  const showDistant = World.detailMode !== 'min' && World.detailMode !== 'low';
+  const showFlames = World.detailMode !== 'min';
+  for (let i = 0; i < World.distantMeshes.length; i++) {
+    if (World.distantMeshes[i]) World.distantMeshes[i].visible = showDistant;
+  }
+  for (let i = 0; i < World.flames.length; i++) {
+    if (World.flames[i] && World.flames[i].g) World.flames[i].g.visible = showFlames;
+  }
+};
 
 function buildWorld(scene) {
   World.scene = scene;
@@ -1238,10 +1705,23 @@ window.CHAPTERS.ch1 = {
 };
 
 function updateWorld(t, dt) {
-  for (const f of World.flames) {
-    const k = 1 + Math.sin(t * 14 + f.ph) * 0.18 + Math.sin(t * 23 + f.ph * 2) * 0.1;
-    f.g.scale.set(k, 0.9 + (k - 1) * 2.2, k);
-    f.g.rotation.y += dt * 2;
+  const dm = World.detailMode || 'high';
+  if (dm !== 'min' && dm !== 'low') {
+    const emitEmbers = (dm === 'high' || dm === 'ultra') && World.onFlameEmber;
+    const emberChance = (dm === 'ultra' ? 2.2 : 0.9) * dt;
+    const vx = World.viewerX || 0, vz = World.viewerZ || 0;
+    for (const f of World.flames) {
+      if (f.chunk && !f.chunk.active) continue;
+      if (emitEmbers) {
+        const dx = f.g.position.x - vx, dz = f.g.position.z - vz;
+        if (dx * dx + dz * dz < 42 * 42 && Math.random() < emberChance) {
+          World.onFlameEmber(f.g.position.x, f.g.position.y + 0.6, f.g.position.z);
+        }
+      }
+      const k = 1 + Math.sin(t * 14 + f.ph) * 0.18 + Math.sin(t * 23 + f.ph * 2) * 0.1;
+      f.g.scale.set(k, 0.9 + (k - 1) * 2.2, k);
+      f.g.rotation.y += dt * 2;
+    }
   }
   for (const id in World.gates) {
     const g = World.gates[id];

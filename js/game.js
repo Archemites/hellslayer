@@ -469,10 +469,10 @@
   const DIFFICULTIES = [
     { id: 0, label: 'Dificuldade 0 - Melzinho na Chupeta', short: 'Melzinho na Chupeta', spawnMul: 0.5,  dmgMul: 0.35, desc: 'Para passear pelo inferno sem suar a camisa.' },
     { id: 1, label: 'Dificuldade 1 - Fácil',               short: 'Fácil',               spawnMul: 0.75, dmgMul: 0.65, desc: 'Menos demônios e golpes mais brandos.' },
-    { id: 2, label: 'Dificuldade 2 - Normal',              short: 'Normal',              spawnMul: 1.0,  dmgMul: 1.0,  desc: 'A experiência padrão de HELLSLAYER.' },
+    { id: 2, label: 'Dificuldade 2 - Normal',              short: 'Normal',              spawnMul: 1.0,  dmgMul: 1.0,  desc: 'A experiência padrão de CABRUNCO.' },
     { id: 3, label: 'Dificuldade 3 - Difícil',             short: 'Difícil',             spawnMul: 1.35, dmgMul: 1.4,  desc: 'Hordas maiores e demônios mais letais.' },
     { id: 4, label: 'Dificuldade 4 - Muito Difícil',       short: 'Muito Difícil',       spawnMul: 1.75, dmgMul: 1.85, desc: 'Chuva de demônios e dano implacável.' },
-    { id: 5, label: 'Dificuldade 5 - HELLSLAYER!!!',       short: 'HELLSLAYER!!!',       spawnMul: 2.25, dmgMul: 2.5,  desc: 'Carnificina máxima. Só os abençoados sobrevivem.' }
+    { id: 5, label: 'Dificuldade 5 - CABRUNCO!!!',         short: 'CABRUNCO!!!',         spawnMul: 2.25, dmgMul: 2.5,  desc: 'Carnificina máxima. Só os abençoados sobrevivem.' }
   ];
   function getDifficulty() {
     const raw = S.difficulty == null ? 2 : parseInt(S.difficulty, 10);
@@ -485,7 +485,7 @@
   const WEAPONS = [
     { id: 'fists',  vm: 'fists',  name: 'PUNHOS',               short: 'PUNHOS',  owned: true,  melee: true, range: 3.6, dmg: 16, cd: 0.30, cos: 0.5,  knock: 6, dur: 0.22, hitAt: 0.08, sfx: 'punch' },
     { id: 'hammer', vm: 'hammer', name: 'MARTELO DE OBRAS',     short: 'MARTELO', owned: true,  melee: true, range: 4.8, dmg: 36, cd: 0.62, cos: 0.2, knock: 9, dur: 0.42, hitAt: 0.18, sfx: 'hammer' },
-    { id: 'sling',  vm: 'sling',  name: 'FUNDA',                short: 'FUNDA',   owned: false, ammo: 'rocks', cd: 0.48, dmg: 24, dur: 0.25 },
+    { id: 'sling',  vm: 'sling',  name: 'ESTILINGUE',           short: 'ESTIL.',  owned: false, ammo: 'rocks', cd: 0.48, dmg: 24, dur: 0.25 },
     { id: 'scythe', vm: 'scythe', name: 'FOICE',                short: 'FOICE',   owned: false, melee: true, range: 6.0, dmg: 30, cd: 0.72, cos: -0.25, knock: 6, dur: 0.5, hitAt: 0.2, sfx: 'scythe', sweep: true },
     { id: 'demo',   vm: 'demo',   name: 'MARTELO DE DEMOLIÇÃO', short: 'DEMOL.',  owned: false, cd: 1.5, dmg: 120, dur: 0.85, hitAt: 0.42, aoe: 6.5 },
     { id: 'cross',  vm: 'cross',  name: 'SACRA CRUZ PAPAL',     short: 'CRUZ',    owned: false, cd: 0.25, dmg: 34, dur: 0.3 },
@@ -1424,7 +1424,7 @@
     gargula:  { model: 'gargula', hp: 85, hpRange: [80, 85], speed: 9, r: 0.7, flying: true, hover: 4, melee: { range: 2.6, dmg: 13, cd: 1.6, wind: 0.3 }, pts: 20, faith: 7, blood: 9, armsFwd: true },
     demonio:  { model: 'demonio', hp: 320, hpRange: [300, 400], speed: 3.8, r: 1.3, melee: { range: 3.4, dmg: 28, cd: 1.8, wind: 0.6 }, charge: { cd: 7, speed: 17, dur: 0.9, dmg: 30, wind: 0.7 }, pts: 50, faith: 18, blood: 20, mass: 2.5 },
     padre:    { model: 'padre', hp: 80, hpRange: [75, 85], speed: 3, r: 0.7, ranged: { proj: 'hex', dmg: 14, cd: 2.8, speed: 11, range: 45 }, keep: 13, pts: 25, faith: 8, blood: 10 },
-    maximus:  { model: 'maximus', boss: true, name: 'MAXIMUS · LÍDER DA SUPER-GUARDA REAL', hp: 900, speed: 6.8, r: 1.45, aggro: 90,
+    maximus:  { model: 'maximus', boss: true, name: 'SÉRGIO MAXIMO · LÍDER DA SUPER-GUARDA REAL', hp: 900, speed: 6.8, r: 1.45, aggro: 90,
                 melee: { range: 4.8, dmg: 26, cd: 0.95, wind: 0.28 }, charge: { cd: 5, speed: 24, dur: 0.7, dmg: 36, wind: 0.5 }, pts: 300, faith: 60, blood: 60, mass: 5 },
     galius1:  { model: 'galius', boss: true, name: 'GALIUS · O SUPER-ATEU', hp: 9500, speed: 5.2, r: 3.2, aggro: 120,
                 melee: { range: 7.5, dmg: 36, cd: 2.3, wind: 0.8 }, stomp: { cd: 6, dmg: 26 }, pts: 0, faith: 0, blood: 0, mass: 20 },
@@ -2883,7 +2883,7 @@
       e.yaw = lerpAngle(e.yaw, 0, Math.min(1, dt * 8));
       e.g.rotation.y = e.yaw;
       animEnemy(e, dt, false);
-      if (e.galiusIntroT >= 0.55 && !e._burstedWall) {
+      if (e.galiusIntroT >= 0.65 && !e._burstedWall) {
         e._burstedWall = true;
         const bw = World.breakWall;
         if (bw) { bw.visible = false; bw.userData.col.active = false; }
@@ -2893,7 +2893,7 @@
         S.shakeBig = Math.max(S.shakeBig || 0, 1.5);
         if (e.onGaliusBurst) { e.onGaliusBurst(); e.onGaliusBurst = null; }
       }
-      if (e.galiusIntroT >= 0.85) {
+      if (e.galiusIntroT >= 1.25) {
         e.galiusIntro = 'walk';
         e.galiusIntroT = 0;
       }
@@ -2914,7 +2914,7 @@
       e.yaw = lerpAngle(e.yaw, 0, Math.min(1, dt * 8));
       e.g.rotation.y = e.yaw;
       animEnemy(e, dt, false);
-      if (e.galiusIntroT >= 0.45 && !e._grabbedCross) {
+      if (e.galiusIntroT >= 0.60 && !e._grabbedCross) {
         e._grabbedCross = true;
         if (World.altarCross) World.altarCross.visible = false;
         if (e.rig && e.rig.weapon) e.rig.weapon.visible = true;
@@ -2922,7 +2922,7 @@
         SFX.play('cross');
         S.shakeBig = Math.max(S.shakeBig || 0, 0.8);
       }
-      if (e.galiusIntroT >= 0.78) {
+      if (e.galiusIntroT >= 1.15) {
         e.galiusIntro = 'roar';
         e.galiusIntroT = 0;
         SFX.play('roar');
@@ -2935,7 +2935,7 @@
       e.yaw = lerpAngle(e.yaw, 0, Math.min(1, dt * 8));
       e.g.rotation.y = e.yaw;
       animEnemy(e, dt, false);
-      if (e.galiusIntroT >= 1.65) {
+      if (e.galiusIntroT >= 8.0 || (S.cutscene <= 0 && e.galiusIntroT >= 1.65)) {
         e.galiusIntro = null;
         e.aggro = true;
         e.cd = 1.0;
@@ -2974,19 +2974,19 @@
       }
     } else if (e.maximusIntro === 'land') {
       pos.y = gy;
-      if (e.maximusIntroT >= 0.45) {
+      if (e.maximusIntroT >= 0.85) {
         e.maximusIntro = 'unsheathe';
         e.maximusIntroT = 0;
       }
     } else if (e.maximusIntro === 'unsheathe') {
       pos.y = gy;
-      if (e.maximusIntroT >= 0.28 && R.sword && !R.sword.visible) {
+      if (e.maximusIntroT >= 0.42 && R.sword && !R.sword.visible) {
         R.sword.visible = true;
         SFX.play('swing');
         SFX.play('parry');
         burst(pos.x + 1.2, gy + 2.2, pos.z + 0.8, 0xffe080, 14, 6, 0.4, 0.16, 8);
       }
-      if (e.maximusIntroT >= 0.95) {
+      if (e.maximusIntroT >= 1.35) {
         e.maximusIntro = 'pose';
         e.maximusIntroT = 0;
         SFX.play('roar');
@@ -2995,7 +2995,7 @@
       }
     } else if (e.maximusIntro === 'pose') {
       pos.y = gy;
-      if (e.maximusIntroT >= 1.15) {
+      if (e.maximusIntroT >= 15.0 || (S.cutscene <= 0 && e.maximusIntroT >= 1.15)) {
         e.maximusIntro = null;
         if (R.sword) R.sword.visible = true;
         e.phase = 1;
@@ -3053,9 +3053,9 @@
     const t = e.phaseTransT;
     if (t >= 0.35 && !e._transSaid) {
       e._transSaid = true;
-      say('"Hee Hee... Not too shabby..."', 'MAXIMUS', 3.4);
+      say('"Hehe... Nada mal, Nivaldo! Mas você esqueceu do poder que Satã me deu!"', 'SÉRGIO MAXIMO', 3.4);
     }
-    if (t >= 1.35 && !e._transHelmetOff) {
+    if (t >= 1.85 && !e._transHelmetOff) {
       e._transHelmetOff = true;
       if (R.helmetGroup) R.helmetGroup.visible = false;
       if (R.flameHead) R.flameHead.visible = true;
@@ -3063,15 +3063,16 @@
       burst(pos.x, pos.y + e.h * 0.85, pos.z, 0xff5500, 34, 11, 0.8, 0.35, 14);
       burst(pos.x, pos.y + e.h * 0.85, pos.z, 0xffcc30, 18, 8, 0.6, 0.25, 10);
     }
-    if (t >= 2.15 && !e._transIgnited) {
+    if (t >= 3.10 && !e._transIgnited) {
       e._transIgnited = true;
       e.kneel = false;
       e.swordGlow = true;
       SFX.play('roar');
       S.shakeBig = Math.max(S.shakeBig || 0, 0.9);
       spawnRing(pos.x, pos.z, 14, 24, 0, 0xff1828, 'e');
+      say('"AGORA SINTA A VERDADEIRA CHAMA DO INFERNO!"', 'SÉRGIO MAXIMO', 3.2);
     }
-    if (t >= 2.95) {
+    if (t >= 5.10) {
       e.phase = 2;
       e.invuln = false;
       e.maxhp = 1100;
@@ -3218,7 +3219,7 @@
           if (e.leapCount % 2 === 0) {
             e.state = 'mStuck';
             e.st = 2.6;
-            say('A espada de Maximus ficou presa no chão! Ataque agora!', '', 2.4);
+            say('A espada de Sérgio Maximo ficou presa no chão! Ataque agora!', '', 2.4);
           } else {
             e.state = 'move';
             e.cd = 0.65;
@@ -3697,7 +3698,7 @@
           R.armR.rotation.set(-2.2, 0, 0.55);
           if (R.head) R.head.rotation.x = 0.25;
         } else if (e.maximusIntro === 'land') {
-          const p = clamp(t / 0.45, 0, 1);
+          const p = clamp(t / 0.85, 0, 1);
           const crouch = 1 - p * p;
           R.legL.rotation.x = -0.75 * crouch;
           R.legR.rotation.x = -0.75 * crouch;
@@ -3705,7 +3706,7 @@
           R.armR.rotation.set(-0.8 * crouch, 0, 0.25 * crouch);
           if (R.head) R.head.rotation.x = 0.35 * crouch;
         } else if (e.maximusIntro === 'unsheathe') {
-          const p = clamp(t / 0.95, 0, 1);
+          const p = clamp(t / 1.35, 0, 1);
           R.legL.rotation.x = 0; R.legR.rotation.x = 0;
           R.armL.rotation.set(0.15, 0, 0);
           if (p < 0.32) {
