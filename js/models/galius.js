@@ -7,21 +7,28 @@ function buildGalius() {
   // Pele branco giz cadavérica, sombras cinza-giz, carne viva e ossos expostos
   const SKIN_G = 0xf2efe9, SKIN_SH = 0xd6d1c8, SKIN_DK = 0x9b968d, FLESH_G = 0x7c121a, RAGS_G = 0x22242c, BONE_G = 0xc8bfa8, CHAIN_G = 0x3d4048;
 
-  // Pernas mais altas, bem gordas e inchadas (branco giz) com dobras, trapos e ossos expostos
-  rig.legL = limb(root, 0.46 * s * w, 1.32 * s, 0.48 * s, SKIN_G, -0.26 * s * w, 1.32 * s, 0);
-  rig.legR = limb(root, 0.46 * s * w, 1.32 * s, 0.48 * s, SKIN_G, 0.26 * s * w, 1.32 * s, 0);
-  // Coxas e panturrilhas gordas com dobras pendentes
-  part(rig.legL, 0.54 * s * w, 0.46 * s, 0.54 * s, SKIN_SH, -0.02 * s, -0.32 * s, 0.03 * s);
-  part(rig.legR, 0.54 * s * w, 0.46 * s, 0.54 * s, SKIN_SH, 0.02 * s, -0.32 * s, 0.03 * s);
-  part(rig.legL, 0.48 * s * w, 0.46 * s, 0.50 * s, RAGS_G, 0, -0.78 * s, 0);
-  part(rig.legR, 0.48 * s * w, 0.48 * s, 0.50 * s, RAGS_G, 0, -0.76 * s, 0);
-  // Pés gordos e deformados
-  part(rig.legL, 0.46 * s * w, 0.18 * s, 0.58 * s, SKIN_SH, 0, -1.23 * s, 0.06 * s);
-  part(rig.legR, 0.46 * s * w, 0.18 * s, 0.58 * s, SKIN_SH, 0, -1.23 * s, 0.06 * s);
-  // Estilhaço de osso e carne viva nos joelhos
-  const kBoneL = part(rig.legL, 0.10 * s, 0.24 * s, 0.10 * s, BONE_G, -0.06 * s, -0.52 * s, 0.25 * s);
-  kBoneL.rotation.x = 0.6;
-  part(rig.legR, 0.18 * s, 0.20 * s, 0.16 * s, FLESH_G, 0.08 * s, -0.52 * s, 0.22 * s);
+  // Pernas mais altas, bem gordas e inchadas (branco giz) com joelhos articulados, trapos e ossos expostos
+  const mkLeg = (side) => {
+    const leg = limb(root, 0.46 * s * w, 0.62 * s, 0.48 * s, SKIN_G, side * 0.26 * s * w, 1.32 * s, 0);
+    // Coxa gorda com dobras pendentes
+    part(leg, 0.54 * s * w, 0.46 * s, 0.54 * s, SKIN_SH, side * 0.02 * s, -0.32 * s, 0.03 * s);
+    // Junta do joelho -> panturrilha + trapos + pé gordo deformado
+    const kn = limb(leg, 0.44 * s * w, 0.74 * s, 0.46 * s, SKIN_G, 0, -0.58 * s, 0);
+    leg.userData.subMesh = kn.userData.mesh;
+    if (side < 0) {
+      part(kn, 0.48 * s * w, 0.46 * s, 0.50 * s, RAGS_G, 0, -0.20 * s, 0);
+      const kBoneL = part(kn, 0.10 * s, 0.24 * s, 0.10 * s, BONE_G, -0.06 * s, 0.06 * s, 0.25 * s);
+      kBoneL.rotation.x = 0.6;
+    } else {
+      part(kn, 0.48 * s * w, 0.48 * s, 0.50 * s, RAGS_G, 0, -0.18 * s, 0);
+      part(kn, 0.18 * s, 0.20 * s, 0.16 * s, FLESH_G, 0.08 * s, 0.06 * s, 0.22 * s);
+    }
+    part(kn, 0.46 * s * w, 0.18 * s, 0.58 * s, SKIN_SH, 0, -0.65 * s, 0.06 * s);
+    return { leg, knee: kn };
+  };
+  const legLObj = mkLeg(-1), legRObj = mkLeg(1);
+  rig.legL = legLObj.leg; rig.kneeL = legLObj.knee;
+  rig.legR = legRObj.leg; rig.kneeR = legRObj.knee;
 
   // Torso bem gordão branco giz com pança saliente e caixa torácica aberta no peito
   rig.torso = part(root, 1.02 * s * w, 1.02 * s, 0.62 * s, SKIN_G, 0, 1.82 * s, 0);
@@ -93,27 +100,33 @@ function buildGalius() {
   }
   rig.head.add(rig.jaw);
 
-  // Braços gordos e pesados branco giz para segurar a Super-Cruz com as duas mãos
-  rig.armL = limb(root, 0.30 * s * w, 0.96 * s, 0.32 * s, SKIN_G, -0.62 * s * w, 2.24 * s, 0);
-  part(rig.armL, 0.34 * s * w, 0.36 * s, 0.34 * s, FLESH_G, -0.03 * s, -0.34 * s, 0);
-  part(rig.armL, 0.28 * s * w, 0.16 * s, 0.28 * s, CHAIN_G, 0, -0.72 * s, 0);
-
-  rig.armR = limb(root, 0.30 * s * w, 0.96 * s, 0.32 * s, SKIN_G, 0.62 * s * w, 2.24 * s, 0);
-  part(rig.armR, 0.34 * s * w, 0.36 * s, 0.34 * s, SKIN_SH, 0.03 * s, -0.34 * s, 0);
-  part(rig.armR, 0.28 * s * w, 0.16 * s, 0.28 * s, CHAIN_G, 0, -0.72 * s, 0);
+  // Braços gordos e pesados articulados branco giz para segurar a Super-Cruz com as duas mãos
+  const mkArm = (side) => {
+    const a = limb(root, 0.30 * s * w, 0.52 * s, 0.32 * s, SKIN_G, side * 0.62 * s * w, 2.24 * s, 0);
+    part(a, 0.34 * s * w, 0.36 * s, 0.34 * s, side < 0 ? FLESH_G : SKIN_SH, side * 0.03 * s, -0.34 * s, 0);
+    const fore = limb(a, 0.28 * s * w, 0.50 * s, 0.30 * s, SKIN_G, 0, -0.48 * s, 0);
+    a.userData.subMesh = fore.userData.mesh;
+    part(fore, 0.28 * s * w, 0.16 * s, 0.28 * s, CHAIN_G, 0, -0.24 * s, 0);
+    return { arm: a, forearm: fore };
+  };
+  const armLObj = mkArm(-1), armRObj = mkArm(1);
+  rig.armL = armLObj.arm; rig.forearmL = armLObj.forearm;
+  rig.armR = armRObj.arm; rig.forearmR = armRObj.forearm;
 
   // Super-Cruz Dourada gigante segurada com as duas mãos na frente do corpo
-  part(rig.armR, 0.14 * s, 0.16 * s, 0.14 * s, 0x5a3820, 0, -0.94 * s, 0);
+  part(rig.forearmR, 0.14 * s, 0.16 * s, 0.14 * s, 0x5a3820, 0, -0.46 * s, 0);
   rig.weapon = new THREE.Group();
-  rig.weapon.position.set(0, -0.94 * s, 0.08 * s);
+  rig.weapon.position.set(0, -0.46 * s, 0.08 * s);
   part(rig.weapon, 0.28 * s, 3.4 * s, 0.28 * s, 0xd4a017, 0, -0.75 * s, 0, { em: 0x3a2800 });
   part(rig.weapon, 1.5 * s, 0.28 * s, 0.28 * s, 0xd4a017, 0, -1.65 * s, 0, { em: 0x3a2800 });
   part(rig.weapon, 0.34 * s, 0.34 * s, 0.34 * s, 0xfff0a0, 0, -1.65 * s, 0, { basic: true });
   rig.weapon.rotation.z = -1.21;
-  rig.armR.add(rig.weapon);
+  rig.forearmR.add(rig.weapon);
   // Pose inicial com as duas mãos juntas segurando o cabo da cruz
   rig.armL.rotation.set(-1.12, 0.22, 0.62);
   rig.armR.rotation.set(-1.12, -0.18, -0.44);
+  rig.forearmL.rotation.set(-0.35, 0, 0);
+  rig.forearmR.rotation.set(-0.28, 0, 0);
 
   return rig;
 }

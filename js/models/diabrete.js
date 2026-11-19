@@ -171,42 +171,50 @@ function buildDiabrete() {
     if (side < 0) rig.wingL = wg; else rig.wingR = wg;
   }
 
-  // --- BRAÇOS COM GARRAS LONGAS ---
-  rig.armL = limb(root, 0.10, 0.46, 0.10, C_SKIN, -0.24, 1.07, 0, mSkin);
-  rig.armR = limb(root, 0.10, 0.46, 0.10, C_SKIN,  0.24, 1.07, 0, mSkin);
-  for (const [arm, side] of [[rig.armL, -1], [rig.armR, 1]]) {
+  // --- BRAÇOS ARTICULADOS COM GARRAS LONGAS ---
+  const mkArm = (side) => {
+    const arm = limb(root, 0.10, 0.24, 0.10, C_SKIN, side * 0.24, 1.07, 0, mSkin);
     // Ombro/bíceps musculoso
     part(arm, 0.13, 0.14, 0.13, C_MUSCLE, side * 0.01, -0.06, 0, mMuscle);
-    // Antebraço mais fino
-    part(arm, 0.08, 0.20, 0.08, C_DARK, 0, -0.34, 0.02, mDark);
-    // 3 garras longas na mão
+    // Junta do cotovelo -> antebraço mais fino + 3 garras
+    const fore = limb(arm, 0.085, 0.24, 0.085, C_SKIN, 0, -0.23, 0, mSkin);
+    arm.userData.subMesh = fore.userData.mesh;
+    part(fore, 0.08, 0.20, 0.08, C_DARK, 0, -0.11, 0.02, mDark);
     for (let ci = -1; ci <= 1; ci++) {
       const claw = new THREE.Mesh(getDiabreteConeGeo('dClawH', 0.003, 0.013, 0.13, 5), clawMat);
-      claw.position.set(ci * 0.028, -0.49, 0.05);
+      claw.position.set(ci * 0.028, -0.26, 0.05);
       claw.rotation.x = 0.55;
-      arm.add(claw);
+      fore.add(claw);
     }
-  }
+    return { arm, forearm: fore };
+  };
+  const armLObj = mkArm(-1), armRObj = mkArm(1);
+  rig.armL = armLObj.arm; rig.forearmL = armLObj.forearm;
+  rig.armR = armRObj.arm; rig.forearmR = armRObj.forearm;
 
-  // --- PERNAS MUSCULOSAS, JOELHOS MARCADOS E PÉS COM GARRAS ---
-  rig.legL = limb(root, 0.12, 0.56, 0.12, C_SKIN, -0.11, 0.62, 0, mSkin);
-  rig.legR = limb(root, 0.12, 0.56, 0.12, C_SKIN,  0.11, 0.62, 0, mSkin);
-  for (const leg of [rig.legL, rig.legR]) {
+  // --- PERNAS MUSCULOSAS, JOELHOS ARTICULADOS E PÉS COM GARRAS ---
+  const mkLeg = (side) => {
+    const leg = limb(root, 0.12, 0.28, 0.12, C_SKIN, side * 0.11, 0.62, 0, mSkin);
     // Coxa musculosa
     part(leg, 0.15, 0.24, 0.15, C_MUSCLE, 0, -0.12, 0.01, mMuscle);
-    // Joelho protuberante
-    part(leg, 0.13, 0.10, 0.14, C_MUSCLE, 0, -0.26, 0.03, mMuscle);
-    // Canela fina e alongada
-    part(leg, 0.09, 0.26, 0.09, C_DARK, 0, -0.42, -0.01, mDark);
+    // Junta do joelho -> joelho protuberante + canela + pé com garras
+    const kn = limb(leg, 0.10, 0.30, 0.10, C_SKIN, 0, -0.26, 0, mSkin);
+    leg.userData.subMesh = kn.userData.mesh;
+    part(kn, 0.13, 0.10, 0.14, C_MUSCLE, 0, 0, 0.03, mMuscle);
+    part(kn, 0.09, 0.26, 0.09, C_DARK, 0, -0.16, -0.01, mDark);
     // Pé grande com 3 garras voltadas para a frente
-    part(leg, 0.13, 0.06, 0.18, C_SKIN, 0, -0.55, 0.05, mSkin);
+    part(kn, 0.13, 0.06, 0.18, C_SKIN, 0, -0.29, 0.05, mSkin);
     for (let fi = -1; fi <= 1; fi++) {
       const fClaw = new THREE.Mesh(getDiabreteConeGeo('dClawF', 0.004, 0.016, 0.12, 5), clawMat);
-      fClaw.position.set(fi * 0.04, -0.56, 0.17);
+      fClaw.position.set(fi * 0.04, -0.30, 0.17);
       fClaw.rotation.x = Math.PI * 0.52;
-      leg.add(fClaw);
+      kn.add(fClaw);
     }
-  }
+    return { leg, knee: kn };
+  };
+  const legLObj = mkLeg(-1), legRObj = mkLeg(1);
+  rig.legL = legLObj.leg; rig.kneeL = legLObj.knee;
+  rig.legR = legRObj.leg; rig.kneeR = legRObj.knee;
 
   // --- CAUDA LONGA COM PONTA EM SETA ---
   const tail1 = part(rig.torso, 0.045, 0.34, 0.045, C_DARK, 0, -0.34, -0.12, mDark);

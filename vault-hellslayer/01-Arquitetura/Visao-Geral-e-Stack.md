@@ -36,7 +36,7 @@ hellslayer/
 ├── index.html              # DOM completo (HUD, menus, modal Valve, overlays) + ordem dos <script>
 ├── style.css               # Estilos retro/góticos + modal Valve (~1.039 linhas)
 ├── viewer.html             # Visualizador 3D isolado do Nivaldo (⚠️ ver dívidas técnicas)
-├── package.json            # Metadados ("CABRUNCO — Beta 1"), scripts start/dist e build.files
+├── package.json            # Metadados ("PARAINFERNÁLIA — Beta 1"), scripts start/dist e build.files
 ├── electron/
 │   ├── main.js             # Ciclo de vida da janela Electron e IPC app:quit
 │   └── preload.js          # Bridge segura window.electronAPI

@@ -14,7 +14,7 @@ source_files:
 
 # 📖 Universo, Cronologia e Personagens
 
-> Consolidação canônica do universo de **HELLSLAYER (`CABRUNCO`)** para manter consistência de tom, diálogos, quips, arte e eventos em qualquer tarefa futura.
+> Consolidação canônica do universo de **HELLSLAYER (`PARAINFERNÁLIA`)** para manter consistência de tom, diálogos, quips, arte e eventos em qualquer tarefa futura.
 
 ---
 

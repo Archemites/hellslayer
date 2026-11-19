@@ -237,59 +237,71 @@ function buildGargula() {
     if (side < 0) rig.wingL = wg; else rig.wingR = wg;
   }
 
-  // --- BRAÇOS MUSCULOSOS COM GARRAS (compatíveis com armsFwd) ---
-  rig.armL = limb(root, 0.17, 0.76, 0.17, C_STONE, -0.44, 1.54, 0, mStone);
-  rig.armR = limb(root, 0.17, 0.76, 0.17, C_STONE,  0.44, 1.54, 0, mStone);
-  for (const [arm, side] of [[rig.armL, -1], [rig.armR, 1]]) {
+  // --- BRAÇOS MUSCULOSOS ARTICULADOS COM GARRAS (compatíveis com armsFwd) ---
+  const mkArm = (side) => {
+    const arm = limb(root, 0.17, 0.38, 0.17, C_STONE, side * 0.44, 1.54, 0, mStone);
     // Deltoide/ombro largo de pedra
     part(arm, 0.24, 0.22, 0.24, C_HI, side * 0.02, -0.06, 0, mHi);
-    // Bíceps e antebraço definidos
+    // Bíceps
     part(arm, 0.19, 0.22, 0.19, C_STONE, 0, -0.22, 0.01, mStone);
-    part(arm, 0.15, 0.28, 0.16, C_SH, 0, -0.46, 0.02, mSh);
-    part(arm, 0.07, 0.24, 0.06, C_HI, side * 0.055, -0.46, 0.04, mHi);
+    // Junta do cotovelo -> antebraço + mão com garras
+    const fore = limb(arm, 0.15, 0.41, 0.15, C_STONE, 0, -0.35, 0, mStone);
+    arm.userData.subMesh = fore.userData.mesh;
+    part(fore, 0.15, 0.28, 0.16, C_SH, 0, -0.11, 0.02, mSh);
+    part(fore, 0.07, 0.24, 0.06, C_HI, side * 0.055, -0.11, 0.04, mHi);
     // Mão larga com 3 garras curvas + polegar
-    part(arm, 0.16, 0.11, 0.14, C_STONE, 0, -0.66, 0.03, mStone);
+    part(fore, 0.16, 0.11, 0.14, C_STONE, 0, -0.31, 0.03, mStone);
     for (let ci = -1; ci <= 1; ci++) {
       const claw = new THREE.Mesh(getGargConeGeo('gHandClaw', 0.004, 0.018, 0.16, 5), hornMat);
-      claw.position.set(ci * 0.046, -0.77, 0.065);
+      claw.position.set(ci * 0.046, -0.42, 0.065);
       claw.rotation.x = 0.55;
-      arm.add(claw);
+      fore.add(claw);
     }
     const thumb = new THREE.Mesh(getGargConeGeo('gThumbClaw', 0.004, 0.016, 0.12, 5), hornMat);
-    thumb.position.set(-side * 0.08, -0.69, 0.08);
+    thumb.position.set(-side * 0.08, -0.34, 0.08);
     thumb.rotation.x = 0.65;
     thumb.rotation.z = side * 0.45;
-    arm.add(thumb);
-  }
+    fore.add(thumb);
+    return { arm, forearm: fore };
+  };
+  const armLObj = mkArm(-1), armRObj = mkArm(1);
+  rig.armL = armLObj.arm; rig.forearmL = armLObj.forearm;
+  rig.armR = armRObj.arm; rig.forearmR = armRObj.forearm;
   rig.armL.rotation.x = -1.3;
   rig.armR.rotation.x = -1.3;
+  rig.forearmL.rotation.x = -0.35;
+  rig.forearmR.rotation.x = -0.35;
 
-  // --- PERNAS MUSCULOSAS E PÉS GRANDES COM 3 GARRAS ---
-  rig.legL = limb(root, 0.22, 0.88, 0.22, C_STONE, -0.21, 0.88, 0, mStone);
-  rig.legR = limb(root, 0.22, 0.88, 0.22, C_STONE,  0.21, 0.88, 0, mStone);
-  for (const [leg, side] of [[rig.legL, -1], [rig.legR, 1]]) {
+  // --- PERNAS MUSCULOSAS ARTICULADAS E PÉS GRANDES COM 3 GARRAS ---
+  const mkLeg = (side) => {
+    const leg = limb(root, 0.22, 0.42, 0.22, C_STONE, side * 0.21, 0.88, 0, mStone);
     // Coxa musculosa e sulco lateral
     part(leg, 0.27, 0.34, 0.27, C_HI, 0, -0.17, 0.015, mHi);
     part(leg, 0.08, 0.28, 0.18, C_STONE, side * 0.12, -0.17, 0, mStone);
-    // Joelho esculpido
-    part(leg, 0.20, 0.13, 0.22, C_HI, 0, -0.39, 0.035, mHi);
-    // Panturrilha forte + crista da canela
-    part(leg, 0.17, 0.34, 0.18, C_SH, 0, -0.62, -0.01, mSh);
-    part(leg, 0.21, 0.20, 0.13, C_STONE, 0, -0.54, -0.075, mStone);
-    part(leg, 0.09, 0.26, 0.06, C_HI, 0, -0.62, 0.08, mHi);
+    // Junta do joelho -> joelho esculpido + panturrilha + pé com garras
+    const kn = limb(leg, 0.18, 0.49, 0.18, C_STONE, 0, -0.39, 0, mStone);
+    leg.userData.subMesh = kn.userData.mesh;
+    part(kn, 0.20, 0.13, 0.22, C_HI, 0, 0, 0.035, mHi);
+    part(kn, 0.17, 0.34, 0.18, C_SH, 0, -0.23, -0.01, mSh);
+    part(kn, 0.21, 0.20, 0.13, C_STONE, 0, -0.15, -0.075, mStone);
+    part(kn, 0.09, 0.26, 0.06, C_HI, 0, -0.23, 0.08, mHi);
     // Pé largo de gárgula com 3 dedos e garras pesadas
-    part(leg, 0.27, 0.09, 0.28, C_STONE, 0, -0.835, 0.07, mStone);
-    part(leg, 0.10, 0.08, 0.12, C_SH, 0, -0.835, -0.11, mSh);
+    part(kn, 0.27, 0.09, 0.28, C_STONE, 0, -0.445, 0.07, mStone);
+    part(kn, 0.10, 0.08, 0.12, C_SH, 0, -0.445, -0.11, mSh);
     for (let fi = -1; fi <= 1; fi++) {
-      const toe = part(leg, 0.07, 0.065, 0.13, C_HI, fi * 0.085, -0.845, 0.22, mHi);
+      const toe = part(kn, 0.07, 0.065, 0.13, C_HI, fi * 0.085, -0.455, 0.22, mHi);
       toe.rotation.y = -fi * 0.16;
       const fClaw = new THREE.Mesh(getGargConeGeo('gFootClaw', 0.005, 0.025, 0.17, 5), hornMat);
-      fClaw.position.set(fi * 0.10, -0.855, 0.33);
+      fClaw.position.set(fi * 0.10, -0.465, 0.33);
       fClaw.rotation.x = Math.PI * 0.54;
       fClaw.rotation.z = fi * 0.16;
-      leg.add(fClaw);
+      kn.add(fClaw);
     }
-  }
+    return { leg, knee: kn };
+  };
+  const legLObj = mkLeg(-1), legRObj = mkLeg(1);
+  rig.legL = legLObj.leg; rig.kneeL = legLObj.knee;
+  rig.legR = legRObj.leg; rig.kneeR = legRObj.knee;
 
   return rig;
 }

@@ -38,7 +38,14 @@ const SFX = (() => {
 
   function loadSample(k, url) {
     fetch(url).then(r => r.ok ? r.arrayBuffer() : null).then(b => {
-      if (b && ctx) ctx.decodeAudioData(b, buf => { sampleBufs[k] = buf; }, () => {});
+      if (b && ctx) ctx.decodeAudioData(b, buf => {
+        sampleBufs[k] = buf;
+        // Libera o <audio> fallback após decodificar em WebAudio para não duplicar RAM
+        if (sampleEls[k]) {
+          try { sampleEls[k].src = ''; sampleEls[k].load(); } catch (_) {}
+          delete sampleEls[k];
+        }
+      }, () => {});
     }).catch(() => {});
   }
 

@@ -59,10 +59,9 @@ function buildCamponesVivo(v) {
 
   // Pernas: calça folgada com remendos/rasgos + faixas enroladas na canela + botas altas
   const mkLeg = (side) => {
-    const l = limb(root, 0.30 * s, 0.95 * s, 0.32 * s, C.pants, side * 0.19 * s, 0.95 * s, 0);
+    const l = limb(root, 0.30 * s, 0.48 * s, 0.32 * s, C.pants, side * 0.19 * s, 0.95 * s, 0);
     // Coxa larga e tecido dobrado
     part(l, 0.33 * s, 0.42 * s, 0.35 * s, C.pants, 0, -0.20 * s, 0);
-    part(l, 0.31 * s, 0.14 * s, 0.33 * s, C.pantsWorn, 0, -0.45 * s, 0);
 
     // Remendos costurados e pequenos furos de desgaste (como na imagem base)
     if (side < 0) {
@@ -73,21 +72,26 @@ function buildCamponesVivo(v) {
       part(l, 0.07 * s, 0.06 * s, 0.03 * s, C.pantsDark, -0.05 * s, -0.18 * s, 0.168 * s);
     }
 
+    // Junta do joelho -> canela + bota
+    const kn = limb(l, 0.28 * s, 0.49 * s, 0.30 * s, C.pants, 0, -0.46 * s, 0);
+    l.userData.subMesh = kn.userData.mesh;
+    part(kn, 0.31 * s, 0.14 * s, 0.33 * s, C.pantsWorn, 0, 0.01 * s, 0);
     // Dobra da calça acima da bota
-    part(l, 0.32 * s, 0.08 * s, 0.34 * s, C.pantsDark, 0, -0.53 * s, 0);
+    part(kn, 0.32 * s, 0.08 * s, 0.34 * s, C.pantsDark, 0, -0.07 * s, 0);
 
     // Bota alta com tiras/faixas enroladas na canela
-    part(l, 0.29 * s, 0.32 * s, 0.31 * s, C.boot, 0, -0.72 * s, 0);
-    part(l, 0.305 * s, 0.045 * s, 0.325 * s, C.wrap, 0, -0.59 * s, 0);
-    part(l, 0.305 * s, 0.045 * s, 0.325 * s, C.wrap, 0, -0.68 * s, 0);
-    part(l, 0.305 * s, 0.045 * s, 0.325 * s, C.wrap, 0, -0.77 * s, 0);
-    part(l, 0.28 * s, 0.13 * s, 0.38 * s, C.boot, 0, -0.84 * s, 0.04 * s);
-    part(l, 0.26 * s, 0.08 * s, 0.12 * s, C.bootHi, 0, -0.85 * s, 0.18 * s);
-    part(l, 0.29 * s, 0.05 * s, 0.40 * s, SOLE_COL, 0, -0.925 * s, 0.04 * s);
-    return l;
+    part(kn, 0.29 * s, 0.32 * s, 0.31 * s, C.boot, 0, -0.26 * s, 0);
+    part(kn, 0.305 * s, 0.045 * s, 0.325 * s, C.wrap, 0, -0.13 * s, 0);
+    part(kn, 0.305 * s, 0.045 * s, 0.325 * s, C.wrap, 0, -0.22 * s, 0);
+    part(kn, 0.305 * s, 0.045 * s, 0.325 * s, C.wrap, 0, -0.31 * s, 0);
+    part(kn, 0.28 * s, 0.13 * s, 0.38 * s, C.boot, 0, -0.38 * s, 0.04 * s);
+    part(kn, 0.26 * s, 0.08 * s, 0.12 * s, C.bootHi, 0, -0.39 * s, 0.18 * s);
+    part(kn, 0.29 * s, 0.05 * s, 0.40 * s, SOLE_COL, 0, -0.465 * s, 0.04 * s);
+    return { leg: l, knee: kn };
   };
-  rig.legL = mkLeg(-1);
-  rig.legR = mkLeg(1);
+  const legLObj = mkLeg(-1), legRObj = mkLeg(1);
+  rig.legL = legLObj.leg; rig.kneeL = legLObj.knee;
+  rig.legR = legRObj.leg; rig.kneeR = legRObj.knee;
 
   // Tronco: camisa de linho suja aberta no colarinho + colete aberto + cinto de corda + bolsa
   rig.torso = part(root, 0.76 * s, 0.92 * s, 0.42 * s, C.shirt, 0, 1.40 * s, 0);
@@ -190,16 +194,19 @@ function buildCamponesVivo(v) {
     part(H, 0.44 * s, 0.04 * s, 0.14 * s, 0x2c2723, 0, 0.19 * s, 0.24 * s);
   }
 
-  // Braços: mangas da camisa arregaçadas + antebraços e mãos expostos
+  // Braços: mangas da camisa arregaçadas + antebraços articulados e mãos expostos
   const mkArm = (side) => {
-    const a = limb(root, 0.21 * s, 0.90 * s, 0.21 * s, C.skin, side * 0.51 * s, 1.80 * s, 0);
+    const a = limb(root, 0.21 * s, 0.46 * s, 0.21 * s, C.skin, side * 0.51 * s, 1.80 * s, 0);
     part(a, 0.25 * s, 0.42 * s, 0.25 * s, C.shirt, 0, -0.21 * s, 0);
     part(a, 0.26 * s, 0.07 * s, 0.26 * s, C.shirtSh, 0, -0.41 * s, 0);
-    part(a, 0.19 * s, 0.26 * s, 0.19 * s, C.skinSh, 0, -0.59 * s, 0);
-    return a;
+    const f = limb(a, 0.19 * s, 0.46 * s, 0.19 * s, C.skin, 0, -0.44 * s, 0);
+    a.userData.subMesh = f.userData.mesh;
+    part(f, 0.19 * s, 0.26 * s, 0.19 * s, C.skinSh, 0, -0.15 * s, 0);
+    return { arm: a, forearm: f };
   };
-  rig.armL = mkArm(-1);
-  rig.armR = mkArm(1);
+  const armLObj = mkArm(-1), armRObj = mkArm(1);
+  rig.armL = armLObj.arm; rig.forearmL = armLObj.forearm;
+  rig.armR = armRObj.arm; rig.forearmR = armRObj.forearm;
 
   return rig;
 }

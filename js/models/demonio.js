@@ -32,9 +32,9 @@ function buildDemonio() {
   const hornTMat = MT(C_HORNT, mHorn);
   const clawMat  = MT(C_CLAW, mClaw);
 
-  // --- PERNAS MUSCULOSAS (100% na carne, sem grevas/botas) ---
+  // --- PERNAS MUSCULOSAS ARTICULADAS (100% na carne, sem grevas/botas) ---
   const mkLeg = (side) => {
-    const leg = limb(root, 0.34 * s * w, 0.98 * s, 0.36 * s, C_SKIN, side * 0.23 * s * w, 0.98 * s, 0, mSkin);
+    const leg = limb(root, 0.34 * s * w, 0.52 * s, 0.36 * s, C_SKIN, side * 0.23 * s * w, 0.98 * s, 0, mSkin);
     // Quadríceps volumoso e sulco lateral
     part(leg, 0.38 * s * w, 0.42 * s, 0.40 * s, C_MUSCLE, side * 0.02 * s, -0.22 * s, 0.03 * s, mMuscle);
     part(leg, 0.14 * s * w, 0.36 * s, 0.10 * s, C_DARK, side * 0.18 * s, -0.22 * s, 0.02 * s, mDark);
@@ -44,22 +44,25 @@ function buildDemonio() {
     const rn = part(leg, 0.028 * s, 0.14 * s, 0.02 * s, C_RUNE, side * 0.05 * s, -0.28 * s, 0.235 * s, { basic: true });
     rn.rotation.z = -side * 0.22;
     part(leg, 0.09 * s, 0.024 * s, 0.02 * s, C_RUNE, side * 0.05 * s, -0.25 * s, 0.235 * s, { basic: true });
-    // Joelho marcado e panturrilha definida
-    part(leg, 0.28 * s * w, 0.14 * s, 0.32 * s, C_MUSCLE, 0, -0.49 * s, 0.04 * s, mMuscle);
-    part(leg, 0.24 * s * w, 0.34 * s, 0.26 * s, C_DARK, 0, -0.72 * s, -0.01 * s, mDark);
-    part(leg, 0.26 * s * w, 0.22 * s, 0.20 * s, C_MUSCLE, 0, -0.66 * s, -0.08 * s, mMuscle);
+    // Junta do joelho -> joelho marcado + panturrilha + pé com garras
+    const kn = limb(leg, 0.28 * s * w, 0.50 * s, 0.30 * s, C_SKIN, 0, -0.49 * s, 0, mSkin);
+    leg.userData.subMesh = kn.userData.mesh;
+    part(kn, 0.28 * s * w, 0.14 * s, 0.32 * s, C_MUSCLE, 0, 0, 0.04 * s, mMuscle);
+    part(kn, 0.24 * s * w, 0.34 * s, 0.26 * s, C_DARK, 0, -0.23 * s, -0.01 * s, mDark);
+    part(kn, 0.26 * s * w, 0.22 * s, 0.20 * s, C_MUSCLE, 0, -0.17 * s, -0.08 * s, mMuscle);
     // Pé demoníaco nu com 3 garras
-    part(leg, 0.28 * s * w, 0.10 * s, 0.42 * s, C_SKIN, 0, -0.94 * s, 0.08 * s, mSkin);
+    part(kn, 0.28 * s * w, 0.10 * s, 0.42 * s, C_SKIN, 0, -0.45 * s, 0.08 * s, mSkin);
     for (let fi = -1; fi <= 1; fi++) {
       const fClaw = new THREE.Mesh(getDemonioConeGeo('dmFClaw', 0.008 * s, 0.028 * s, 0.16 * s, 5), clawMat);
-      fClaw.position.set(fi * 0.09 * s, -0.95 * s, 0.33 * s);
+      fClaw.position.set(fi * 0.09 * s, -0.46 * s, 0.33 * s);
       fClaw.rotation.x = Math.PI * 0.52;
-      leg.add(fClaw);
+      kn.add(fClaw);
     }
-    return leg;
+    return { leg, knee: kn };
   };
-  rig.legL = mkLeg(-1);
-  rig.legR = mkLeg(1);
+  const legLObj = mkLeg(-1), legRObj = mkLeg(1);
+  rig.legL = legLObj.leg; rig.kneeL = legLObj.knee;
+  rig.legR = legRObj.leg; rig.kneeR = legRObj.knee;
 
   // --- TORSO NU E HIPER-MUSCULOSO (sem armadura, sem cinto) ---
   rig.torso = part(root, 0.86 * s * w, 0.98 * s, 0.44 * s, C_SKIN, 0, 1.48 * s, 0, mSkin);
@@ -131,38 +134,41 @@ function buildDemonio() {
     tailParent = seg;
   }
 
-  // --- BRAÇOS MACIÇOS E PUNHOS COM GARRAS (sem ombreiras) ---
+  // --- BRAÇOS MACIÇOS ARTICULADOS E PUNHOS COM GARRAS (sem ombreiras) ---
   const mkArm = (side) => {
-    const arm = limb(root, 0.25 * s * w, 0.94 * s, 0.25 * s, C_SKIN, side * 0.59 * s * w, 1.88 * s, 0, mSkin);
+    const arm = limb(root, 0.25 * s * w, 0.48 * s, 0.25 * s, C_SKIN, side * 0.59 * s * w, 1.88 * s, 0, mSkin);
     // Deltoide nu volumoso
     part(arm, 0.34 * s * w, 0.28 * s, 0.32 * s, C_MUSCLE, side * 0.04 * s, -0.06 * s, 0, mMuscle);
     // Bíceps / tríceps
     part(arm, 0.28 * s * w, 0.32 * s, 0.28 * s, C_MUSCLE, 0, -0.30 * s, 0.02 * s, mMuscle);
-    // Antebraço grosso com runa e cicatriz
-    part(arm, 0.24 * s * w, 0.38 * s, 0.24 * s, C_DARK, 0, -0.62 * s, 0.01 * s, mDark);
-    const aRune = part(arm, 0.024 * s, 0.16 * s, 0.02 * s, C_RUNE, side * 0.125 * s, -0.60 * s, 0.05 * s, { basic: true });
+    // Junta do cotovelo -> antebraço grosso + punho com garras
+    const fore = limb(arm, 0.23 * s * w, 0.50 * s, 0.23 * s, C_SKIN, 0, -0.44 * s, 0, mSkin);
+    arm.userData.subMesh = fore.userData.mesh;
+    part(fore, 0.24 * s * w, 0.38 * s, 0.24 * s, C_DARK, 0, -0.18 * s, 0.01 * s, mDark);
+    const aRune = part(fore, 0.024 * s, 0.16 * s, 0.02 * s, C_RUNE, side * 0.125 * s, -0.16 * s, 0.05 * s, { basic: true });
     aRune.rotation.z = side * 0.2;
     // Punho cerrado com garras
-    part(arm, 0.26 * s * w, 0.20 * s, 0.26 * s, C_SKIN, 0, -0.88 * s, 0.02 * s, mSkin);
+    part(fore, 0.26 * s * w, 0.20 * s, 0.26 * s, C_SKIN, 0, -0.44 * s, 0.02 * s, mSkin);
     for (let ci = -1; ci <= 1; ci++) {
       const claw = new THREE.Mesh(getDemonioConeGeo('dmHClaw', 0.006 * s, 0.022 * s, 0.14 * s, 5), clawMat);
-      claw.position.set(ci * 0.075 * s, -1.01 * s, 0.08 * s);
+      claw.position.set(ci * 0.075 * s, -0.57 * s, 0.08 * s);
       claw.rotation.x = 0.45;
-      arm.add(claw);
+      fore.add(claw);
     }
     // Brasas / fogo sutil no punho direito (referência à foto)
     if (side > 0) {
       for (let ei = 0; ei < 4; ei++) {
         const ang = (ei / 4) * Math.PI * 2;
-        const em = part(arm, 0.05 * s, 0.13 * s, 0.05 * s, ei % 2 === 0 ? C_EMBER : C_FLAME,
-          Math.cos(ang) * 0.14 * s, -0.86 * s + (ei % 2) * 0.06 * s, Math.sin(ang) * 0.14 * s, { basic: true });
+        const em = part(fore, 0.05 * s, 0.13 * s, 0.05 * s, ei % 2 === 0 ? C_EMBER : C_FLAME,
+          Math.cos(ang) * 0.14 * s, -0.42 * s + (ei % 2) * 0.06 * s, Math.sin(ang) * 0.14 * s, { basic: true });
         em.rotation.z = Math.cos(ang) * 0.35;
       }
     }
-    return arm;
+    return { arm, forearm: fore };
   };
-  rig.armL = mkArm(-1);
-  rig.armR = mkArm(1);
+  const armLObj = mkArm(-1), armRObj = mkArm(1);
+  rig.armL = armLObj.arm; rig.forearmL = armLObj.forearm;
+  rig.armR = armRObj.arm; rig.forearmR = armRObj.forearm;
 
   // --- CABEÇA DEMONÍACA + COROA DE CHIFRES RAMIFICADOS COM FOGO ---
   rig.head = part(root, 0.46 * s, 0.50 * s, 0.46 * s, C_SKIN, 0, 2.20 * s, 0.04 * s, mSkin);

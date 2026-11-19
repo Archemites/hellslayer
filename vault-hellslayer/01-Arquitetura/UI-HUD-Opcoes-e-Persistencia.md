@@ -70,7 +70,7 @@ Toda a interface usa **HTML/CSS nativo sobreposto ao `<canvas>` WebGL**, sem fra
 | `2` | **Normal** *(padrão)* | `1.00×` | `1.00×` |
 | `3` | Difícil | `1.35×` | `1.40×` |
 | `4` | Muito Difícil | `1.75×` | `1.85×` |
-| `5` | **CABRUNCO!!!** | `2.25×` | `2.50×` |
+| `5` | **PARAINFERNÁLIA!!!** | `2.25×` | `2.50×` |
 
 ---
 

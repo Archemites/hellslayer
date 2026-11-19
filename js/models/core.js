@@ -171,8 +171,13 @@ function humanoid(o) {
   const s = o.scale || 1, w = o.wide || 1;
   const root = new THREE.Group();
   const rig = { root, h: 2.35 * s };
-  rig.legL = limb(root, 0.3 * s * w, 0.95 * s, 0.32 * s, o.legs, -0.2 * s * w, 0.95 * s, 0);
-  rig.legR = limb(root, 0.3 * s * w, 0.95 * s, 0.32 * s, o.legs, 0.2 * s * w, 0.95 * s, 0);
+  const legUpper = 0.48 * s, legLower = 0.47 * s;
+  rig.legL = limb(root, 0.3 * s * w, legUpper, 0.32 * s, o.legs, -0.2 * s * w, 0.95 * s, 0);
+  rig.kneeL = limb(rig.legL, 0.28 * s * w, legLower, 0.3 * s, o.legs, 0, -legUpper, 0);
+  rig.legL.userData.subMesh = rig.kneeL.userData.mesh;
+  rig.legR = limb(root, 0.3 * s * w, legUpper, 0.32 * s, o.legs, 0.2 * s * w, 0.95 * s, 0);
+  rig.kneeR = limb(rig.legR, 0.28 * s * w, legLower, 0.3 * s, o.legs, 0, -legUpper, 0);
+  rig.legR.userData.subMesh = rig.kneeR.userData.mesh;
   rig.torso = part(root, 0.8 * s * w, 0.92 * s, 0.44 * s, o.cloth, 0, 1.4 * s, 0);
   rig.head = part(root, 0.44 * s, 0.46 * s, 0.44 * s, o.skin, 0, 2.1 * s, 0);
   if (o.eyes != null) {
@@ -183,9 +188,17 @@ function humanoid(o) {
     part(rig.head, 0.1 * s, 0.08 * s, 0.02 * s, 0x000000, 0.1 * s, 0.04 * s, 0.225 * s, { basic: true });
   }
   part(rig.head, 0.2 * s, 0.05 * s, 0.02 * s, 0x200000, 0, -0.1 * s, 0.225 * s, { basic: true });
-  rig.armL = limb(root, 0.22 * s * w, 0.9 * s, 0.22 * s, o.skin, -0.55 * s * w, 1.8 * s, 0);
-  rig.armR = limb(root, 0.22 * s * w, 0.9 * s, 0.22 * s, o.skin, 0.55 * s * w, 1.8 * s, 0);
-  if (o.armsFwd) { rig.armL.rotation.x = -1.3; rig.armR.rotation.x = -1.3; }
+  const armUpper = 0.45 * s, armLower = 0.45 * s;
+  rig.armL = limb(root, 0.22 * s * w, armUpper, 0.22 * s, o.skin, -0.55 * s * w, 1.8 * s, 0);
+  rig.forearmL = limb(rig.armL, 0.2 * s * w, armLower, 0.2 * s, o.skin, 0, -armUpper, 0);
+  rig.armL.userData.subMesh = rig.forearmL.userData.mesh;
+  rig.armR = limb(root, 0.22 * s * w, armUpper, 0.22 * s, o.skin, 0.55 * s * w, 1.8 * s, 0);
+  rig.forearmR = limb(rig.armR, 0.2 * s * w, armLower, 0.2 * s, o.skin, 0, -armUpper, 0);
+  rig.armR.userData.subMesh = rig.forearmR.userData.mesh;
+  if (o.armsFwd) {
+    rig.armL.rotation.x = -1.3; rig.armR.rotation.x = -1.3;
+    rig.forearmL.rotation.x = -0.35; rig.forearmR.rotation.x = -0.35;
+  }
   if (o.horns) {
     const hc = o.hornColor || 0xd8d0b0;
     const hl = part(rig.head, 0.07 * s, 0.3 * s, 0.07 * s, hc, -0.17 * s, 0.35 * s, 0, {});
@@ -214,32 +227,32 @@ function humanoid(o) {
   if (o.sword) {
     const sl = o.swordLen || 1;
     rig.sword = new THREE.Group();
-    part(rig.sword, 0.1 * s, 0.14 * s, 0.1 * s, 0x3a2a1a, 0, -0.88 * s, 0);
-    part(rig.sword, 0.13 * s, 0.05 * s, 0.12 * s, 0x887020, 0, -0.80 * s, 0);
-    part(rig.sword, 0.4 * s, 0.07 * s, 0.1 * s, 0x887020, 0, -0.95 * s, 0);
-    part(rig.sword, 0.08 * s, 1.2 * s * sl, 0.03 * s, 0xc0c4cc, 0, -(0.95 + 0.6 * sl) * s, 0, {});
-    rig.armR.add(rig.sword);
+    part(rig.sword, 0.1 * s, 0.14 * s, 0.1 * s, 0x3a2a1a, 0, -0.43 * s, 0);
+    part(rig.sword, 0.13 * s, 0.05 * s, 0.12 * s, 0x887020, 0, -0.35 * s, 0);
+    part(rig.sword, 0.4 * s, 0.07 * s, 0.1 * s, 0x887020, 0, -0.50 * s, 0);
+    part(rig.sword, 0.08 * s, 1.2 * s * sl, 0.03 * s, 0xc0c4cc, 0, -(0.50 + 0.6 * sl) * s, 0, {});
+    rig.forearmR.add(rig.sword);
   }
   if (o.pitchfork) {
     rig.pitchfork = new THREE.Group();
-    part(rig.pitchfork, 0.06 * s, 1.45 * s, 0.06 * s, 0x5a3a1c, 0, -1.325 * s, 0);
-    part(rig.pitchfork, 0.3 * s, 0.06 * s, 0.05 * s, 0x909090, 0, -2.05 * s, 0);
-    for (let i = -1; i <= 1; i++) part(rig.pitchfork, 0.04 * s, 0.3 * s, 0.04 * s, 0x909090, i * 0.12 * s, -2.2 * s, 0);
-    rig.armR.add(rig.pitchfork);
+    part(rig.pitchfork, 0.06 * s, 1.45 * s, 0.06 * s, 0x5a3a1c, 0, -0.875 * s, 0);
+    part(rig.pitchfork, 0.3 * s, 0.06 * s, 0.05 * s, 0x909090, 0, -1.60 * s, 0);
+    for (let i = -1; i <= 1; i++) part(rig.pitchfork, 0.04 * s, 0.3 * s, 0.04 * s, 0x909090, i * 0.12 * s, -1.75 * s, 0);
+    rig.forearmR.add(rig.pitchfork);
   }
   if (o.shield) {
     rig.shield = new THREE.Group();
-    part(rig.shield, 0.1 * s, 1.5 * s, 1.0 * s, o.shield, 0.0, -0.7 * s, 0.1 * s);
-    part(rig.shield, 0.12 * s, 0.3 * s, 0.3 * s, 0xc9a227, 0.0, -0.7 * s, 0.1 * s);
-    rig.armL.add(rig.shield);
+    part(rig.shield, 0.1 * s, 1.5 * s, 1.0 * s, o.shield, 0.0, -0.25 * s, 0.1 * s);
+    part(rig.shield, 0.12 * s, 0.3 * s, 0.3 * s, 0xc9a227, 0.0, -0.25 * s, 0.1 * s);
+    rig.forearmL.add(rig.shield);
   }
   if (o.goldCross) {
     // Super-Cruz Dourada usada como clava
-    part(rig.armR, 0.1 * s, 0.1 * s, 0.1 * s, 0x5a3820, 0, -0.9 * s, 0);
+    part(rig.forearmR, 0.1 * s, 0.1 * s, 0.1 * s, 0x5a3820, 0, -0.45 * s, 0);
     rig.weapon = new THREE.Group();
-    part(rig.weapon, 0.28 * s, 3.4 * s, 0.28 * s, 0xd4a017, 0, -2.4 * s, 0, { em: 0x3a2800 });
-    part(rig.weapon, 1.5 * s, 0.28 * s, 0.28 * s, 0xd4a017, 0, -3.3 * s, 0, { em: 0x3a2800 });
-    rig.armR.add(rig.weapon);
+    part(rig.weapon, 0.28 * s, 3.4 * s, 0.28 * s, 0xd4a017, 0, -1.95 * s, 0, { em: 0x3a2800 });
+    part(rig.weapon, 1.5 * s, 0.28 * s, 0.28 * s, 0xd4a017, 0, -2.85 * s, 0, { em: 0x3a2800 });
+    rig.forearmR.add(rig.weapon);
   }
   if (o.heart) {
     rig.heart = bioHeart(1.7 * s);

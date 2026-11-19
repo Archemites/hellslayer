@@ -32,7 +32,7 @@ function buildCampones() {
 
   // Pernas: calça marrom-acinzentada rasgada nos joelhos/coxas + botas pesadas assimétricas
   const mkLeg = (side) => {
-    const l = limb(root, 0.28 * s, 0.95 * s, 0.30 * s, PANTS_BASE, side * 0.19 * s, 0.95 * s, 0);
+    const l = limb(root, 0.28 * s, 0.48 * s, 0.30 * s, PANTS_BASE, side * 0.19 * s, 0.95 * s, 0);
     // Coxa e tecido amassado
     part(l, 0.30 * s, 0.36 * s, 0.32 * s, PANTS_BASE, 0, -0.18 * s, 0);
     part(l, 0.14 * s, 0.18 * s, 0.33 * s, PANTS_WORN, side * 0.06 * s, -0.16 * s, 0.005 * s);
@@ -51,22 +51,26 @@ function buildCampones() {
       part(l, 0.11 * s, 0.14 * s, 0.03 * s, BLOOD_2, -0.04 * s, -0.20 * s, 0.158 * s);
     }
 
+    // Junta do joelho -> canela + bota
+    const kn = limb(l, 0.27 * s, 0.49 * s, 0.29 * s, PANTS_BASE, 0, -0.46 * s, 0);
+    l.userData.subMesh = kn.userData.mesh;
     // Boca da calça dobrada/amassada acima da bota
-    part(l, 0.31 * s, 0.14 * s, 0.33 * s, PANTS_WORN, 0, -0.50 * s, 0);
-    part(l, 0.29 * s, 0.06 * s, 0.31 * s, PANTS_DARK, 0, -0.56 * s, 0);
+    part(kn, 0.31 * s, 0.14 * s, 0.33 * s, PANTS_WORN, 0, -0.04 * s, 0);
+    part(kn, 0.29 * s, 0.06 * s, 0.31 * s, PANTS_DARK, 0, -0.10 * s, 0);
 
     // Bota pesada (esquerda marrom-avermelhada, direita cinza-marrom enlameada)
     const bBase = side < 0 ? BOOT_L_BASE : BOOT_R_BASE;
     const bHi   = side < 0 ? BOOT_L_HI : BOOT_R_HI;
-    part(l, 0.29 * s, 0.30 * s, 0.31 * s, bBase, 0, -0.73 * s, 0);
-    part(l, 0.30 * s, 0.06 * s, 0.32 * s, bHi, 0, -0.60 * s, 0); // borda do cano
-    part(l, 0.28 * s, 0.14 * s, 0.38 * s, bBase, 0, -0.84 * s, 0.04 * s); // peito do pé/biqueira
-    part(l, 0.26 * s, 0.08 * s, 0.12 * s, bHi, 0, -0.85 * s, 0.18 * s); // bico da bota
-    part(l, 0.29 * s, 0.05 * s, 0.40 * s, SOLE_COL, 0, -0.925 * s, 0.04 * s); // sola
-    return l;
+    part(kn, 0.29 * s, 0.30 * s, 0.31 * s, bBase, 0, -0.27 * s, 0);
+    part(kn, 0.30 * s, 0.06 * s, 0.32 * s, bHi, 0, -0.14 * s, 0); // borda do cano
+    part(kn, 0.28 * s, 0.14 * s, 0.38 * s, bBase, 0, -0.38 * s, 0.04 * s); // peito do pé/biqueira
+    part(kn, 0.26 * s, 0.08 * s, 0.12 * s, bHi, 0, -0.39 * s, 0.18 * s); // bico da bota
+    part(kn, 0.29 * s, 0.05 * s, 0.40 * s, SOLE_COL, 0, -0.465 * s, 0.04 * s); // sola
+    return { leg: l, knee: kn };
   };
-  rig.legL = mkLeg(-1);
-  rig.legR = mkLeg(1);
+  const legLObj = mkLeg(-1), legRObj = mkLeg(1);
+  rig.legL = legLObj.leg; rig.kneeL = legLObj.knee;
+  rig.legR = legRObj.leg; rig.kneeR = legRObj.knee;
 
   // Tronco: camisa bege/suja aberta no colarinho e ensanguentada + colete marrom aberto
   rig.torso = part(root, 0.76 * s, 0.92 * s, 0.42 * s, SHIRT_BASE, 0, 1.40 * s, 0);
@@ -151,31 +155,36 @@ function buildCampones() {
   part(H, 0.06 * s, 0.26 * s, 0.36 * s, HAIR_BASE, 0.23 * s, 0.08 * s, -0.02 * s);
   part(H, 0.44 * s, 0.32 * s, 0.06 * s, HAIR_DARK, 0, 0.06 * s, -0.23 * s);
 
-  // Braços: mangas da camisa arregaçadas + antebraços expostos e ensanguentados
+  // Braços: mangas da camisa arregaçadas + antebraços articulados expostos e ensanguentados
   const mkArm = (side) => {
-    const a = limb(root, 0.21 * s, 0.90 * s, 0.21 * s, SKIN_BASE, side * 0.51 * s, 1.80 * s, 0);
+    const a = limb(root, 0.21 * s, 0.46 * s, 0.21 * s, SKIN_BASE, side * 0.51 * s, 1.80 * s, 0);
     // Manga da camisa até o meio do braço
     part(a, 0.25 * s, 0.42 * s, 0.25 * s, SHIRT_BASE, 0, -0.21 * s, 0);
     part(a, 0.26 * s, 0.07 * s, 0.26 * s, SHIRT_SH, 0, -0.41 * s, 0); // dobra arregaçada
     part(a, 0.14 * s, 0.20 * s, 0.26 * s, BLOOD_1, side * 0.03 * s, -0.24 * s, 0.01 * s);
-    // Antebraço exposto com manchas de sangue e mãos cadavéricas
-    part(a, 0.19 * s, 0.24 * s, 0.19 * s, SKIN_SH, 0, -0.60 * s, 0);
-    part(a, 0.12 * s, 0.22 * s, 0.20 * s, BLOOD_1, 0, -0.64 * s, 0.015 * s);
-    part(a, 0.18 * s, 0.14 * s, 0.20 * s, BLOOD_2, 0, -0.83 * s, 0.01 * s);
-    return a;
+    // Junta do cotovelo -> antebraço exposto e mão cadavérica
+    const f = limb(a, 0.19 * s, 0.46 * s, 0.19 * s, SKIN_BASE, 0, -0.44 * s, 0);
+    a.userData.subMesh = f.userData.mesh;
+    part(f, 0.19 * s, 0.24 * s, 0.19 * s, SKIN_SH, 0, -0.16 * s, 0);
+    part(f, 0.12 * s, 0.22 * s, 0.20 * s, BLOOD_1, 0, -0.20 * s, 0.015 * s);
+    part(f, 0.18 * s, 0.14 * s, 0.20 * s, BLOOD_2, 0, -0.39 * s, 0.01 * s);
+    return { arm: a, forearm: f };
   };
-  rig.armL = mkArm(-1);
-  rig.armR = mkArm(1);
+  const armLObj = mkArm(-1), armRObj = mkArm(1);
+  rig.armL = armLObj.arm; rig.forearmL = armLObj.forearm;
+  rig.armR = armRObj.arm; rig.forearmR = armRObj.forearm;
   rig.armL.rotation.x = -1.3;
   rig.armR.rotation.x = -1.3;
+  rig.forearmL.rotation.x = -0.35;
+  rig.forearmR.rotation.x = -0.35;
 
   // Forcado opcional (40% de chance, preservando variedade original)
   if (Math.random() < 0.4) {
     rig.pitchfork = new THREE.Group();
-    part(rig.pitchfork, 0.06 * s, 1.45 * s, 0.06 * s, 0x5a3a1c, 0, -1.325 * s, 0);
-    part(rig.pitchfork, 0.3 * s, 0.06 * s, 0.05 * s, 0x909090, 0, -2.05 * s, 0);
-    for (let i = -1; i <= 1; i++) part(rig.pitchfork, 0.04 * s, 0.3 * s, 0.04 * s, 0x909090, i * 0.12 * s, -2.2 * s, 0);
-    rig.armR.add(rig.pitchfork);
+    part(rig.pitchfork, 0.06 * s, 1.45 * s, 0.06 * s, 0x5a3a1c, 0, -0.885 * s, 0);
+    part(rig.pitchfork, 0.3 * s, 0.06 * s, 0.05 * s, 0x909090, 0, -1.61 * s, 0);
+    for (let i = -1; i <= 1; i++) part(rig.pitchfork, 0.04 * s, 0.3 * s, 0.04 * s, 0x909090, i * 0.12 * s, -1.76 * s, 0);
+    rig.forearmR.add(rig.pitchfork);
   }
 
   return rig;

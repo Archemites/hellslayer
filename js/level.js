@@ -172,11 +172,22 @@ function applyPads(x, z, h) {
   const pads = World.pads;
   for (let i = 0; i < pads.length; i++) {
     const p = pads[i];
-    const dx = Math.max(0, Math.abs(x - p.cx) - p.hw);
-    const dz = Math.max(0, Math.abs(z - p.cz) - p.hd);
-    const d = Math.hypot(dx, dz);
-    if (d < p.blend) {
-      const s = smoothstep(0, p.blend, d);
+    const b = p.blend;
+    const ax = Math.abs(x - p.cx) - p.hw;
+    if (ax >= b) continue;
+    const az = Math.abs(z - p.cz) - p.hd;
+    if (az >= b) continue;
+    if (ax <= 0 && az <= 0) {
+      h = p.y;
+      continue;
+    }
+    const dx = ax > 0 ? ax : 0;
+    const dz = az > 0 ? az : 0;
+    const d2 = dx * dx + dz * dz;
+    const bSq = p.blendSq || (b * b);
+    if (d2 < bSq) {
+      const t = Math.sqrt(d2) / b;
+      const s = t * t * (3 - 2 * t);
       h = p.y * (1 - s) + h * s;
     }
   }
@@ -189,7 +200,8 @@ function setTerrain(baseFn) {
 function addPad(cx, cz, hw, hd, blend) {
   if (!World.terrainBaseFn) return 0;
   const y = World.terrainBaseFn(cx, cz);
-  World.pads.push({ cx, cz, hw, hd, blend: blend || 5, y });
+  const b = blend || 5;
+  World.pads.push({ cx, cz, hw, hd, blend: b, blendSq: b * b, y });
   return y;
 }
 function envAt(x, z) {
@@ -263,7 +275,19 @@ function wpillar(x1, z1, x2, z2, h, tex, o) {
   return p;
 }
 
-function wterrainPatch(sx1, sz1, sx2, sz2, minX, maxZ, tex, yLift, tile, step, fn, mat, renderOrder) {
+function wterrainPatch(sx1, sz1, sx2, sz2, minX, maxZ, tex, yLift, tile, step, fn, mat, renderOrder, skipBuried) {
+  if (skipBuried) {
+    const mx = (sx1 + sx2) * 0.5, mz = (sz1 + sz2) * 0.5;
+    if (
+      fn(sx1, sz1) <= getGroundY(sx1, sz1) - 4.5 &&
+      fn(sx2, sz1) <= getGroundY(sx2, sz1) - 4.5 &&
+      fn(sx1, sz2) <= getGroundY(sx1, sz2) - 4.5 &&
+      fn(sx2, sz2) <= getGroundY(sx2, sz2) - 4.5 &&
+      fn(mx, mz) <= getGroundY(mx, mz) - 4.5
+    ) {
+      return null;
+    }
+  }
   const w = sx2 - sx1, d = sz2 - sz1;
   const segX = Math.max(1, Math.min(24, Math.round(w / step)));
   const segZ = Math.max(1, Math.min(24, Math.round(d / step)));
@@ -297,7 +321,7 @@ function wterrainPatch(sx1, sz1, sx2, sz2, minX, maxZ, tex, yLift, tile, step, f
   return addW(m, cx, cz);
 }
 
-function wterrain(x1, z1, x2, z2, tex, yOff, tile, segStep, customFn) {
+function wterrain(x1, z1, x2, z2, tex, yOff, tile, segStep, customFn, skipBuried) {
   tile = tile || 4;
   const yPos = yOff || 0;
   const yLift = yPos > 0 ? Math.max(yPos, 0.07) : yPos;
@@ -320,7 +344,8 @@ function wterrain(x1, z1, x2, z2, tex, yOff, tile, segStep, customFn) {
       const sz1 = Math.max(minZ, czIdx * CHUNK_SIZE);
       const sz2 = Math.min(maxZ, (czIdx + 1) * CHUNK_SIZE);
       if (sz2 - sz1 < 0.01) continue;
-      lastMesh = wterrainPatch(sx1, sz1, sx2, sz2, minX, maxZ, tex, yLift, tile, step, fn, mat, renderOrder);
+      const m = wterrainPatch(sx1, sz1, sx2, sz2, minX, maxZ, tex, yLift, tile, step, fn, mat, renderOrder, skipBuried);
+      if (m) lastMesh = m;
     }
   }
   return lastMesh;
@@ -329,7 +354,7 @@ function wterrain(x1, z1, x2, z2, tex, yOff, tile, segStep, customFn) {
 function flushTerrain() {
   for (let i = 0; i < World.pendingFloors.length; i++) {
     const f = World.pendingFloors[i];
-    wterrain(f.x1, f.z1, f.x2, f.z2, f.tex, f.y, f.tile, f.segStep, f.customFn);
+    wterrain(f.x1, f.z1, f.x2, f.z2, f.tex, f.y, f.tile, f.segStep, f.customFn, f.skipBuried);
   }
   World.pendingFloors.length = 0;
 }
@@ -1177,23 +1202,23 @@ const FLAME_NOISE_GLSL = `
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
   }
   float fbm3(vec2 p) {
-    float v = 0.0;
-    float a = 0.5;
-    mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
-    for (int i = 0; i < 3; i++) {
-      v += a * vnoise(p);
-      p = rot * p * 2.05 + vec2(17.1, 31.7);
-      a *= 0.5;
-    }
+    float v = 0.58 * vnoise(p);
+    p = mat2(0.8, 0.6, -0.6, 0.8) * p * 2.05 + vec2(17.1, 31.7);
+    v += 0.295 * vnoise(p);
     return v;
   }
 `;
 
-function makeFlameMat(cols, phase) {
-  return new THREE.ShaderMaterial({
+const _flameMatCache = new Map();
+const _smokeMatCache = new Map();
+
+function makeFlameMat(cols) {
+  const key = cols[0] + '|' + cols[1];
+  let mat = _flameMatCache.get(key);
+  if (mat) return mat;
+  mat = new THREE.ShaderMaterial({
     uniforms: {
       uTime: FLAME_TIME,
-      uPhase: { value: phase },
       uColOuter: { value: new THREE.Color(cols[0]) },
       uColInner: { value: new THREE.Color(cols[1]) }
     },
@@ -1201,39 +1226,41 @@ function makeFlameMat(cols, phase) {
       attribute float aLayer;
       attribute float aSeed;
       uniform float uTime;
-      uniform float uPhase;
       varying vec2 vUv;
       varying float vLayer;
       varying float vSeed;
+      varying float vPhase;
       void main() {
         vUv = uv;
         vLayer = aLayer;
         vSeed = aSeed;
+        float phase = fract(sin(dot(modelMatrix[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 20.0;
+        vPhase = phase;
         vec3 pos = position;
         float h = uv.y;
-        float w = uTime * 3.2 + uPhase + aSeed;
+        float w = uTime * 3.2 + phase + aSeed;
         pos.x += sin(w + h * 4.2) * 0.14 * h * h;
         pos.z += cos(w * 0.87 + h * 3.6) * 0.12 * h * h;
-        pos.y *= 1.0 + sin(uTime * 6.4 + uPhase + aSeed * 1.7) * 0.075 * h;
+        pos.y *= 1.0 + sin(uTime * 6.4 + phase + aSeed * 1.7) * 0.075 * h;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
       }
     `,
     fragmentShader: `
       uniform float uTime;
-      uniform float uPhase;
       uniform vec3 uColOuter;
       uniform vec3 uColInner;
       varying vec2 vUv;
       varying float vLayer;
       varying float vSeed;
+      varying float vPhase;
       ${FLAME_NOISE_GLSL}
       void main() {
         float x = (vUv.x - 0.5) * 2.0;
         float y = vUv.y;
-        float t = uTime * (1.85 + 0.35 * vLayer) + uPhase + vSeed * 2.3;
+        float t = uTime * (1.85 + 0.35 * vLayer) + vPhase + vSeed * 2.3;
         vec2 q = vec2(x * 2.25 + vSeed * 1.1, y * 2.7 - t * 1.55);
         float n1 = fbm3(q);
-        float n2 = fbm3(q * 2.15 + vec2(n1 * 1.35, -t * 0.85));
+        float n2 = vnoise(q * 2.15 + vec2(n1 * 1.35, -t * 0.85)) * 0.875;
         float turb = mix(n1, n2, 0.55);
 
         float widthProfile = mix(0.88, 0.16, pow(y, 0.82)) * smoothstep(0.0, 0.1, y);
@@ -1259,42 +1286,47 @@ function makeFlameMat(cols, phase) {
     depthWrite: false,
     side: THREE.DoubleSide
   });
+  _flameMatCache.set(key, mat);
+  return mat;
 }
 
-function makeSmokeMat(glowCol, phase) {
-  return new THREE.ShaderMaterial({
+function makeSmokeMat(glowCol) {
+  let mat = _smokeMatCache.get(glowCol);
+  if (mat) return mat;
+  mat = new THREE.ShaderMaterial({
     uniforms: {
       uTime: FLAME_TIME,
-      uPhase: { value: phase },
       uGlowCol: { value: new THREE.Color(glowCol) }
     },
     vertexShader: `
       attribute float aSeed;
       uniform float uTime;
-      uniform float uPhase;
       varying vec2 vUv;
       varying float vSeed;
+      varying float vPhase;
       void main() {
         vUv = uv;
         vSeed = aSeed;
+        float phase = fract(sin(dot(modelMatrix[3].xyz, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 20.0;
+        vPhase = phase;
         vec3 pos = position;
         float h = uv.y;
-        pos.x += sin(uTime * 1.4 + uPhase + h * 3.0 + aSeed) * 0.28 * h;
-        pos.z += cos(uTime * 1.15 + uPhase + h * 2.5 + aSeed) * 0.24 * h;
+        pos.x += sin(uTime * 1.4 + phase + h * 3.0 + aSeed) * 0.28 * h;
+        pos.z += cos(uTime * 1.15 + phase + h * 2.5 + aSeed) * 0.24 * h;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
       }
     `,
     fragmentShader: `
       uniform float uTime;
-      uniform float uPhase;
       uniform vec3 uGlowCol;
       varying vec2 vUv;
       varying float vSeed;
+      varying float vPhase;
       ${FLAME_NOISE_GLSL}
       void main() {
         float x = (vUv.x - 0.5) * 2.0;
         float y = vUv.y;
-        float t = uTime * 0.75 + uPhase + vSeed * 1.7;
+        float t = uTime * 0.75 + vPhase + vSeed * 1.7;
         vec2 q = vec2(x * 1.8 + vSeed, y * 2.2 - t);
         float n = fbm3(q);
         float width = mix(0.45, 0.95, y);
@@ -1312,6 +1344,8 @@ function makeSmokeMat(glowCol, phase) {
     depthWrite: false,
     side: THREE.DoubleSide
   });
+  _smokeMatCache.set(glowCol, mat);
+  return mat;
 }
 
 function flame(x, y, z, s, cols, opts) {
@@ -1324,17 +1358,21 @@ function flame(x, y, z, s, cols, opts) {
   g.rotation.y = Math.random() * Math.PI * 2;
   g.scale.set(sc, sc, sc);
 
-  const fireMesh = new THREE.Mesh(getFlameGeo(), makeFlameMat(cols, ph));
+  const fireMesh = new THREE.Mesh(getFlameGeo(), makeFlameMat(cols));
   fireMesh.renderOrder = 2;
+  fireMesh.matrixAutoUpdate = false;
   g.add(fireMesh);
 
   let smokeMesh = null;
   if (opts.smoke || sc >= 1.7) {
-    smokeMesh = new THREE.Mesh(getSmokeGeo(), makeSmokeMat(cols[0], ph));
+    smokeMesh = new THREE.Mesh(getSmokeGeo(), makeSmokeMat(cols[0]));
     smokeMesh.renderOrder = 1;
+    smokeMesh.matrixAutoUpdate = false;
     g.add(smokeMesh);
   }
 
+  g.updateMatrix();
+  g.matrixAutoUpdate = false;
   addW(g, x, z);
   World.flames.push({ g, ph, s: sc, smokeMesh, chunk: g.userData.chunk });
   return g;
@@ -1412,12 +1450,94 @@ function makeGate(id, cx, cz, w, axis, h, style) {
     part(grp, w, 0.3, 0.3, 0x300808, 0, h - 0.15, 0, { em: 0x400000 });
     if (axis === 'z') grp.rotation.y = Math.PI / 2;
   } else {
-    const dm = new THREE.Mesh(tiledBox(w, h, 1.0, 4), TX.mat('door'));
-    dm.position.y = h / 2;
-    grp.add(dm);
-    part(grp, 1.2, h, 0.1, 0xc9a227, 0, h / 2, 0.55);
-    part(grp, w, 1.2, 0.1, 0xc9a227, 0, h * 0.7, 0.55);
-    World.doorMesh = dm;
+    // Portão pesado de madeira da Ultra-Igreja com centro quebrável (Nivaldo arrebenta um buraco nele!)
+    const holeW = 6.2, holeH = 7.4;
+    const sideW = (w - holeW) / 2;
+    const topH = h - holeH;
+    const addDoorPanel = (parent, pw, ph, pd, x, y, z) => {
+      const m = new THREE.Mesh(tiledBox(pw, ph, pd, 4), TX.mat('door'));
+      m.position.set(x, y, z || 0);
+      parent.add(m);
+      return m;
+    };
+
+    // Moldura externa intacta do portão de madeira (fica de pé ao redor do buraco arrombado)
+    addDoorPanel(grp, sideW, h, 1.0, -(holeW / 2 + sideW / 2), h / 2, 0);
+    addDoorPanel(grp, sideW, h, 1.0,  (holeW / 2 + sideW / 2), h / 2, 0);
+    addDoorPanel(grp, holeW, topH, 1.0, 0, holeH + topH / 2, 0);
+    // Parte superior e braço horizontal da cruz dourada (permanecem no portão)
+    part(grp, 1.2, topH, 0.12, 0xc9a227, 0, holeH + topH / 2, 0.55);
+    part(grp, w, 1.2, 0.12, 0xc9a227, 0, h * 0.7, 0.55);
+
+    // Painel central que Nivaldo arrebenta (visível enquanto o portão está fechado)
+    const smashGrp = new THREE.Group();
+    addDoorPanel(smashGrp, holeW, holeH, 1.0, 0, holeH / 2, 0);
+    part(smashGrp, 1.2, holeH, 0.12, 0xc9a227, 0, holeH / 2, 0.55);
+    grp.add(smashGrp);
+
+    // Lascas e tábuas quebradas irregulares ao redor do buraco (aparecem quando arrebentado)
+    const splinterGrp = new THREE.Group();
+    splinterGrp.visible = false;
+    const splinters = [
+      // Borda esquerda do buraco
+      [-holeW / 2 + 0.35, 1.0, 0.95, 1.35, 0.14],
+      [-holeW / 2 + 0.52, 2.7, 1.25, 1.20, -0.18],
+      [-holeW / 2 + 0.28, 4.4, 0.85, 1.45, 0.12],
+      [-holeW / 2 + 0.58, 6.1, 1.30, 1.15, -0.22],
+      // Borda direita do buraco
+      [holeW / 2 - 0.42, 1.2, 1.05, 1.40, -0.15],
+      [holeW / 2 - 0.28, 3.0, 0.80, 1.30, 0.16],
+      [holeW / 2 - 0.56, 4.8, 1.25, 1.25, -0.20],
+      [holeW / 2 - 0.36, 6.3, 0.95, 1.10, 0.14],
+      // Borda superior do buraco (dentes de madeira pendurados)
+      [-1.9, holeH - 0.38, 1.25, 1.05, 0.18],
+      [-0.5, holeH - 0.52, 1.15, 1.25, -0.12],
+      [0.85, holeH - 0.34, 1.20, 0.95, 0.20],
+      [2.05, holeH - 0.46, 1.10, 1.15, -0.16]
+    ];
+    splinters.forEach(([sx, sy, sw, sh, rz], idx) => {
+      const sp = new THREE.Mesh(tiledBox(sw, sh, 0.82, 3), idx % 3 === 0 ? TX.mat('wood') : TX.mat('door'));
+      sp.position.set(sx, sy, -0.12);
+      sp.rotation.set(-0.18, (idx % 2 === 0 ? 0.12 : -0.12), rz);
+      splinterGrp.add(sp);
+    });
+    // Ponta quebrada da cruz dourada no topo do buraco
+    const brokenCross = part(splinterGrp, 1.15, 0.85, 0.14, 0xc9a227, 0, holeH - 0.28, 0.52);
+    brokenCross.rotation.z = 0.16;
+    grp.add(splinterGrp);
+
+    // Estilhaços 3D de madeira e ouro que voam quando Nivaldo arrebenta o buraco
+    const debris = [];
+    for (let i = 0; i < 14; i++) {
+      const isGold = i < 3;
+      const dw = isGold ? 0.9 : (0.9 + (i % 3) * 0.45);
+      const dh = isGold ? 1.4 : (0.55 + ((i * 7) % 4) * 0.28);
+      const dd = isGold ? 0.18 : 0.45;
+      const dm = new THREE.Mesh(
+        BX(dw, dh, dd),
+        isGold ? MT(0xc9a227, { em: 0x3a2400 }) : TX.mat(i % 2 === 0 ? 'door' : 'wood')
+      );
+      const ix = ((i % 5) - 2) * 1.1;
+      const iy = 1.2 + Math.floor(i / 5) * 2.1;
+      dm.position.set(ix, iy, 0);
+      dm.visible = false;
+      grp.add(dm);
+      debris.push({
+        m: dm,
+        x0: ix, y0: iy, z0: 0,
+        vx: ix * 2.4 + ((i % 2 === 0 ? 1 : -1) * 1.8),
+        vy: 3.5 + (i % 4) * 1.6,
+        vz: -9.5 - (i % 3) * 3.5,
+        rx: (i % 2 === 0 ? 1 : -1) * (4 + i * 0.4),
+        ry: (i % 3 - 1) * 5.2,
+        rz: (i % 2 === 0 ? -1 : 1) * (3.5 + i * 0.3)
+      });
+    }
+
+    World.doorMesh = grp;
+    addW(grp, cx, cz);
+    World.gates[id] = { col, grp, style, open: false, t: 0, h, axis, smashGrp, splinterGrp, debris };
+    return;
   }
   addW(grp, cx, cz);
   World.gates[id] = { col, grp, style, open: false, t: 0, h, axis };
@@ -1426,58 +1546,307 @@ function openGate(id) {
   const g = World.gates[id];
   if (!g || g.open) return;
   g.open = true; g.col.active = false; g.t = 0;
+  if (g.smashGrp) g.smashGrp.visible = false;
+  if (g.splinterGrp) g.splinterGrp.visible = true;
+  if (g.debris) {
+    for (let i = 0; i < g.debris.length; i++) {
+      const d = g.debris[i];
+      d.m.visible = true;
+      d.m.position.set(d.x0, d.y0, d.z0);
+      d.m.rotation.set(0, 0, 0);
+    }
+  }
 }
 function closeGateInstant(id) {
   const g = World.gates[id];
   if (!g) return;
   g.open = false; g.col.active = true; g.t = 0;
   g.grp.scale.set(1, 1, 1); g.grp.rotation.x = 0; g.grp.visible = true;
+  if (g.smashGrp) g.smashGrp.visible = true;
+  if (g.splinterGrp) g.splinterGrp.visible = false;
+  if (g.debris) {
+    for (let i = 0; i < g.debris.length; i++) g.debris[i].m.visible = false;
+  }
 }
 
-/* ---------------- Portão de Saída em Destaque (Intermission Doom-style) ---------------- */
+/* ---------------- Portão de Saída Monumental Tematizado + Preview da Próxima Fase ---------------- */
 function makeExitGate(cx, cz, nextMap, nextLabel) {
-  const ty = World.terrainY ? addPad(cx, cz, 7.0, 5.0, 6.0) : 0;
+  const ty = World.terrainY ? addPad(cx, cz, 11.0, 7.5, 7.0) : 0;
   const grp = new THREE.Group();
   grp.position.set(cx, ty, cz);
-  const w = 9.5, h = 8.5;
-  // Pilares monumentais dourados/negros
-  part(grp, 1.8, h + 1.5, 1.8, 0x221010, -w / 2 - 0.6, (h + 1.5) / 2, 0);
-  part(grp, 1.8, h + 1.5, 1.8, 0x221010,  w / 2 + 0.6, (h + 1.5) / 2, 0);
-  part(grp, 2.0, 0.5, 2.0, 0xd4a017, -w / 2 - 0.6, h + 1.5, 0, { em: 0x5a3800 });
-  part(grp, 2.0, 0.5, 2.0, 0xd4a017,  w / 2 + 0.6, h + 1.5, 0, { em: 0x5a3800 });
-  part(grp, w + 3.2, 1.4, 2.0, 0x2a1212, 0, h + 0.6, 0);
-  part(grp, w + 1.6, 0.4, 2.2, 0xd4a017, 0, h + 1.4, 0, { em: 0x6a4200 });
-  flame(cx - w / 2 - 0.6, ty + h + 1.8, cz, 1.5, [0xffa020, 0xfff080]);
-  flame(cx + w / 2 + 0.6, ty + h + 1.8, cz, 1.5, [0xffa020, 0xfff080]);
 
-  // Feixe vertical visível de longe
-  const beam = new THREE.Mesh(
-    new THREE.CylinderGeometry(1.2, 2.4, 55, 8, 1, true),
-    MT(0x40ff90, { basic: true, tr: 0.35, add: true, dbl: true, nofog: true })
-  );
-  beam.position.y = 27.5;
+  const area = World.currentMap || 'a1';
+  const THEMES = {
+    a1: { style: 'village',   pillarTex: 'brick',  trimTex: 'wood',  roofTex: 'roof',   accent: 0xffb830, accentCss: '#ffb830', beamCol: 0x48ff98, flameCols: [0xff9820, 0xfff080], barCol: 0x26201e, tipCol: 0xc48c28 },
+    a2: { style: 'fields',    pillarTex: 'stone',  trimTex: 'wood',  roofTex: 'wood',   accent: 0xff8824, accentCss: '#ff8824', beamCol: 0x48ff98, flameCols: [0xff7a18, 0xffe470], barCol: 0x281e1a, tipCol: 0xd06a22 },
+    a3: { style: 'fortress',  pillarTex: 'stone',  trimTex: 'stone', roofTex: 'stone',  accent: 0xe6b830, accentCss: '#e6b830', beamCol: 0x48ff98, flameCols: [0xff9020, 0xfff090], barCol: 0x20242a, tipCol: 0xd4a017 },
+    a4: { style: 'mansion',   pillarTex: 'marble', trimTex: 'gold',  roofTex: 'marble', accent: 0xffd84a, accentCss: '#ffd84a', beamCol: 0x50ff9e, flameCols: [0xffc430, 0xffffa8], barCol: 0x1a1a22, tipCol: 0xf0c83c },
+    a5: { style: 'cathedral', pillarTex: 'church', trimTex: 'gold',  roofTex: 'roof',   accent: 0xff5226, accentCss: '#ff5226', beamCol: 0x50ff9e, flameCols: [0xff3a14, 0xffd060], barCol: 0x18101c, tipCol: 0xd4a017 }
+  };
+  const th = THEMES[area] || THEMES.a1;
+
+  const w = 13.6, h = 10.6;
+  const pw = 2.6, pd = 2.8;
+  const pxOff = w / 2 + pw / 2;
+
+  const tbox = (parent, bw, bh, bd, tex, x, y, z, tile) => {
+    const m = new THREE.Mesh(tiledBox(bw, bh, bd, tile || 3), TX.mat(tex));
+    m.position.set(x, y, z);
+    parent.add(m);
+    return m;
+  };
+
+  // --- 1. Caixa escura recuada (alcova) + Foto Preview da Próxima Fase ---
+  const alcoveD = 1.15;
+  part(grp, w + 0.6, 0.35, alcoveD + 0.25, 0x0c0809, 0, h + 0.15, -alcoveD / 2 - 0.08);
+  part(grp, w + 0.6, 0.16, alcoveD + 0.25, 0x120c0e, 0, 0.08, -alcoveD / 2 - 0.08);
+  part(grp, 0.35, h + 0.2, alcoveD + 0.25, 0x0c0809, -w / 2 - 0.12, h / 2, -alcoveD / 2 - 0.08);
+  part(grp, 0.35, h + 0.2, alcoveD + 0.25, 0x0c0809,  w / 2 + 0.12, h / 2, -alcoveD / 2 - 0.08);
+  part(grp, w + 0.8, h + 0.6, 0.26, 0x0a0608, 0, h / 2, -alcoveD - 0.10);
+
+  const previewMat = new THREE.MeshBasicMaterial({
+    map: TX.levelPreviewTexture(nextMap),
+    fog: false
+  });
+  psx(previewMat);
+  const previewMesh = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.16, h - 0.16), previewMat);
+  previewMesh.position.set(0, h / 2, -alcoveD + 0.14);
+  grp.add(previewMesh);
+
+  // Moldura interna luminosa ao redor da abertura (destaca sem tampar a foto)
+  const rimMat = new THREE.MeshBasicMaterial({ color: th.accent, fog: false });
+  const addRim = (rw, rh, rd, rx, ry, rz) => {
+    const m = new THREE.Mesh(BX(rw, rh, rd), rimMat);
+    m.position.set(rx, ry, rz);
+    grp.add(m);
+  };
+  addRim(0.22, h, 0.22, -w / 2 + 0.06, h / 2, -0.18);
+  addRim(0.22, h, 0.22,  w / 2 - 0.06, h / 2, -0.18);
+  addRim(w, 0.22, 0.22, 0, h - 0.06, -0.18);
+
+  // --- 2. Pilares monumentais + Arquitetura Tematizada da Área ---
+  const pillarH = h + 2.8;
+  for (const s of [-1, 1]) {
+    const sx = s * pxOff;
+    // Base/pedestal
+    tbox(grp, pw + 0.7, 1.3, pd + 0.7, th.style === 'mansion' ? 'stone' : th.pillarTex, sx, 0.65, 0, 2.5);
+    // Corpo do pilar principal
+    tbox(grp, pw, pillarH, pd, th.pillarTex, sx, pillarH / 2, 0, 3);
+    // Capitel superior
+    tbox(grp, pw + 0.7, 0.8, pd + 0.7, th.trimTex, sx, pillarH + 0.3, 0, 2);
+  }
+  // Verga principal (lintel) acima do portão
+  tbox(grp, w + pw * 2 + 1.0, 2.4, pd + 0.2, th.pillarTex, 0, h + 1.35, 0, 3);
+  part(grp, w + pw * 2 + 1.3, 0.32, pd + 0.55, th.accent, 0, h + 0.18, 0, { em: 0x4a2800 });
+  part(grp, w + pw * 2 + 1.3, 0.32, pd + 0.55, th.accent, 0, h + 2.55, 0, { em: 0x4a2800 });
+
+  // Detalhes exclusivos por área
+  if (th.style === 'village') {
+    // a1: Bairro Alto — vigas de madeira, telhado rústico em duas águas e lanternas pendentes
+    for (const s of [-1, 1]) {
+      const sx = s * pxOff;
+      for (const ox of [-pw / 2, pw / 2]) {
+        tbox(grp, 0.38, pillarH + 0.2, 0.38, 'wood', sx + ox, pillarH / 2, pd / 2 + 0.05, 2);
+      }
+      // Suporte e lanterna pendente na frente
+      part(grp, 0.26, 0.26, 1.5, 0x261a12, sx, h - 1.2, pd / 2 + 0.7);
+      part(grp, 0.55, 0.85, 0.55, 0xffd060, sx, h - 1.85, pd / 2 + 1.35, { basic: true, nofog: true });
+      part(grp, 0.75, 0.22, 0.75, 0x201814, sx, h - 1.35, pd / 2 + 1.35);
+      part(grp, 0.75, 0.22, 0.75, 0x201814, sx, h - 2.35, pd / 2 + 1.35);
+    }
+    // Telhado rústico inclinado sobre a verga
+    const roofW = w + pw * 2 + 2.8;
+    const slopeF = new THREE.Mesh(tiledBox(roofW, 0.45, 3.2, 3), TX.mat('roof'));
+    slopeF.position.set(0, h + 3.45, 1.15);
+    slopeF.rotation.x = 0.46;
+    grp.add(slopeF);
+    const slopeB = new THREE.Mesh(tiledBox(roofW, 0.45, 3.2, 3), TX.mat('roof'));
+    slopeB.position.set(0, h + 3.45, -1.15);
+    slopeB.rotation.x = -0.46;
+    grp.add(slopeB);
+    tbox(grp, roofW + 0.4, 0.5, 0.6, 'wood', 0, h + 4.15, 0, 2);
+  } else if (th.style === 'fields') {
+    // a2: Campos da Perdição — paliçada de madeira queimada, estacas afiadas e foices cruzadas
+    for (const s of [-1, 1]) {
+      const sx = s * pxOff;
+      tbox(grp, pw + 0.3, 4.2, pd + 0.3, 'wood', sx, pillarH - 2.0, 0, 2.5);
+    }
+    for (let x = -w / 2 - 1.5; x <= w / 2 + 1.5; x += 1.35) {
+      const sp = new THREE.Mesh(new THREE.ConeGeometry(0.32, 2.1, 4), TX.mat('wood'));
+      sp.position.set(x, h + 3.6, 0.2);
+      grp.add(sp);
+    }
+    // Emblema de foices cruzadas no topo
+    for (const s of [-1, 1]) {
+      const handle = part(grp, 0.22, 4.4, 0.22, 0x3b2214, 0, h + 4.2, 0.9);
+      handle.rotation.z = s * 0.68;
+      const blade = part(grp, 1.7, 0.35, 0.12, 0xc8ccd0, s * 1.15, h + 5.2, 0.95, { em: 0x3a2410 });
+      blade.rotation.z = s * 0.22;
+    }
+  } else if (th.style === 'fortress') {
+    // a3: Subúrbio Exterior — ameias fortificadas, estandartes carmesim e dentes de grade levadiça
+    for (const s of [-1, 1]) {
+      const sx = s * pxOff;
+      // Ameias (merlons) no topo das torres
+      for (const ox of [-0.95, 0.95]) for (const oz of [-0.95, 0.95]) {
+        tbox(grp, 0.85, 1.4, 0.85, 'stone', sx + ox, pillarH + 1.35, oz, 2);
+      }
+      // Estandarte carmesim dos guardas na frente de cada torre
+      part(grp, 1.55, 5.6, 0.14, 0x8e1418, sx, h * 0.56, pd / 2 + 0.12, { em: 0x280406 });
+      part(grp, 1.72, 0.28, 0.22, 0xd4a017, sx, h * 0.56 + 2.8, pd / 2 + 0.14, { em: 0x4a3000 });
+      part(grp, 1.55, 0.24, 0.16, 0xd4a017, sx, h * 0.56 - 2.65, pd / 2 + 0.14, { em: 0x4a3000 });
+    }
+    // Ameias sobre a verga central
+    for (let x = -w / 2 + 0.5; x <= w / 2 - 0.5; x += 2.1) {
+      tbox(grp, 1.25, 1.25, 1.3, 'stone', x, h + 3.25, 0.4, 2);
+    }
+  } else if (th.style === 'mansion') {
+    // a4: Casarões dos Super-Ricos — colunas de mármore com anéis dourados e frontão clássico
+    for (const s of [-1, 1]) {
+      const sx = s * pxOff;
+      part(grp, pw + 0.45, 0.45, pd + 0.45, 0xd4a017, sx, 1.5, 0, { em: 0x503400 });
+      part(grp, pw + 0.45, 0.45, pd + 0.45, 0xd4a017, sx, pillarH - 0.6, 0, { em: 0x503400 });
+      // Urna/pináculo dourado no topo de cada coluna
+      const urn = new THREE.Mesh(new THREE.OctahedronGeometry(0.95, 0), MT(0xf0c83c, { em: 0x5a3c00 }));
+      urn.position.set(sx, pillarH + 1.55, 0);
+      grp.add(urn);
+    }
+    // Frontão triangular clássico em mármore e ouro
+    const pedW = w + 1.2;
+    const pedL = tbox(grp, pedW * 0.56, 0.75, pd, 'marble', -pedW * 0.24, h + 3.7, 0, 2);
+    pedL.rotation.z = 0.28;
+    const pedR = tbox(grp, pedW * 0.56, 0.75, pd, 'marble',  pedW * 0.24, h + 3.7, 0, 2);
+    pedR.rotation.z = -0.28;
+    part(grp, 1.2, 1.6, 1.2, 0xf0c83c, 0, h + 5.15, 0, { em: 0x5a3c00 });
+  } else {
+    // a5: Avenida do Horror — torres góticas da Ultra-Igreja, agulhas pontudas, rosácea e cruz dourada
+    for (const s of [-1, 1]) {
+      const sx = s * pxOff;
+      const spire = new THREE.Mesh(new THREE.ConeGeometry(1.9, 6.4, 4), TX.mat('roof'));
+      spire.rotation.y = Math.PI / 4;
+      spire.position.set(sx, pillarH + 3.8, 0);
+      grp.add(spire);
+      // Contrafortes laterais
+      tbox(grp, 1.1, pillarH * 0.75, pd + 1.2, 'church', sx + s * 1.45, pillarH * 0.375, 0, 2.5);
+    }
+    // Rosácea escarlate + grande cruz dourada acima da placa
+    const rose = new THREE.Mesh(new THREE.CircleGeometry(1.45, 12), MT(0xff3a10, { basic: true, nofog: true }));
+    rose.position.set(0, h + 4.15, 1.15);
+    grp.add(rose);
+    part(grp, 0.65, 5.6, 0.65, 0xf0be2c, 0, h + 5.7, 0.6, { em: 0x6a3c00 });
+    part(grp, 3.4, 0.65, 0.65, 0xf0be2c, 0, h + 6.7, 0.6, { em: 0x6a3c00 });
+  }
+
+  // --- 3. Portão Gradeado de Ferro (duas folhas articuladas na frente da foto preview) ---
+  const leafW = w / 2 - 0.06;
+  const leafH = h - 0.16;
+  const makeBarredLeaf = (side) => {
+    // side = -1 (folha esquerda, pivô em -w/2) | +1 (folha direita, pivô em +w/2)
+    const pivot = new THREE.Group();
+    pivot.position.set(side * (w / 2), 0, 0.08);
+    const dir = -side; // cresce em direção ao centro (x = 0)
+    // Moldura externa da folha
+    part(pivot, 0.28, leafH, 0.26, th.barCol, dir * 0.14, leafH / 2, 0);
+    part(pivot, 0.28, leafH, 0.26, th.barCol, dir * (leafW - 0.14), leafH / 2, 0);
+    // Travessas horizontais (base, meio e topo)
+    part(pivot, leafW, 0.55, 0.24, th.barCol, dir * (leafW / 2), 0.32, 0);
+    part(pivot, leafW, 0.28, 0.24, th.barCol, dir * (leafW / 2), leafH * 0.48, 0);
+    part(pivot, leafW, 0.32, 0.24, th.barCol, dir * (leafW / 2), leafH - 0.72, 0);
+    // Barras verticais espaçadas (deixam ~85% da foto preview bem visível!)
+    const numBars = 4;
+    for (let i = 1; i <= numBars; i++) {
+      const bx = dir * (leafW * (i / (numBars + 1)));
+      part(pivot, 0.17, leafH - 0.45, 0.17, th.barCol, bx, (leafH - 0.45) / 2 + 0.1, 0);
+      // Ponta de lança no topo de cada barra
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.58, 4), MT(th.tipCol, { em: 0x3a2000 }));
+      tip.position.set(bx, leafH - 0.18, 0);
+      pivot.add(tip);
+    }
+    // Meia-argola/medalhão central onde as duas folhas se encontram
+    part(pivot, 0.42, 1.3, 0.34, th.tipCol, dir * (leafW - 0.22), leafH * 0.48, 0.08, { em: 0x4a2800 });
+    grp.add(pivot);
+    return pivot;
+  };
+  const leftLeaf = makeBarredLeaf(-1);
+  const rightLeaf = makeBarredLeaf(1);
+
+  // --- 4. Destaque de Saída: Placa Luminosa, Tapete Guia, Tochas e Feixe no Céu ---
+  const signW = 10.6, signH = 2.65;
+  part(grp, signW + 0.45, signH + 0.35, 0.38, 0x160a0c, 0, h + 1.38, pd / 2 + 0.16);
+  const signMat = new THREE.MeshBasicMaterial({
+    map: TX.exitSignTexture(nextLabel, th.accentCss),
+    fog: false
+  });
+  const signMesh = new THREE.Mesh(new THREE.PlaneGeometry(signW, signH), signMat);
+  signMesh.position.set(0, h + 1.38, pd / 2 + 0.38);
+  grp.add(signMesh);
+
+  // Piras de fogo no alto das torres + 2 pedestais avançados formando corredor de entrada
+  flame(cx - pxOff, ty + pillarH + 0.85, cz, 1.85, th.flameCols);
+  flame(cx + pxOff, ty + pillarH + 0.85, cz, 1.85, th.flameCols);
+  for (const s of [-1, 1]) {
+    const fx = s * (w / 2 + 2.1);
+    const fz = 4.0;
+    tbox(grp, 1.35, 2.2, 1.35, th.pillarTex, fx, 1.1, fz, 2);
+    part(grp, 1.55, 0.28, 1.55, th.accent, fx, 2.28, fz, { em: 0x4a2800 });
+    flame(cx + fx, ty + 2.45, cz + fz, 1.45, th.flameCols);
+  }
+
+  // Feixe vertical alto visível de qualquer ponto da fase
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: th.beamCol, transparent: true, opacity: 0.26,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false
+  });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 3.2, 72, 10, 1, true), beamMat);
+  beam.position.set(0, 36, -0.5);
   grp.add(beam);
 
-  // Barreira vermelha (trancado) e vórtice dourado/esmeralda (destrancado)
-  const lockPl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), MT(0xff2200, { basic: true, tr: 0.45, add: true, dbl: true }));
-  lockPl.position.y = h / 2;
+  // Barreira vermelha (quando trancado)
+  const lockMat = new THREE.MeshBasicMaterial({
+    color: 0xff2200, transparent: true, opacity: 0.42,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+  });
+  const lockPl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), lockMat);
+  lockPl.position.set(0, h / 2, 0.34);
   lockPl.visible = false;
   grp.add(lockPl);
 
-  const openPl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), MT(0x30ff90, { basic: true, tr: 0.55, add: true, dbl: true }));
-  openPl.position.y = h / 2;
+  // Tapete luminoso no chão em frente ao portão (guia o olhar sem cobrir a foto preview)
+  const openMat = new THREE.MeshBasicMaterial({
+    color: 0x40ff98, transparent: true, opacity: 0.26,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false
+  });
+  const openPl = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.8, 4.6), openMat);
+  openPl.rotation.x = -Math.PI / 2;
+  openPl.position.set(0, 0.08, 2.4);
   openPl.visible = true;
   grp.add(openPl);
 
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(2.6, 0.28, 5, 14), MT(0xffd24a, { basic: true }));
-  ring.position.y = h / 2;
+  // Halo dourado giratório alto acima do portão (visível de longe, nunca tampa a foto)
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(2.1, 0.22, 5, 16),
+    MT(0xffd84a, { basic: true, nofog: true })
+  );
+  ring.position.set(0, h + 5.4, 1.2);
   ring.visible = true;
   grp.add(ring);
 
   addW(grp, cx, cz);
-  const col = { x1: cx - w / 2 - 1, z1: cz - 1.2, x2: cx + w / 2 + 1, z2: cz + 1.2, active: false };
+  for (const s of [-1, 1]) {
+    const sx = cx + s * pxOff;
+    World.colliders.push({
+      x1: sx - pw / 2 - 0.35, z1: cz - pd / 2 - 0.4,
+      x2: sx + pw / 2 + 0.35, z2: cz + pd / 2 + 0.35,
+      active: true
+    });
+  }
+  const col = { x1: cx - w / 2 - 1.5, z1: cz - 1.5, x2: cx + w / 2 + 1.5, z2: cz + 1.5, active: false };
   World.colliders.push(col);
-  World.exitGate = { x: cx, z: cz, r: 7.5, unlocked: true, nextMap, nextLabel, grp, lockPl, openPl, beam, ring, col };
+  World.exitGate = {
+    x: cx, z: cz, r: 9.5, unlocked: true, nextMap, nextLabel,
+    grp, lockPl, openPl, beam, ring, col,
+    leftLeaf, rightLeaf, gateOpen: 0, rimMat, accent: th.accent
+  };
 }
 function unlockExitGate() {
   const eg = World.exitGate;
@@ -1487,8 +1856,8 @@ function unlockExitGate() {
   eg.lockPl.visible = false;
   eg.openPl.visible = true;
   eg.ring.visible = true;
-  eg.beam.material.color.setHex(0x40ff90);
-  eg.beam.material.opacity = 0.35;
+  eg.beam.material.color.setHex(0x48ff98);
+  eg.beam.material.opacity = 0.28;
 }
 
 function addSkyPortal(x, y, z) {
@@ -1534,7 +1903,7 @@ function addDistantChurch(x, y, z, s) {
 }
 
 function addOuterHills(x1, z1, x2, z2, tex, hillFn, segStep) {
-  World.pendingFloors.push({ x1, z1, x2, z2, tex, y: -0.35, tile: 16, segStep: segStep || 8, customFn: hillFn });
+  World.pendingFloors.push({ x1, z1, x2, z2, tex, y: -0.35, tile: 16, segStep: Math.max(segStep || 8, 16), customFn: hillFn, skipBuried: true });
 }
 
 function hillWall(x1, z1, x2, z2, h, tex) {
@@ -1605,12 +1974,12 @@ function buildMapA1() {
 
   // 4. Largo do Portão (Ala Noroeste: x -45..45, z -150..-55)
   wfloor(-45, -150, 45, -55, 'dirt', 0, 8);
-  wfloor(-28, -145, 2, -95, 'cobble', 0.02, 5);
+  wfloor(-28, -149, 2, -95, 'cobble', 0.02, 5);
   hall(-45, -150, 45, -55, { h: 8, t: 2, wall: 'brick', skip: ['e', 's'] });
   house(-28, -82, 12, 11, 'e', { burn: true });
   house(22, -88, 12, 11, 'w');
   house(24, -126, 12, 12, 'w', { burn: true });
-  makeExitGate(-15, -142, 'a2', 'CAMPOS DA PERDIÇÃO');
+  makeExitGate(-15, -147.65, 'a2', 'CAMPOS DA PERDIÇÃO');
 
   // Props espalhados
   [[88, -8], [104, -36], [126, -6], [56, -98], [76, -138], [-10, -110]].forEach(p => hay(p[0], p[1]));
@@ -1674,7 +2043,7 @@ function buildMapA2() {
   house(72, -138, 14, 12, 'w', { burn: true, h: 6 });
   house(-32, -156, 11, 10, 'e');
   house(32, -156, 11, 10, 'w');
-  makeExitGate(0, -177, 'a3', 'SUBÚRBIO EXTERIOR');
+  makeExitGate(0, -182.65, 'a3', 'SUBÚRBIO EXTERIOR');
 
   [[-22, -26], [22, -26], [-72, -32], [-112, -74], [64, -46], [94, -36], [-48, -116], [48, -116], [0, -126]].forEach(p => hay(p[0], p[1]));
   [[-6, -18], [8, -56], [-56, -54], [-118, -14], [60, -82], [122, -22], [-18, -110], [18, -144], [-58, -166], [58, -166]].forEach(p => deadTree(p[0], p[1]));
@@ -1732,7 +2101,7 @@ function buildMapA3() {
   house(66, -154, 15, 14, 'w', { wall: 'stone', h: 7, burn: true });
   wbox(-24, -148, -18, -142, 5, 'stone', { y0: getGroundY(-21, -145), tile: 2 });
   wbox(18, -148, 24, -142, 5, 'stone', { y0: getGroundY(21, -145), tile: 2 });
-  makeExitGate(0, -187, 'a4', 'CASARÕES DOS SUPER-RICOS');
+  makeExitGate(0, -192.65, 'a4', 'BURGO SATANIZADO EXTERIOR');
 
   [[-12, -16], [12, -16], [-12, -52], [12, -52], [62, -46], [62, -88], [-22, -135], [22, -135], [-22, -170], [22, -170]].forEach(p => lamp(p[0], p[1]));
   [[-6, -34], [6, -34], [-80, -64], [80, -64], [0, -156], [-42, -168], [42, -168]].forEach(p => barrelFire(p[0], p[1]));
@@ -1741,7 +2110,7 @@ function buildMapA3() {
 }
 
 /* ============================================================
-   MAPA A4: EP. 2 · ÁREA 4 — CASARÕES DOS SUPER-RICOS (~280x210)
+   MAPA A4: EP. 2 · ÁREA 4 — BURGO SATANIZADO EXTERIOR (~280x210)
    ============================================================ */
 function buildMapA4() {
   setTerrain((x, z) => 0.9 + 0.55 * Math.sin(x * 0.035) * Math.cos(z * 0.035) + (z + 100) * 0.009);
@@ -1784,7 +2153,7 @@ function buildMapA4() {
   hall(-110, -200, 110, -140, { h: 9.5, t: 2, wall: 'stone', skip: ['s'] });
   house(-68, -166, 18, 16, 'e', { wall: 'stone', h: 7.5, floor: 'marble', burn: true });
   house(68, -166, 18, 16, 'w', { wall: 'stone', h: 7.5, floor: 'marble', burn: true });
-  makeExitGate(0, -192, 'a5', 'AVENIDA DO HORROR');
+  makeExitGate(0, -197.65, 'a5', 'BURGO SATANIZADO INTERIOR');
 
   [[-16, -12], [16, -12], [-16, -58], [16, -58], [-74, -64], [-74, -98], [74, -64], [74, -98], [-22, -150], [22, -150]].forEach(p => lamp(p[0], p[1]));
   [[-26, -34], [26, -34], [-90, -80], [98, -80], [0, -162], [-36, -176], [36, -176]].forEach(p => barrelFire(p[0], p[1]));
@@ -1793,7 +2162,7 @@ function buildMapA4() {
 }
 
 /* ============================================================
-   MAPA A5: EP. 2 · ÁREA 5 — AVENIDA DO HORROR (~280x220)
+   MAPA A5: EP. 2 · ÁREA 5 — BURGO SATANIZADO INTERIOR (~280x220)
    ============================================================ */
 function buildMapA5() {
   wfloor(-200, -250, 200, 60, 'hellfloor', -0.25, 16);
@@ -1832,7 +2201,7 @@ function buildMapA5() {
   }));
   house(-72, -172, 16, 16, 'e', { wall: 'church', h: 8, floor: 'marble', burn: true });
   house(72, -172, 16, 16, 'w', { wall: 'church', h: 8, floor: 'marble', burn: true });
-  makeExitGate(0, -202, 'a6_gate', 'PORTÕES DA ULTRA-IGREJA');
+  makeExitGate(0, -207.65, 'a6_gate', 'PORTÕES DA ULTRA-IGREJA');
 
   [[-14, -18], [14, -18], [-14, -64], [14, -64], [-86, -48], [86, -48], [-32, -162], [32, -162]].forEach(p => lamp(p[0], p[1]));
   [[-26, -40], [26, -40], [-88, -86], [88, -86], [0, -166], [-44, -188], [44, -188]].forEach(p => barrelFire(p[0], p[1]));
@@ -1852,6 +2221,26 @@ function buildMapA6Gate() {
   wbox(-56, -169, -54, -126, 9.5, 'stone');
   wbox(54, -169, 56, -126, 9.5, 'stone');
   makeGate('door', 0, -169, 12, 'x', 12, 'door');
+
+  // Vestíbulo recuado + Foto Preview da Nave da Ultra-Igreja (revelado quando Nivaldo arrebenta o buraco)
+  const churchPreviewGrp = new THREE.Group();
+  churchPreviewGrp.position.set(0, 0, -169);
+  const cAlcoveD = 3.0;
+  part(churchPreviewGrp, 12.6, 0.4, cAlcoveD + 0.4, 0x0c0610, 0, 12.15, -cAlcoveD / 2);
+  part(churchPreviewGrp, 12.6, 0.16, cAlcoveD + 0.4, 0x160c1a, 0, 0.08, -cAlcoveD / 2);
+  part(churchPreviewGrp, 0.4, 12.2, cAlcoveD + 0.4, 0x0c0610, -6.15, 6.0, -cAlcoveD / 2);
+  part(churchPreviewGrp, 0.4, 12.2, cAlcoveD + 0.4, 0x0c0610,  6.15, 6.0, -cAlcoveD / 2);
+  part(churchPreviewGrp, 12.8, 12.6, 0.4, 0x09040c, 0, 6.0, -cAlcoveD - 0.15);
+  const navePreviewMat = new THREE.MeshBasicMaterial({
+    map: TX.levelPreviewTexture('a6_nave'),
+    fog: false
+  });
+  psx(navePreviewMat);
+  const navePreviewMesh = new THREE.Mesh(new THREE.PlaneGeometry(11.84, 11.84), navePreviewMat);
+  navePreviewMesh.position.set(0, 6.0, -cAlcoveD + 0.25);
+  churchPreviewGrp.add(navePreviewMesh);
+  churchPreviewGrp.userData.noMerge = true;
+  addW(churchPreviewGrp, 0, -169);
 
   // Claustro Oeste & Claustro Leste (alas laterais)
   wfloor(-118, -125, -55, -25, 'cobble', 0, 6);
@@ -1896,7 +2285,7 @@ function buildMapA6Gate() {
 }
 
 /* ============================================================
-   MAPA A6_NAVE: EP. 3 · ÁREA 6 — NAVE DA ULTRA-IGREJA (Em cruz, com transeptos)
+   MAPA A6_NAVE: EP. 3 · ÁREA 6 — A CAPELA DEMONIZADA (Em cruz, com transeptos)
    ============================================================ */
 function openAltar(instant) {
   const a = World.altar;
@@ -2437,6 +2826,8 @@ function mergeStaticChunks() {
       const merged = mergeBufferGeometries(geos);
       for (let i = 0; i < geos.length; i++) geos[i].dispose();
       if (merged) {
+        merged.userData = merged.userData || {};
+        merged.userData._merged = true;
         const mm = new THREE.Mesh(merged, entry.mat);
         if (entry.renderOrder) mm.renderOrder = entry.renderOrder;
         mm.updateMatrix();
@@ -2481,6 +2872,11 @@ function buildMap(mapId) {
     World.group = new THREE.Group();
     World.scene.add(World.group);
   }
+  World.group.traverse(o => {
+    if (o.isMesh && o.geometry && o.geometry.userData && o.geometry.userData._merged) {
+      o.geometry.dispose();
+    }
+  });
   while (World.group.children.length) World.group.remove(World.group.children[0]);
   World.chunks.clear();
   World._lastRenderChunks = -1;
@@ -2569,9 +2965,21 @@ function updateWorld(t, dt) {
   for (const id in World.gates) {
     const g = World.gates[id];
     if (g.open && g.t < 1) {
-      g.t = Math.min(1, g.t + dt * (g.style === 'door' ? 0.6 : 1.2));
+      g.t = Math.min(1, g.t + dt * (g.style === 'door' ? 0.75 : 1.2));
       if (g.style === 'barrier') g.grp.scale.y = Math.max(0.001, 1 - g.t);
-      else g.grp.rotation.x = -g.t * g.t * (Math.PI / 2) * 0.98;
+      else if (g.debris) {
+        const tm = g.t * 1.35;
+        for (let i = 0; i < g.debris.length; i++) {
+          const d = g.debris[i];
+          d.m.position.set(
+            d.x0 + d.vx * tm,
+            Math.max(0.25, d.y0 + d.vy * tm - 11.5 * tm * tm),
+            d.z0 + d.vz * tm
+          );
+          d.m.rotation.set(d.rx * tm, d.ry * tm, d.rz * tm);
+          if (g.t >= 1) d.m.visible = false;
+        }
+      } else g.grp.rotation.x = -g.t * g.t * (Math.PI / 2) * 0.98;
       if (g.t >= 1 && g.style === 'barrier') g.grp.visible = false;
     } else if (!g.open && g.style === 'barrier') {
       g.grp.children[0].material.opacity = 0.3 + Math.sin(t * 5) * 0.08;
@@ -2581,11 +2989,27 @@ function updateWorld(t, dt) {
     const eg = World.exitGate;
     if (!eg.unlocked) {
       eg.lockPl.material.opacity = 0.35 + Math.sin(t * 6) * 0.12;
+      if (eg.leftLeaf && eg.rightLeaf) {
+        eg.gateOpen = Math.max(0, (eg.gateOpen || 0) - dt * 2.2);
+        eg.leftLeaf.rotation.y = -eg.gateOpen * 0.85;
+        eg.rightLeaf.rotation.y = eg.gateOpen * 0.85;
+      }
     } else {
-      eg.openPl.material.opacity = 0.45 + Math.sin(t * 8) * 0.15;
-      eg.ring.rotation.z += dt * 2.8;
-      const sc = 1 + Math.sin(t * 5) * 0.08;
+      eg.openPl.material.opacity = 0.22 + Math.sin(t * 6) * 0.09;
+      if (eg.beam && eg.beam.material) {
+        eg.beam.material.opacity = 0.22 + Math.sin(t * 3.5) * 0.06;
+      }
+      eg.ring.rotation.z += dt * 2.4;
+      const sc = 1 + Math.sin(t * 4.5) * 0.08;
       eg.ring.scale.set(sc, sc, 1);
+      if (eg.leftLeaf && eg.rightLeaf) {
+        const vx = World.viewerX || 0, vz = World.viewerZ || 0;
+        const d = Math.hypot(vx - eg.x, vz - eg.z);
+        const targetOpen = d < 13.5 ? Math.min(1, (13.5 - d) / 7.5) : 0;
+        eg.gateOpen = (eg.gateOpen || 0) + (targetOpen - (eg.gateOpen || 0)) * Math.min(1, dt * 4.2);
+        eg.leftLeaf.rotation.y = -eg.gateOpen * 0.85;
+        eg.rightLeaf.rotation.y = eg.gateOpen * 0.85;
+      }
     }
   }
   if (World.altar && World.altar.open && World.altar.t < 1) {

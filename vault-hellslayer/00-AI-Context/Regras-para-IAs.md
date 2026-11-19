@@ -15,7 +15,7 @@ source_files:
 
 # 🤖 Regras para IAs — Protocolo Universal de Trabalho
 
-> Este guia foi projetado para que **qualquer agente de IA** (Claude Code, Gemini/Antigravity, Codex, Cursor, Windsurf, Copilot) trabalhe com máxima precisão, mínimo gasto de tokens e zero regressões no projeto **HELLSLAYER (`CABRUNCO`)**.
+> Este guia foi projetado para que **qualquer agente de IA** (Claude Code, Gemini/Antigravity, Codex, Cursor, Windsurf, Copilot) trabalhe com máxima precisão, mínimo gasto de tokens e zero regressões no projeto **HELLSLAYER (`PARAINFERNÁLIA`)**.
 
 ---
 

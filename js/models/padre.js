@@ -205,27 +205,31 @@ function buildPadre() {
   hoodPeak.rotation.y = Math.PI * 0.25;
   rig.head.add(hoodPeak);
 
-  // --- BRAÇOS COM MANGAS LARGAS RASGADAS E MÃOS OSSUDAS ---
+  // --- BRAÇOS ARTICULADOS COM MANGAS LARGAS RASGADAS E MÃOS OSSUDAS ---
   const sleeveTatterGeo = getPadreTatterGeo('padreSleeveTatter', 0.14, 0.28, 0.018);
   for (const side of [-1, 1]) {
-    const arm = limb(root, 0.14, 0.72, 0.14, C_ROBE, side * 0.40, 1.76, 0);
-    // Antebraço pálido e mão ossuda saindo da manga
-    part(arm, 0.095, 0.26, 0.095, C_SKIN, 0, -0.58, 0);
-    part(arm, 0.11, 0.12, 0.075, C_SKIN_HI, 0, -0.74, 0.01);
-    for (let fi = -1; fi <= 1; fi++) {
-      part(arm, 0.022, 0.10, 0.022, C_SKIN_SH, fi * 0.032, -0.83, 0.015);
-    }
-    // Punho largo e pano rasgado da manga pendente
-    part(arm, 0.24, 0.38, 0.28, C_ROBE_DARK, 0, -0.30, -0.05);
+    const arm = limb(root, 0.14, 0.38, 0.14, C_ROBE, side * 0.40, 1.76, 0);
+    part(arm, 0.22, 0.24, 0.24, C_ROBE_DARK, 0, -0.22, -0.03);
+    // Junta do cotovelo -> punho largo da manga + antebraço pálido + mão ossuda
+    const fore = limb(arm, 0.11, 0.36, 0.11, C_ROBE_DARK, 0, -0.36, 0);
+    arm.userData.subMesh = fore.userData.mesh;
+    part(fore, 0.24, 0.22, 0.28, C_ROBE_DARK, 0, -0.02, -0.05);
     for (let ti = 0; ti < 3; ti++) {
       const st = new THREE.Mesh(sleeveTatterGeo, ti === 1 ? mBloodHem : mRobe);
-      st.position.set(0, -0.46, -0.02 - ti * 0.08);
+      st.position.set(0, -0.10, -0.02 - ti * 0.08);
       st.rotation.y = Math.PI * 0.5;
       st.scale.set(0.85 + ti * 0.12, 0.8 + (ti % 2) * 0.35, 1);
-      arm.add(st);
+      fore.add(st);
+    }
+    part(fore, 0.095, 0.26, 0.095, C_SKIN, 0, -0.22, 0);
+    part(fore, 0.11, 0.12, 0.075, C_SKIN_HI, 0, -0.38, 0.01);
+    for (let fi = -1; fi <= 1; fi++) {
+      part(fore, 0.022, 0.10, 0.022, C_SKIN_SH, fi * 0.032, -0.47, 0.015);
     }
     arm.rotation.x = -1.2;
-    if (side < 0) rig.armL = arm; else rig.armR = arm;
+    fore.rotation.x = -0.45;
+    if (side < 0) { rig.armL = arm; rig.forearmL = fore; }
+    else { rig.armR = arm; rig.forearmR = fore; }
   }
 
   // --- GRIMÓRIO FLUTUANTE (rig.book — usado na animação de conjuração) ---

@@ -122,16 +122,8 @@
     uFogFar: { value: 95 }
   };
 
-  RB.init = function (opts) {
-    if (mesh) return;
-    scene = opts.scene;
-    camera = opts.camera;
-    onStain = opts.onStain;
-    groundAt = opts.groundAt;
-    renderer = opts.renderer || null;
-    terrainAt = opts.terrainAt || opts.groundAt;
-    forEachStain = opts.forEachStain || null;
-
+  function ensureReady() {
+    if (mesh || !scene) return;
     geo = new THREE.InstancedBufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
     geo.setIndex([0, 1, 2, 0, 2, 3]);
@@ -166,6 +158,17 @@
     scene.add(mesh);
     initStains();
     initMap();
+  }
+
+  RB.init = function (opts) {
+    if (scene) return;
+    scene = opts.scene;
+    camera = opts.camera;
+    onStain = opts.onStain;
+    groundAt = opts.groundAt;
+    renderer = opts.renderer || null;
+    terrainAt = opts.terrainAt || opts.groundAt;
+    forEachStain = opts.forEachStain || null;
   };
 
   RB.setEnabled = function (on) {
@@ -231,7 +234,9 @@
    * quantidade já calculado pelo jogo (impacto × qualidade × partículas).
    */
   RB.spurt = function (x, y, z, dx, dz, power, n, upBoost, mult) {
-    if (!enabled || !mesh) return;
+    if (!enabled) return;
+    if (!mesh) ensureReady();
+    if (!mesh) return;
     let lx = dx || 0, lz = dz || 0;
     const len = Math.hypot(lx, lz);
     if (len > 0.001) { lx /= len; lz /= len; }
@@ -245,6 +250,9 @@
     }
     const now = Math.round(total * 0.38);
     for (let i = 0; i < now; i++) emitDrop(x, y, z, lx, lz, power, up);
+    if (emitters.length >= 24) {
+      emitterPool.push(emitters.shift());
+    }
     const e = emitterPool.length ? emitterPool.pop() : {};
     e.x = x; e.y = y; e.z = z; e.lx = lx; e.lz = lz;
     e.power = power; e.up = up;
@@ -257,8 +265,11 @@
 
   /** Gotejamento de pedaços/membros. */
   RB.drip = function (x, y, z, ux, uy, uz) {
-    if (!enabled || !mesh) return;
-    const k = (Math.random() < 0.5 ? 2 : 3) * 3;
+    if (!enabled) return;
+    if (!mesh) ensureReady();
+    if (!mesh) return;
+    const qScale = Math.max(0.35, cap / MAX_CAP);
+    const k = Math.max(1, Math.round((Math.random() < 0.5 ? 6 : 9) * qScale));
     for (let i = 0; i < k; i++) {
       add(x + rnd(-0.04, 0.04), y, z + rnd(-0.04, 0.04), ux + rnd(-0.3, 0.3), uy, uz + rnd(-0.3, 0.3),
         0.009 + Math.random() * 0.016, rnd(0.6, 1.0), false);
@@ -308,7 +319,9 @@
 
   /* ---------------- loop ---------------- */
   RB.update = function (dt, env, playerHit) {
-    if (!enabled || !mesh) return;
+    if (!enabled) return;
+    if (!mesh) ensureReady();
+    if (!mesh) return;
     mapUpdate(dt);
     if (emitters.length) updateEmitters(dt);
     if (count === 0) { geo.instanceCount = 0; mesh.visible = false; syncEnv(env); return; }
@@ -570,10 +583,33 @@
 
   /**
    * Prepara uma mancha (chamado uma vez ao nascer): forma, orientação pelo impacto
-   * e altura do terreno em cada um dos 16 vértices. `surfaceAt(x, z, yHint)` devolve
-   * a altura do chão/piso e `blockedAt(x, z, y)` diz se o ponto está dentro de um muro.
+   * e altura do terreno. Se a mancha nasce dentro do mapa de fluido 48x48m, adia a
+   * amostragem 4x4 dos 16 vértices (lazy) para só calcular se o jogador se afastar
+   * da área, eliminando ~90% dos raycasts de colisão durante os jorros de combate.
    */
+  function ensureStainGrid(d) {
+    if (d._gridReady) return;
+    d._gridReady = true;
+    if (!d.h) d.h = new Float32Array(16);
+    const surfaceAt = d._surfFn || groundAt;
+    const blockedAt = d._blockFn || null;
+    if (!surfaceAt) return;
+    const x = d.x, z = d.z, cy = d.y, size = d.size;
+    const c = Math.cos(d.yaw), s = Math.sin(d.yaw);
+    for (let r = 0; r < GRID_N; r++) {
+      for (let k = 0; k < GRID_N; k++) {
+        const lx = (k / (GRID_N - 1) - 0.5) * size * d.stretch;
+        const lz = (r / (GRID_N - 1) - 0.5) * size / Math.sqrt(d.stretch);
+        const wx = x + lx * c - lz * s, wz = z + lx * s + lz * c;
+        let h = surfaceAt(wx, wz, cy + 0.3);
+        if (Math.abs(h - cy) > 0.4 || (blockedAt && blockedAt(wx, wz, cy))) h = -999;
+        d.h[r * GRID_N + k] = h;
+      }
+    }
+  }
+
   RB.prepareStain = function (d, x, z, size, dirX, dirZ, speed, yHint, surfaceAt, blockedAt) {
+    if (enabled && !mesh) ensureReady();
     const hs = Math.hypot(dirX || 0, dirZ || 0);
     const fast = speed > 7 && hs > 0.5;
     d.yaw = hs > 0.01 ? Math.atan2(dirZ, dirX) : Math.random() * Math.PI * 2;
@@ -582,26 +618,18 @@
     d.shade = rnd(0.45, 1.0);
     d.size = size;
     d.vol = 0.1 + size * 0.38;          // cm de sangue depositados no mapa
-    if (!d.h) d.h = new Float32Array(16);
-    const c = Math.cos(d.yaw), s = Math.sin(d.yaw);
-    const cy = surfaceAt(x, z, yHint);
+    const cy = (yHint != null && Number.isFinite(yHint)) ? yHint : surfaceAt(x, z, yHint);
     d.x = x; d.z = z; d.y = cy;
-    for (let r = 0; r < GRID_N; r++) {
-      for (let k = 0; k < GRID_N; k++) {
-        const lx = (k / (GRID_N - 1) - 0.5) * size * d.stretch;
-        const lz = (r / (GRID_N - 1) - 0.5) * size / Math.sqrt(d.stretch);
-        const wx = x + lx * c - lz * s, wz = z + lx * s + lz * c;
-        let h = surfaceAt(wx, wz, cy + 0.3);
-        // degrau alto, buraco ou muro: corta a mancha em vez de pendurar/atravessar
-        if (Math.abs(h - cy) > 0.4 || (blockedAt && blockedAt(wx, wz, cy))) h = -999;
-        d.h[r * GRID_N + k] = h;
-      }
-    }
+    d._surfFn = surfaceAt;
+    d._blockFn = blockedAt;
+    d._gridReady = false;
+    if (!RB.inMap(x, z)) ensureStainGrid(d);
   };
 
   RB.stainBegin = function () { stainCount = 0; };
   RB.stainPush = function (d, fade) {
     if (!stainMesh || stainCount >= STAIN_MAX) return;
+    if (!d._gridReady) ensureStainGrid(d);
     const o = stainCount * 4;
     const A = sA.array, B = sB.array, C = sB.sC.array;
     A[o] = d.x; A[o + 1] = d.y; A[o + 2] = d.z; A[o + 3] = d.size;
@@ -652,7 +680,8 @@
   let quadScene = null, quadCam = null, quadMesh = null, flowMat = null, shiftMat = null;
   let splatScene = null, splatGeo = null, splatMesh = null, splA = null, splB = null;
   let poolMesh = null, poolMat = null, poolGeo = null;
-  let flowAcc = 0;
+  let flowAcc = 0, decayAcc = 0, wetTimer = 0, hasFluid = false;
+  let _jobTerr = null, _jobSurf = null, _jobWall = null;
   const pendingSplats = [];
   const _clearCol = new THREE.Color();
 
@@ -849,7 +878,7 @@
       },
       vertexShader: POOL_VERT, fragmentShader: POOL_FRAG,
       depthWrite: false, polygonOffset: true, polygonOffsetFactor: -14, polygonOffsetUnits: -14,
-      side: THREE.DoubleSide
+      side: THREE.FrontSide
     });
     poolMesh = new THREE.Mesh(poolGeo, poolMat);
     poolMesh.frustumCulled = false;
@@ -878,6 +907,7 @@
     pendingSplats.length = 0;
     if (map) { clearRT(rtA); clearRT(rtB); }
     map = null; job = null;          // recalcula alturas (troca de mapa/fase)
+    wetTimer = 0; hasFluid = false; flowAcc = 0; decayAcc = 0;
     mapVersion++;
     if (poolMesh) poolMesh.visible = false;
   };
@@ -915,6 +945,8 @@
     splB.updateRange.offset = 0; splB.updateRange.count = n * 4; splB.needsUpdate = true;
     splatGeo.instanceCount = n;
     withTarget(rtA, () => renderer.render(splatScene, quadCam));
+    wetTimer = 12.0;
+    hasFluid = true;
   }
 
   function flowStep(dt, decay) {
@@ -930,9 +962,15 @@
   function startJob(px, pz) {
     const snap = MAP_TEXEL * MESH_STEP;
     const cx = Math.round(px / snap) * snap, cz = Math.round(pz / snap) * snap;
+    if (!_jobTerr) {
+      const cells = MAP_RES * MAP_RES;
+      _jobTerr = new Float32Array(cells);
+      _jobSurf = new Float32Array(cells);
+      _jobWall = new Uint8Array(cells);
+    }
     job = {
       minX: cx - MAP_SIZE / 2, minZ: cz - MAP_SIZE / 2,
-      terr: new Float32Array(MAP_RES * MAP_RES), surf: null, wall: null, row: 0
+      terr: _jobTerr, surf: null, wall: null, row: 0
     };
   }
 
@@ -947,9 +985,11 @@
       job.row++;
       if (performance.now() - t0 > budgetMs) return false;
     }
-    // pisos/caixas viram superfície; muros bloqueiam
-    const surf = new Float32Array(job.terr);
-    const wall = new Uint8Array(R * R);
+    // pisos/caixas viram superfície; muros bloqueiam (reutiliza buffers pré-alocados)
+    const surf = _jobSurf;
+    surf.set(job.terr);
+    const wall = _jobWall;
+    wall.fill(0);
     const W = window.World || (typeof World !== 'undefined' ? World : null);
     if (W) {
       const maxX = job.minX + MAP_SIZE, maxZ = job.minZ + MAP_SIZE;
@@ -1046,22 +1086,35 @@
       if (Math.abs(p.x - cx) > 8 || Math.abs(p.z - cz) > 8) startJob(p.x, p.z);
     }
     if (job) {
-      // alturas calculadas aos poucos (4 ms por quadro) para não travar o jogo;
-      // enquanto isso as manchas usam o desenho individual
-      if (stepJob(4)) finishJob();
+      // alturas calculadas aos poucos (1.35 ms por quadro) e finalizadas no quadro seguinte para zero micro-stutter
+      if (job.readyToFinish) finishJob();
+      else if (stepJob(1.35)) job.readyToFinish = true;
     }
     if (!map) return;
     flushSplats();
-    flowAcc += dt;
-    let steps = 0;
-    const decay = RB.bloodLifetime && isFinite(RB.bloodLifetime()) ? Math.exp(-(1 / FLOW_HZ) * 3 / Math.max(1, RB.bloodLifetime())) : 1;
-    while (flowAcc >= 1 / FLOW_HZ && steps < 3) {
-      flowAcc -= 1 / FLOW_HZ;
-      flowStep(1 / FLOW_HZ, decay);
-      steps++;
+    if (hasFluid) {
+      const life = RB.bloodLifetime ? RB.bloodLifetime() : Infinity;
+      const finiteLife = isFinite(life);
+      if (wetTimer > 0) {
+        wetTimer = Math.max(0, wetTimer - dt);
+        flowAcc += dt;
+        const decay = finiteLife ? Math.exp(-(1 / FLOW_HZ) * 3 / Math.max(1, life)) : 1;
+        if (flowAcc >= 1 / FLOW_HZ) {
+          flowAcc -= 1 / FLOW_HZ;
+          flowStep(1 / FLOW_HZ, decay);
+        }
+        if (flowAcc > 0.1) flowAcc = 0;
+      } else if (finiteLife) {
+        // Sangue já coagulou: reduz o passe de decaimento de 30 Hz para 2 Hz (-93% GPU)
+        decayAcc += dt;
+        if (decayAcc >= 0.5) {
+          const stepDt = Math.min(2.0, decayAcc);
+          decayAcc = 0;
+          flowStep(stepDt, Math.exp(-stepDt * 3 / Math.max(1, life)));
+        }
+      }
     }
-    if (flowAcc > 0.2) flowAcc = 0;
     poolMat.uniforms.tFluid.value = rtA.texture;
-    poolMesh.visible = true;
+    poolMesh.visible = hasFluid;
   }
 })();

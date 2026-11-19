@@ -29,36 +29,40 @@ function buildGuarda() {
 
   // Pernas: cota de malha na coxa, joelheira pontuda (poleyn), greva e sabaton (bota blindada)
   const mkLeg = (side) => {
-    const l = limb(root, 0.28 * s, 0.95 * s, 0.30 * s, MAIL_BASE, side * 0.20 * s, 0.95 * s, 0);
+    const l = limb(root, 0.28 * s, 0.44 * s, 0.30 * s, MAIL_BASE, side * 0.20 * s, 0.95 * s, 0);
     // Coxa em cota de malha com desgaste e sangue
     part(l, 0.30 * s, 0.34 * s, 0.32 * s, MAIL_BASE, 0, -0.17 * s, 0);
     part(l, 0.16 * s, 0.20 * s, 0.33 * s, MAIL_HI, side * 0.05 * s, -0.18 * s, 0.005 * s);
     part(l, 0.14 * s, 0.18 * s, 0.33 * s, BLOOD_2, -side * 0.04 * s, -0.24 * s, 0.008 * s);
 
+    // Junta do joelho -> joelheira (poleyn) + greva + sabaton
+    const kn = limb(l, 0.27 * s, 0.53 * s, 0.29 * s, ARMOR_BASE, 0, -0.42 * s, 0);
+    l.userData.subMesh = kn.userData.mesh;
     // Joelheira (poleyn) articulada com crista central e aba lateral
-    part(l, 0.31 * s, 0.16 * s, 0.34 * s, ARMOR_BASE, 0, -0.40 * s, 0.015 * s);
-    part(l, 0.18 * s, 0.18 * s, 0.08 * s, ARMOR_HI, 0, -0.40 * s, 0.18 * s);
-    part(l, 0.06 * s, 0.20 * s, 0.06 * s, ARMOR_HI, 0, -0.40 * s, 0.21 * s); // ponta/crista do joelho
-    part(l, 0.08 * s, 0.12 * s, 0.14 * s, ARMOR_DARK, side * 0.16 * s, -0.40 * s, 0.04 * s); // aba lateral
-    part(l, 0.12 * s, 0.10 * s, 0.03 * s, BLOOD_1, side * 0.03 * s, -0.41 * s, 0.215 * s);
+    part(kn, 0.31 * s, 0.16 * s, 0.34 * s, ARMOR_BASE, 0, 0.02 * s, 0.015 * s);
+    part(kn, 0.18 * s, 0.18 * s, 0.08 * s, ARMOR_HI, 0, 0.02 * s, 0.18 * s);
+    part(kn, 0.06 * s, 0.20 * s, 0.06 * s, ARMOR_HI, 0, 0.02 * s, 0.21 * s); // ponta/crista do joelho
+    part(kn, 0.08 * s, 0.12 * s, 0.14 * s, ARMOR_DARK, side * 0.16 * s, 0.02 * s, 0.04 * s); // aba lateral
+    part(kn, 0.12 * s, 0.10 * s, 0.03 * s, BLOOD_1, side * 0.03 * s, 0.01 * s, 0.215 * s);
 
     // Greva (caneleira de aço com crista frontal e manchas de sangue)
-    part(l, 0.28 * s, 0.34 * s, 0.30 * s, ARMOR_BASE, 0, -0.64 * s, 0);
-    part(l, 0.08 * s, 0.32 * s, 0.05 * s, ARMOR_HI, 0, -0.64 * s, 0.15 * s);
-    part(l, 0.29 * s, 0.06 * s, 0.31 * s, ARMOR_DARK, 0, -0.52 * s, 0);
-    part(l, 0.14 * s, 0.18 * s, 0.03 * s, BLOOD_1, -side * 0.04 * s, -0.66 * s, 0.155 * s);
-    part(l, 0.10 * s, 0.14 * s, 0.31 * s, ARMOR_RUST, side * 0.08 * s, -0.68 * s, -0.02 * s);
+    part(kn, 0.28 * s, 0.34 * s, 0.30 * s, ARMOR_BASE, 0, -0.22 * s, 0);
+    part(kn, 0.08 * s, 0.32 * s, 0.05 * s, ARMOR_HI, 0, -0.22 * s, 0.15 * s);
+    part(kn, 0.29 * s, 0.06 * s, 0.31 * s, ARMOR_DARK, 0, -0.10 * s, 0);
+    part(kn, 0.14 * s, 0.18 * s, 0.03 * s, BLOOD_1, -side * 0.04 * s, -0.24 * s, 0.155 * s);
+    part(kn, 0.10 * s, 0.14 * s, 0.31 * s, ARMOR_RUST, side * 0.08 * s, -0.26 * s, -0.02 * s);
 
     // Sabaton (bota de placas articuladas)
-    part(l, 0.29 * s, 0.12 * s, 0.34 * s, ARMOR_DARK, 0, -0.84 * s, 0.02 * s);
-    part(l, 0.27 * s, 0.10 * s, 0.38 * s, ARMOR_BASE, 0, -0.88 * s, 0.05 * s);
-    part(l, 0.25 * s, 0.07 * s, 0.14 * s, ARMOR_HI, 0, -0.89 * s, 0.18 * s); // bico articulado
-    part(l, 0.22 * s, 0.05 * s, 0.06 * s, BLOOD_2, 0, -0.88 * s, 0.22 * s);
-    part(l, 0.29 * s, 0.045 * s, 0.40 * s, 0x1b1715, 0, -0.93 * s, 0.05 * s); // sola
-    return l;
+    part(kn, 0.29 * s, 0.12 * s, 0.34 * s, ARMOR_DARK, 0, -0.42 * s, 0.02 * s);
+    part(kn, 0.27 * s, 0.10 * s, 0.38 * s, ARMOR_BASE, 0, -0.46 * s, 0.05 * s);
+    part(kn, 0.25 * s, 0.07 * s, 0.14 * s, ARMOR_HI, 0, -0.47 * s, 0.18 * s); // bico articulado
+    part(kn, 0.22 * s, 0.05 * s, 0.06 * s, BLOOD_2, 0, -0.46 * s, 0.22 * s);
+    part(kn, 0.29 * s, 0.045 * s, 0.40 * s, 0x1b1715, 0, -0.51 * s, 0.05 * s); // sola
+    return { leg: l, knee: kn };
   };
-  rig.legL = mkLeg(-1);
-  rig.legR = mkLeg(1);
+  const legLObj = mkLeg(-1), legRObj = mkLeg(1);
+  rig.legL = legLObj.leg; rig.kneeL = legLObj.knee;
+  rig.legR = legRObj.leg; rig.kneeR = legRObj.knee;
 
   // Tronco (Mesh principal para compatibilidade com boundingBox de desmembramento)
   rig.torso = part(root, 0.78 * s, 0.92 * s, 0.44 * s, ARMOR_DARK, 0, 1.40 * s, 0);
@@ -160,9 +164,9 @@ function buildGuarda() {
   part(H, 0.14 * s, 0.10 * s, 0.03 * s, BLOOD_1, 0.10 * s, 0.22 * s, 0.24 * s);
   part(H, 0.10 * s, 0.12 * s, 0.03 * s, BLOOD_2, -0.12 * s, 0.15 * s, 0.24 * s);
 
-  // Braços: ombreiras (pauldrons) em camadas, cota de malha, farrapos e manoplas
+  // Braços: ombreiras (pauldrons) em camadas, cota de malha, farrapos e antebraços articulados
   const mkArm = (side) => {
-    const a = limb(root, 0.22 * s, 0.90 * s, 0.22 * s, MAIL_BASE, side * 0.54 * s, 1.80 * s, 0);
+    const a = limb(root, 0.22 * s, 0.48 * s, 0.22 * s, MAIL_BASE, side * 0.54 * s, 1.80 * s, 0);
     // Ombreira (pauldron) em 3 placas sobrepostas
     part(a, 0.34 * s, 0.14 * s, 0.36 * s, ARMOR_HI, side * 0.04 * s, -0.02 * s, 0);
     part(a, 0.32 * s, 0.11 * s, 0.33 * s, ARMOR_BASE, side * 0.05 * s, -0.12 * s, 0);
@@ -173,28 +177,31 @@ function buildGuarda() {
     part(a, 0.23 * s, 0.24 * s, 0.23 * s, MAIL_BASE, 0, -0.34 * s, 0);
     part(a, 0.08 * s, 0.18 * s, 0.14 * s, SURCOAT_DARK, -side * 0.10 * s, -0.44 * s, -0.02 * s);
 
-    // Cotoveleira (couter) e antebraço blindado (vambrace)
-    part(a, 0.26 * s, 0.12 * s, 0.26 * s, ARMOR_HI, 0, -0.49 * s, -0.01 * s);
-    part(a, 0.23 * s, 0.24 * s, 0.23 * s, ARMOR_BASE, 0, -0.65 * s, 0);
-    part(a, 0.10 * s, 0.20 * s, 0.04 * s, BLOOD_1, 0, -0.65 * s, 0.118 * s);
+    // Junta do cotovelo -> cotoveleira (couter) + antebraço blindado (vambrace) + manopla
+    const f = limb(a, 0.21 * s, 0.44 * s, 0.21 * s, ARMOR_BASE, 0, -0.46 * s, 0);
+    a.userData.subMesh = f.userData.mesh;
+    part(f, 0.26 * s, 0.12 * s, 0.26 * s, ARMOR_HI, 0, -0.03 * s, -0.01 * s);
+    part(f, 0.23 * s, 0.24 * s, 0.23 * s, ARMOR_BASE, 0, -0.19 * s, 0);
+    part(f, 0.10 * s, 0.20 * s, 0.04 * s, BLOOD_1, 0, -0.19 * s, 0.118 * s);
 
     // Manopla blindada (gauntlet)
-    part(a, 0.24 * s, 0.18 * s, 0.24 * s, ARMOR_DARK, 0, -0.84 * s, 0);
-    part(a, 0.20 * s, 0.08 * s, 0.20 * s, ARMOR_HI, 0, -0.80 * s, 0.02 * s);
-    part(a, 0.14 * s, 0.08 * s, 0.04 * s, BLOOD_2, 0, -0.89 * s, 0.11 * s);
-    return a;
+    part(f, 0.24 * s, 0.18 * s, 0.24 * s, ARMOR_DARK, 0, -0.38 * s, 0);
+    part(f, 0.20 * s, 0.08 * s, 0.20 * s, ARMOR_HI, 0, -0.34 * s, 0.02 * s);
+    part(f, 0.14 * s, 0.08 * s, 0.04 * s, BLOOD_2, 0, -0.43 * s, 0.11 * s);
+    return { arm: a, forearm: f };
   };
-  rig.armL = mkArm(-1);
-  rig.armR = mkArm(1);
+  const armLObj = mkArm(-1), armRObj = mkArm(1);
+  rig.armL = armLObj.arm; rig.forearmL = armLObj.forearm;
+  rig.armR = armRObj.arm; rig.forearmR = armRObj.forearm;
 
   // Espada templária gasta e ensanguentada na mão direita
   rig.sword = new THREE.Group();
-  part(rig.sword, 0.10 * s, 0.16 * s, 0.10 * s, LEATHER, 0, -0.88 * s, 0);
-  part(rig.sword, 0.14 * s, 0.06 * s, 0.13 * s, ARMOR_DARK, 0, -0.78 * s, 0); // pomo
-  part(rig.sword, 0.42 * s, 0.065 * s, 0.10 * s, ARMOR_HI, 0, -0.96 * s, 0); // guarda-mão
-  part(rig.sword, 0.08 * s, 1.22 * s, 0.03 * s, 0xb4b8c0, 0, -1.58 * s, 0); // lâmina
-  part(rig.sword, 0.06 * s, 0.46 * s, 0.034 * s, BLOOD_1, 0, -1.90 * s, 0); // sangue na ponta
-  rig.armR.add(rig.sword);
+  part(rig.sword, 0.10 * s, 0.16 * s, 0.10 * s, LEATHER, 0, -0.42 * s, 0);
+  part(rig.sword, 0.14 * s, 0.06 * s, 0.13 * s, ARMOR_DARK, 0, -0.32 * s, 0); // pomo
+  part(rig.sword, 0.42 * s, 0.065 * s, 0.10 * s, ARMOR_HI, 0, -0.50 * s, 0); // guarda-mão
+  part(rig.sword, 0.08 * s, 1.22 * s, 0.03 * s, 0xb4b8c0, 0, -1.12 * s, 0); // lâmina
+  part(rig.sword, 0.06 * s, 0.46 * s, 0.034 * s, BLOOD_1, 0, -1.44 * s, 0); // sangue na ponta
+  rig.forearmR.add(rig.sword);
 
   return rig;
 }

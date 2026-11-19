@@ -56,6 +56,7 @@
     opts = opts || {};
     const meshes = [];
     const splats = [];
+    const matMap = new Map();
     const tmpBox = new THREE.Box3();
     const tmpSize = new THREE.Vector3();
     let idx = 0;
@@ -64,16 +65,22 @@
       if (!obj.isMesh || !obj.geometry || !obj.material) return;
       if (obj.userData && obj.userData.isBloodSplat) return;
 
-      // Clona material para não alterar o cache global _mat de models.js
-      const mat = obj.material.clone();
-      obj.material = mat;
-
-      const baseColor = mat.color ? mat.color.clone() : new THREE.Color(0xffffff);
-      const baseEmissive = mat.emissive ? mat.emissive.clone() : null;
       const isArm = opts.forceBody || (opts.detectArms && isArmNode(obj));
-      const isBasic = !!mat.isMeshBasicMaterial;
-
-      meshes.push({ mesh: obj, mat, baseColor, baseEmissive, isArm, isBasic });
+      const isBasic = !!obj.material.isMeshBasicMaterial;
+      if (!isBasic) {
+        const key = obj.material.uuid + (isArm ? '_arm' : '_weap');
+        let entry = matMap.get(key);
+        if (!entry) {
+          const mat = obj.material.clone();
+          if (typeof psx === 'function') psx(mat);
+          const baseColor = mat.color ? mat.color.clone() : new THREE.Color(0xffffff);
+          const baseEmissive = mat.emissive ? mat.emissive.clone() : null;
+          entry = { mat, baseColor, baseEmissive, isArm, isBasic: false };
+          matMap.set(key, entry);
+          meshes.push(entry);
+        }
+        obj.material = entry.mat;
+      }
 
       // Pula detalhes básicos (olhos, dentes, núcleo brilhante da cruz) para manchas 3D
       // (e peças mescladas marcadas com noSplat: cabelo, corrente, spikes, cadarços)
@@ -151,14 +158,16 @@
 
   function applyRecord(rec, bodyVal, weapVal) {
     if (!rec) return;
-    if (rec.lastBody === bodyVal && rec.lastWeap === weapVal) return;
-    rec.lastBody = bodyVal;
-    rec.lastWeap = weapVal;
+    const qb = Math.round(bodyVal * 100) / 100;
+    const qw = Math.round(weapVal * 100) / 100;
+    if (rec.lastBody === qb && rec.lastWeap === qw) return;
+    rec.lastBody = qb;
+    rec.lastWeap = qw;
 
     for (let i = 0; i < rec.meshes.length; i++) {
       const m = rec.meshes[i];
       if (m.isBasic) continue;
-      const v = m.isArm ? bodyVal : weapVal;
+      const v = m.isArm ? qb : qw;
       if (m.mat.color) {
         const target = m.isArm ? BLOOD_SKIN : BLOOD_DARK;
         const mix = v * 0.48;
@@ -171,7 +180,7 @@
 
     for (let i = 0; i < rec.splats.length; i++) {
       const sp = rec.splats[i];
-      const v = sp.isArm ? bodyVal : weapVal;
+      const v = sp.isArm ? qb : qw;
       sp.mesh.visible = v >= sp.threshold;
     }
   }

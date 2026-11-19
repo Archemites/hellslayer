@@ -15,12 +15,13 @@
   }
 
   /* ---------------- renderer / cenas ---------------- */
-  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+  const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, stencil: false, powerPreference: 'high-performance' });
   renderer.autoClear = false;
   renderer.setPixelRatio(1);
   $('screen').appendChild(renderer.domElement);
   let internalH = 270;
-  let ssaoEnabled = true;
+  let ssaoEnabled = false;
+  let ssaoQuality = 'off';
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x2a0a08, 6, 95);
@@ -48,21 +49,47 @@
 
   /* ---------------- Ambient Occlusion (SSAO) ---------------- */
   const hasDepthTex = renderer.capabilities.isWebGL2 || !!renderer.extensions.get('WEBGL_depth_texture');
-  let sceneRT = null, aoRT = null, aoCam = null, aoScene = null, aoQuad = null, ssaoMat = null, aoCompMat = null;
+  let sceneRT = null, aoRT = null, depthTex = null, aoCam = null, aoScene = null, aoQuad = null, ssaoMat = null, aoCompMat = null;
+  function getAoDiv(ih) { return ih >= 1080 ? 4 : (ih >= 720 ? 3 : 2); }
+  function disposeSSAO() {
+    if (sceneRT) { sceneRT.dispose(); sceneRT = null; }
+    if (aoRT) { aoRT.dispose(); aoRT = null; }
+    if (depthTex) { depthTex.dispose(); depthTex = null; }
+  }
+  function ensureSSAO(iw, ih) {
+    if (!hasDepthTex) return false;
+    const aoDiv = getAoDiv(ih);
+    const aoW = Math.max(1, Math.floor(iw / aoDiv));
+    const aoH = Math.max(1, Math.floor(ih / aoDiv));
+    if (!sceneRT) {
+      const dType = renderer.capabilities.isWebGL2 ? THREE.UnsignedIntType : THREE.UnsignedShortType;
+      depthTex = new THREE.DepthTexture(iw, ih, dType);
+      sceneRT = new THREE.WebGLRenderTarget(iw, ih, {
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        depthBuffer: true,
+        depthTexture: depthTex
+      });
+      aoRT = new THREE.WebGLRenderTarget(aoW, aoH, {
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        depthBuffer: false
+      });
+      if (ssaoMat) ssaoMat.uniforms.tDepth.value = depthTex;
+      if (aoCompMat) {
+        aoCompMat.uniforms.tColor.value = sceneRT.texture;
+        aoCompMat.uniforms.tAO.value = aoRT.texture;
+        aoCompMat.uniforms.tDepth.value = depthTex;
+      }
+    } else if (sceneRT.width !== iw || sceneRT.height !== ih || aoRT.width !== aoW || aoRT.height !== aoH) {
+      sceneRT.setSize(iw, ih);
+      aoRT.setSize(aoW, aoH);
+    }
+    if (ssaoMat) ssaoMat.uniforms.uTexel.value.set(1 / iw, 1 / ih);
+    if (aoCompMat) aoCompMat.uniforms.uTexel.value.set(1 / aoW, 1 / aoH);
+    return true;
+  }
   if (hasDepthTex) {
-    const dType = renderer.capabilities.isWebGL2 ? THREE.UnsignedIntType : THREE.UnsignedShortType;
-    const depthTex = new THREE.DepthTexture(480, internalH, dType);
-    sceneRT = new THREE.WebGLRenderTarget(480, internalH, {
-      minFilter: THREE.NearestFilter,
-      magFilter: THREE.NearestFilter,
-      depthBuffer: true,
-      depthTexture: depthTex
-    });
-    aoRT = new THREE.WebGLRenderTarget(240, Math.max(1, Math.floor(internalH / 2)), {
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      depthBuffer: false
-    });
     aoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     aoScene = new THREE.Scene();
 
@@ -78,7 +105,7 @@
       depthTest: false,
       depthWrite: false,
       uniforms: {
-        tDepth: { value: depthTex },
+        tDepth: { value: null },
         uInvProj: { value: new THREE.Matrix4() },
         uProj: { value: new THREE.Matrix4() },
         uTexel: { value: new THREE.Vector2(1 / 480, 1 / internalH) },
@@ -174,9 +201,9 @@
       depthTest: false,
       depthWrite: false,
       uniforms: {
-        tColor: { value: sceneRT.texture },
-        tAO: { value: aoRT.texture },
-        tDepth: { value: depthTex },
+        tColor: { value: null },
+        tAO: { value: null },
+        tDepth: { value: null },
         uTexel: { value: new THREE.Vector2(1 / 480, 1 / internalH) },
         uBlur: { value: 1.0 }
       },
@@ -278,6 +305,12 @@
       }
       if (!obj.userData) obj.userData = {};
       obj.userData._cullSphere = cs;
+    } else if (cs.lx === 0 && cs.lz === 0) {
+      const p = obj.position, s = obj.scale;
+      const maxS = Math.max(Math.abs(s.x), Math.abs(s.y), Math.abs(s.z), 0.001);
+      _cullSphere.center.set(p.x, p.y + cs.ly * s.y, p.z);
+      _cullSphere.radius = cs.r * maxS;
+      return _cullFrustum.intersectsSphere(_cullSphere);
     } else {
       obj.updateMatrixWorld(false);
     }
@@ -313,31 +346,23 @@
     _hiddenForFov.length = 0;
     updateCullFrustum();
 
-    // Mapa (chunks ativos) e decals contidos nos chunks
+    // Culling por Chunk (16x16m): descarta blocos inteiros fora do FOV em O(chunks);
+    // os meshes internos do chunk visível usam o frustum culling nativo do Three.js sem duplicar trabalho em JS.
     for (const ch of World.chunks.values()) {
       if (!ch.active || !ch.group || !ch.group.visible) continue;
       const cbox = ensureChunkCullBox(ch);
       if (!_cullFrustum.intersectsBox(cbox)) {
         ch.group.visible = false;
         _hiddenForFov.push(ch.group);
-      } else {
-        const kids = ch.group.children;
-        for (let i = 0; i < kids.length; i++) {
-          const child = kids[i];
-          if (child.visible && !isObjInFovFrustum(child)) {
-            child.visible = false;
-            _hiddenForFov.push(child);
-          }
-        }
       }
     }
 
-    // Entidades dinâmicas, inimigos, itens, gore, sangue, projéteis e partículas na cena
+    // Entidades dinâmicas agrupadas (inimigos, camponeses, pickups, corpses) na raiz da cena
     const sKids = scene.children;
     const wGroup = World.group;
     for (let i = 0; i < sKids.length; i++) {
       const obj = sKids[i];
-      if (!obj.visible || !obj.frustumCulled || obj === sky || obj === wGroup || obj.isLight) continue;
+      if (!obj.visible || obj.isMesh || !obj.frustumCulled || obj === sky || obj === wGroup || obj.isLight) continue;
       if (!isObjInFovFrustum(obj)) {
         obj.visible = false;
         _hiddenForFov.push(obj);
@@ -355,7 +380,7 @@
   function renderScene() {
     applyFovCulling();
     try {
-      if (!hasDepthTex || !ssaoEnabled) {
+      if (!hasDepthTex || !ssaoEnabled || !sceneRT || !aoRT) {
         renderer.setRenderTarget(null);
         renderer.clear();
         renderer.render(scene, camera);
@@ -372,12 +397,10 @@
     ssaoMat.uniforms.uInvProj.value.copy(camera.projectionMatrixInverse);
     aoQuad.material = ssaoMat;
     renderer.setRenderTarget(aoRT);
-    renderer.clear();
     renderer.render(aoScene, aoCam);
 
     aoQuad.material = aoCompMat;
     renderer.setRenderTarget(null);
-    renderer.clear();
     renderer.render(aoScene, aoCam);
   }
 
@@ -395,13 +418,8 @@
     camera.aspect = iw / ih; camera.updateProjectionMatrix();
     vmCam.aspect = iw / ih; vmCam.updateProjectionMatrix();
     updatePsxRes(iw, ih);
-    if (hasDepthTex) {
-      const aoW = Math.max(1, Math.floor(iw / 2));
-      const aoH = Math.max(1, Math.floor(ih / 2));
-      sceneRT.setSize(iw, ih);
-      aoRT.setSize(aoW, aoH);
-      ssaoMat.uniforms.uTexel.value.set(1 / iw, 1 / ih);
-      aoCompMat.uniforms.uTexel.value.set(1 / aoW, 1 / aoH);
+    if (hasDepthTex && ssaoEnabled) {
+      ensureSSAO(iw, ih);
     }
   }
   function setInternalHeight(h) {
@@ -419,9 +437,17 @@
     renderer.domElement.style.imageRendering = on ? 'pixelated' : 'auto';
   }
   function setSSAO(q) {
-    if (!q || q === 'off') { ssaoEnabled = false; return; }
+    ssaoQuality = q || 'off';
+    if (!q || q === 'off') {
+      ssaoEnabled = false;
+      disposeSSAO();
+      return;
+    }
     ssaoEnabled = true;
     if (!hasDepthTex || !ssaoMat || !aoCompMat) return;
+    const W = window.innerWidth, H = window.innerHeight;
+    const ih = internalH, iw = Math.max(1, Math.round(ih * W / H));
+    ensureSSAO(iw, ih);
     if (q === 'low') {
       ssaoMat.uniforms.uSamples.value = 4.0;
       ssaoMat.uniforms.uIntensity.value = 1.05;
@@ -462,6 +488,9 @@
   };
   const S = {
     started: false, paused: true, difficulty: 2, time: 0, kills: 0, style: 0, ended: false,
+    bloodLiters: 0, levelBloodLiters: 0, levelBloodExpected: 1, completedBloodSum: 0, completedMapsCount: 0,
+    hitCombo: 0, hitComboT: 0, hitPopT: 0, levelMaxCombo: 0, killCombo: 0, killComboT: 0, styleT: 0, stylePopT: 0, lastStyleRankIdx: -1,
+    killFeed: [],
     checkpoint: { x: 0, z: 6, yaw: 0 }, stage: 'a1', objRoom: null, objText: '',
     boss: null, quipCd: 0, cross: { state: 'held', hand: 1, pos: new V3(), dir: new V3(), t: 0, hitT: new Map() },
     env: 'hell', msgT: 0, baphT: 0, promptOn: false, cutscene: 0, rip: false, faithReady: false
@@ -469,10 +498,10 @@
   const DIFFICULTIES = [
     { id: 0, label: 'Dificuldade 0 - Melzinho na Chupeta', short: 'Melzinho na Chupeta', spawnMul: 0.5,  dmgMul: 0.35, desc: 'Para passear pelo inferno sem suar a camisa.' },
     { id: 1, label: 'Dificuldade 1 - Fácil',               short: 'Fácil',               spawnMul: 0.75, dmgMul: 0.65, desc: 'Menos demônios e golpes mais brandos.' },
-    { id: 2, label: 'Dificuldade 2 - Normal',              short: 'Normal',              spawnMul: 1.0,  dmgMul: 1.0,  desc: 'A experiência padrão de CABRUNCO.' },
+    { id: 2, label: 'Dificuldade 2 - Normal',              short: 'Normal',              spawnMul: 1.0,  dmgMul: 1.0,  desc: 'A experiência padrão de PARAINFERNÁLIA.' },
     { id: 3, label: 'Dificuldade 3 - Difícil',             short: 'Difícil',             spawnMul: 1.35, dmgMul: 1.4,  desc: 'Hordas maiores e demônios mais letais.' },
     { id: 4, label: 'Dificuldade 4 - Muito Difícil',       short: 'Muito Difícil',       spawnMul: 1.75, dmgMul: 1.85, desc: 'Chuva de demônios e dano implacável.' },
-    { id: 5, label: 'Dificuldade 5 - CABRUNCO!!!',         short: 'CABRUNCO!!!',         spawnMul: 2.25, dmgMul: 2.5,  desc: 'Carnificina máxima. Só os abençoados sobrevivem.' }
+    { id: 5, label: 'Dificuldade 5 - PARAINFERNÁLIA!!!',   short: 'PARAINFERNÁLIA!!!',   spawnMul: 2.25, dmgMul: 2.5,  desc: 'Carnificina máxima. Só os abençoados sobrevivem.' }
   ];
   function getDifficulty() {
     const raw = S.difficulty == null ? 2 : parseInt(S.difficulty, 10);
@@ -491,10 +520,180 @@
     { id: 'cross',  vm: 'cross',  name: 'SACRA CRUZ PAPAL',     short: 'CRUZ',    owned: false, cd: 0.25, dmg: 34, dur: 0.3 },
     { id: 'heart',  vm: 'heart',  name: 'CORAÇÃO ATEU',         short: 'CORAÇÃO', owned: false, ammo: 'blood', cd: 0.15, dmg: 13, dur: 0.12 }
   ];
-  let curW = 0;
+  let curW = 1;
   const wcd = {}; // cooldown por arma
   WEAPONS.forEach(w => wcd[w.id] = 0);
   const AMMO_MAX = { rocks: 80, blood: 100 };
+
+  /* ---------------- sistema de litros de sangue & combos de estilo ---------------- */
+  const WEAPON_BLOOD = {
+    fists: 1.00,
+    hammer: 1.22,
+    sling: 0.75,
+    brick: 1.08,
+    scythe: 1.42,
+    demo: 1.52,
+    cross: 1.18,
+    heart: 1.32,
+    kick: 1.12,
+    slam: 1.28,
+    ram: 1.20,
+    parry: 1.36,
+    glory: 1.62
+  };
+  const KILL_TYPE_LABELS = {
+    fists: 'SOCO',
+    hammer: 'MARRETADA',
+    sling: 'PEDRADA',
+    brick: 'TIJOLADA',
+    scythe: 'FOICE',
+    demo: 'DEMOLIÇÃO',
+    cross: 'CRUZ PAPAL',
+    heart: 'CORAÇÃO ATEU',
+    kick: 'CHUTE',
+    slam: 'ESMAGAMENTO',
+    ram: 'ATROPELO',
+    parry: 'PARRY',
+    glory: 'EXECUÇÃO',
+    decap: 'DECAPITAÇÃO',
+    rip: 'RASGADO',
+    impale: 'EMPALADO'
+  };
+  const MAP_BLOOD_ROOMS = {
+    a1: ['a1'],
+    a2: ['a2'],
+    a3: ['a3'],
+    a4: ['a4'],
+    a5: ['a5'],
+    a6_gate: ['a6_gate', 'a6_maximus'],
+    a6_nave: ['a6_nave', 'a6_galius2'],
+    a6_crypt: ['a6_crypt1', 'a6_crypt2', 'a6_crypt3']
+  };
+  function enemyBloodWeight(typeOrObj) {
+    const T = typeof typeOrObj === 'string' ? ETYPES[typeOrObj] : (typeOrObj && typeOrObj.T ? typeOrObj.T : typeOrObj);
+    if (!T || T.immortal) return 0;
+    if (T.model === 'galius') return 5.0;
+    if (T.model === 'maximus') return 3.2;
+    if (T.model === 'demonio') return 1.75;
+    if (T.model === 'guarda') return 1.45;
+    if (T.model === 'padre' || T.model === 'gargula') return 1.2;
+    return 1.0;
+  }
+  function computeMapBloodExpected(mapId, roomOverride) {
+    let rooms = MAP_BLOOD_ROOMS[mapId] || [mapId];
+    if (roomOverride === 'a6_galius2') rooms = ['a6_galius2'];
+    else if (roomOverride === 'a6_crypt2') rooms = ['a6_crypt2', 'a6_crypt3'];
+    else if (roomOverride === 'a6_crypt3') rooms = ['a6_crypt3'];
+    const spawnMul = getDifficulty().spawnMul;
+    let totalW = 0;
+    for (let r = 0; r < rooms.length; r++) {
+      const list = (typeof SPAWNS !== 'undefined' && SPAWNS[rooms[r]]) ? SPAWNS[rooms[r]] : [];
+      const bosses = [];
+      const regulars = [];
+      for (let i = 0; i < list.length; i++) {
+        const sp = list[i];
+        const T = ETYPES[sp[0]];
+        if (!T || T.immortal) continue;
+        if (T.boss) bosses.push(sp);
+        else regulars.push(sp);
+      }
+      for (let i = 0; i < bosses.length; i++) totalW += enemyBloodWeight(bosses[i][0]);
+      if (regulars.length > 0) {
+        let acc = 0, spawned = 0;
+        for (let i = 0; i < regulars.length; i++) {
+          acc += spawnMul;
+          const count = Math.floor(acc + 1e-9);
+          acc -= count;
+          for (let k = 0; k < count; k++) {
+            totalW += enemyBloodWeight(regulars[i][0]);
+            spawned++;
+          }
+        }
+        if (spawned === 0) totalW += enemyBloodWeight(regulars[0][0]);
+      }
+    }
+    S.levelBloodExpected = Math.max(1, totalW);
+    return S.levelBloodExpected;
+  }
+  function addBloodLiters(liters) {
+    if (!liters || liters <= 0 || !Number.isFinite(liters)) return;
+    S.levelBloodLiters = (S.levelBloodLiters || 0) + liters;
+    S.bloodLiters = (S.bloodLiters || 0) + liters;
+  }
+  function awardEnemyHitBlood(e, dmgDealt, weaponId, part) {
+    if (!e || !e.T || e.T.immortal) return;
+    const w = enemyBloodWeight(e);
+    if (w <= 0) return;
+    const maxhp = Math.max(1, e.maxhp || 1);
+    const prev = e._bloodDmgCredited || 0;
+    const rem = Math.max(0, maxhp - prev);
+    const eff = Math.min(rem, Math.max(0, dmgDealt || 0));
+    if (eff <= 0) return;
+    e._bloodDmgCredited = prev + eff;
+    const basePerUnit = 840 / Math.max(1, S.levelBloodExpected || 1);
+    const weapMul = WEAPON_BLOOD[weaponId] || 1.0;
+    const partMul = part === 'head' ? 1.25 : 1.0;
+    addBloodLiters(basePerUnit * w * 0.35 * (eff / maxhp) * weapMul * partMul);
+  }
+  function awardEnemyKillBlood(e, ko) {
+    if (!e || !e.T || e.T.immortal || e._bloodKillCredited) return;
+    e._bloodKillCredited = true;
+    const w = enemyBloodWeight(e);
+    if (w <= 0) return;
+    const maxhp = Math.max(1, e.maxhp || 1);
+    const prevRatio = clamp((e._bloodDmgCredited || 0) / maxhp, 0, 1);
+    const uncreditedDmgShare = (1 - prevRatio) * 0.35;
+    const basePerUnit = 840 / Math.max(1, S.levelBloodExpected || 1);
+    const weapKey = (ko && ko.glory) ? 'glory' : ((ko && ko.weapon) || e._lastHitWeapon || (WEAPONS[curW] ? WEAPONS[curW].id : 'fists'));
+    const weapMul = WEAPON_BLOOD[weapKey] || 1.0;
+    const finishMul = (ko && (ko.decapitated || ko.glory)) ? 1.18 : 1.0;
+    const comboMul = 1 + Math.min(0.18, Math.max(0, (S.hitCombo || 1) - 1) * 0.015);
+    addBloodLiters(basePerUnit * w * (0.65 + uncreditedDmgShare) * weapMul * finishMul * comboMul);
+  }
+  const STYLE_TIMER_DUR = 5.0;
+  function addStyle(pts, cap) {
+    if (!pts || pts <= 0) return;
+    S.style = Math.min(cap || 480, (S.style || 0) + pts);
+    S.styleT = STYLE_TIMER_DUR;
+  }
+  function registerStyleHit(weaponId, part, styleBonus) {
+    S.hitCombo = (S.hitCombo || 0) + 1;
+    if (S.hitCombo > (S.levelMaxCombo || 0)) S.levelMaxCombo = S.hitCombo;
+    S.hitComboT = STYLE_TIMER_DUR;
+    S.hitPopT = 0.24;
+    const add = (styleBonus != null ? styleBonus : 6) + (part === 'head' ? 6 : 0) + Math.min(8, S.hitCombo * 0.45);
+    addStyle(add);
+  }
+  function resolveKillLabel(ko, e) {
+    if (ko && ko.killLabel) return ko.killLabel;
+    if (ko && ko.glory) {
+      if (ko.glory === 'rip') return KILL_TYPE_LABELS.rip;
+      if (ko.glory === 'decap') return KILL_TYPE_LABELS.decap;
+      if (ko.glory === 'impale') return KILL_TYPE_LABELS.impale;
+      if (ko.glory === 'hammer') return KILL_TYPE_LABELS.hammer;
+      if (ko.glory === 'kick') return KILL_TYPE_LABELS.kick;
+      return KILL_TYPE_LABELS.glory;
+    }
+    if (ko && ko.decapitated) return KILL_TYPE_LABELS.decap;
+    const wk = (ko && ko.weapon) || (e && e._lastHitWeapon) || (WEAPONS[curW] ? WEAPONS[curW].id : 'fists');
+    return KILL_TYPE_LABELS[wk] || 'CHACINA';
+  }
+  function registerStyleKill(e, ko) {
+    S.killCombo = (S.killCombo || 0) + 1;
+    S.killComboT = STYLE_TIMER_DUR;
+    S.hitCombo = (S.hitCombo || 0) + 1;
+    if (S.hitCombo > (S.levelMaxCombo || 0)) S.levelMaxCombo = S.hitCombo;
+    S.hitComboT = STYLE_TIMER_DUR;
+    S.styleT = STYLE_TIMER_DUR;
+    S.hitPopT = 0.42;
+    const label = resolveKillLabel(ko, e);
+    const isSpecial = !!(ko && (ko.glory || ko.decapitated || ko.weapon === 'parry' || ko.weapon === 'demo'));
+    if (!Array.isArray(S.killFeed)) S.killFeed = [];
+    S.killFeed.unshift({ label, isSpecial, t: 5.0, maxT: 5.0, id: ++registerStyleKill._seq });
+    if (S.killFeed.length > 5) S.killFeed.length = 5;
+    awardEnemyKillBlood(e, ko);
+  }
+  registerStyleKill._seq = 0;
 
   /* ---------------- colisão + plataformas (altura Y) ---------------- */
   const _colTmp = [];
@@ -793,6 +992,20 @@
   let decalIM = makeIM(decalMat, decalIMCap);
   decalIM.renderOrder = 5;
   let decalsDirty = true;
+  let gibsDirty = true;
+  function uploadIM(im, count) {
+    im.count = count;
+    if (count > 0) {
+      im.instanceMatrix.updateRange.offset = 0;
+      im.instanceMatrix.updateRange.count = count * 16;
+      im.instanceMatrix.needsUpdate = true;
+      if (im.instanceColor) {
+        im.instanceColor.updateRange.offset = 0;
+        im.instanceColor.updateRange.count = count * 3;
+        im.instanceColor.needsUpdate = true;
+      }
+    }
+  }
 
   function ensureDecalIMCapacity(needed) {
     if (needed <= decalIMCap) return;
@@ -836,6 +1049,7 @@
       decalIM.count = 0;
       if (RB) { RB.stainBegin(); RB.stainEnd(); RB.clearMap(); }
       decalsDirty = true;
+      gibsDirty = true;
     }
   }
   function setDismember(on) { dismemberEnabled = !!on; }
@@ -914,6 +1128,7 @@
     d.inRender = ch ? ch.active : World.isPosInRender(x, z);
     decals.push(d);
     decalsDirty = true;
+    gibsDirty = true;
   }
 
   function spawnBloodDecal(x, z, size) {
@@ -960,6 +1175,7 @@
     d.inRender = inRender;
     decals.push(d);
     decalsDirty = true;
+    gibsDirty = true;
   }
 
   function pushPart(x, y, z, vx, vy, vz, sx, sy, sz, life, g, colHex, basic, type, pSz) {
@@ -1090,6 +1306,7 @@
       }
       if (idx < 0) idx = 0;
       swapRemove(gibs, idx, gibPool);
+      gibsDirty = true;
     }
   }
 
@@ -1105,6 +1322,7 @@
     g.age = 0; g.g = 24; g.dripT = 0; g.bounces = 0;
     g.settled = false;
     gibs.push(g);
+    gibsDirty = true;
   }
 
   function spawnGore(x, y, z, h, kx, kz, isBig) {
@@ -1212,25 +1430,17 @@
         }
       }
     }
-    partBasicIM.count = basicCount;
-    if (basicCount > 0) {
-      partBasicIM.instanceMatrix.needsUpdate = true;
-      if (partBasicIM.instanceColor) partBasicIM.instanceColor.needsUpdate = true;
-    }
-    partLitIM.count = litCount;
-    if (litCount > 0) {
-      partLitIM.instanceMatrix.needsUpdate = true;
-      if (partLitIM.instanceColor) partLitIM.instanceColor.needsUpdate = true;
-    }
-    if (realBloodOn()) updateRealBlood(dt);
+    uploadIM(partBasicIM, basicCount);
+    uploadIM(partLitIM, litCount);
+    if (realBloodOn() && S.started) updateRealBlood(dt);
 
     const dur = goreDuration;
     const fadeWindow = dur === Infinity ? 0 : Math.min(1.5, dur * 0.3);
-    let gibCount = 0;
+    let gibsFading = false;
     for (let i = gibs.length - 1; i >= 0; i--) {
       const p = gibs[i];
       const inR = World.isPosInRender(p.x, p.z);
-      p.inRender = inR;
+      if (inR !== p.inRender) { p.inRender = inR; gibsDirty = true; }
       if (!inR) continue;
 
       p.age += dt;
@@ -1240,6 +1450,7 @@
           p.vy -= p.g * dt;
           p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
           p.rx += p.rvx * dt; p.ry += p.rvy * dt; p.rz += p.rvz * dt;
+          gibsDirty = true;
           p.dripT -= dt;
           if (gibDripsEnabled && goreQualityMul >= 0.4 && p.dripT <= 0 && (p.vx * p.vx + p.vy * p.vy + p.vz * p.vz) > 14) {
             p.dripT = 0.045;
@@ -1265,26 +1476,34 @@
           p.settled = true;
         }
       }
-      let k = 1;
       if (dur !== Infinity) {
         const rem = dur - p.age;
-        if (rem <= 0) { swapRemove(gibs, i, gibPool); continue; }
-        if (rem < fadeWindow) k = Math.max(0.01, rem / fadeWindow);
-      }
-      if (gibCount < 2800) {
-        _imPos.set(p.x, p.y, p.z);
-        _imQuat.setFromEuler(_imEuler.set(p.rx, p.ry, p.rz));
-        _imScale.set(p.sx * k, p.sy * k, p.sz0 * k);
-        _imMat4.compose(_imPos, _imQuat, _imScale);
-        gibIM.setMatrixAt(gibCount, _imMat4);
-        gibIM.setColorAt(gibCount, _imCol.setHex(p.colHex));
-        gibCount++;
+        if (rem <= 0) { swapRemove(gibs, i, gibPool); gibsDirty = true; continue; }
+        if (rem < fadeWindow) gibsFading = true;
       }
     }
-    gibIM.count = gibCount;
-    if (gibCount > 0) {
-      gibIM.instanceMatrix.needsUpdate = true;
-      if (gibIM.instanceColor) gibIM.instanceColor.needsUpdate = true;
+    if (gibsDirty || gibsFading) {
+      gibsDirty = false;
+      let gibCount = 0;
+      for (let i = 0; i < gibs.length; i++) {
+        const p = gibs[i];
+        if (!p.inRender) continue;
+        let k = 1;
+        if (dur !== Infinity) {
+          const rem = dur - p.age;
+          if (rem < fadeWindow) k = Math.max(0.01, rem / fadeWindow);
+        }
+        if (gibCount < 2800) {
+          _imPos.set(p.x, p.y, p.z);
+          _imQuat.setFromEuler(_imEuler.set(p.rx, p.ry, p.rz));
+          _imScale.set(p.sx * k, p.sy * k, p.sz0 * k);
+          _imMat4.compose(_imPos, _imQuat, _imScale);
+          gibIM.setMatrixAt(gibCount, _imMat4);
+          gibIM.setColorAt(gibCount, _imCol.setHex(p.colHex));
+          gibCount++;
+        }
+      }
+      uploadIM(gibIM, gibCount);
     }
 
     const bloodDur = getBloodDuration();
@@ -1327,12 +1546,8 @@
         decalIM.setColorAt(dCount, _imCol.setHex(d.colHex));
         dCount++;
       }
-      decalIM.count = dCount;
+      uploadIM(decalIM, dCount);
       if (RB) RB.stainEnd();
-      if (dCount > 0) {
-        decalIM.instanceMatrix.needsUpdate = true;
-        if (decalIM.instanceColor) decalIM.instanceColor.needsUpdate = true;
-      }
     }
     // Atualiza corpos/partes em ragdoll (Glory Kills)
     for (let i = corpses.length - 1; i >= 0; i--) {
@@ -1361,7 +1576,7 @@
             const md = c.rad + o.r + 0.35;
             if (Math.abs(ox) < md && Math.abs(oz) < md && Math.hypot(ox, oz) < md && Math.abs(o.g.position.y + o.h * 0.5 - gp.y) < o.h) {
               const l = Math.hypot(c.vx, c.vz) || 1;
-              dmgEnemy(o, 45, c.vx / l, c.vz / l, { knock: 12, stunBonus: 0.5 });
+              dmgEnemy(o, 45, c.vx / l, c.vz / l, { knock: 12, stunBonus: 0.5, weapon: 'ram' });
               c.vx *= 0.5; c.vz *= 0.5; c.hitEnemies = false;
               break;
             }
@@ -1420,13 +1635,15 @@
     decalIM.count = 0;
     if (RB) { RB.stainBegin(); RB.stainEnd(); RB.clearMap(); }
     decalsDirty = true;
+    gibsDirty = true;
   }
 
   /* ---------------- anéis de choque ---------------- */
   const rings = [];
+  const RING_GEO = new THREE.RingGeometry(0.9, 1.0, 28);
   function spawnRing(x, z, maxR, speed, dmg, color, owner) {
     const gy = getGroundY(x, z);
-    const m = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 28), MT(color || 0xff5020, { basic: true, tr: 0.7, add: true, dbl: true }));
+    const m = new THREE.Mesh(RING_GEO, MT(color || 0xff5020, { basic: true, tr: 0.7, add: true, dbl: true }));
     m.rotation.x = -Math.PI / 2; m.position.set(x, gy + 0.2, z);
     scene.add(m);
     rings.push({ x, z, y: gy, r: 1, max: maxR, speed, dmg, m, hit: false, owner });
@@ -1441,12 +1658,13 @@
         const d = Math.hypot(P.pos.x - q.x, P.pos.z - q.z);
         if (Math.abs(d - q.r) < 1.6 && P.pos.y < q.y + 1.2) { q.hit = true; hurtPlayer(q.dmg, q.x, q.z, 14); }
       }
-      if (q.r >= q.max) { scene.remove(q.m); q.m.geometry.dispose(); rings.splice(i, 1); }
+      if (q.r >= q.max) { scene.remove(q.m); rings.splice(i, 1); }
     }
   }
 
   /* ---------------- projéteis ---------------- */
   const projs = [];
+  const _projLookTgt = new V3();
   function spawnProj(kind, pos, vel, dmg, owner, r, life, grav) {
     let m;
     if (kind === 'rock') m = new THREE.Mesh(BX(0.28, 0.28, 0.28), MT(0x9a9aa0));
@@ -1456,7 +1674,7 @@
     else if (kind === 'fire') m = new THREE.Mesh(BX(0.4, 0.4, 0.4), MT(0xff7a10, { basic: true }));
     else m = new THREE.Mesh(BX(0.5, 0.5, 0.5), MT(0xcc44ff, { basic: true }));
     m.position.copy(pos);
-    if (kind === 'blood' || kind === 'brick') m.lookAt(pos.clone().add(vel));
+    if (kind === 'blood' || kind === 'brick') m.lookAt(_projLookTgt.copy(pos).add(vel));
     scene.add(m);
     projs.push({ kind, m, v: vel.clone(), dmg, owner, r: r || 0.3, life: life || 3, g: grav || 0, parried: false });
   }
@@ -1483,7 +1701,9 @@
         const gy = getGroundY(pp.x, pp.z);
         if (pp.y < gy + 0.1 || pp.y > gy + 45 || pointInWall(pp.x, pp.z, pp.y)) { killProj(i, true); dead = true; break; }
         if (p.owner === 'e') {
-          if (!P.dead && pp.distanceTo(new V3(P.pos.x, P.pos.y + 1.2, P.pos.z)) < p.r + 0.8) {
+          const pdx = pp.x - P.pos.x, pdy = pp.y - (P.pos.y + 1.2), pdz = pp.z - P.pos.z;
+          const pHitR = p.r + 0.8;
+          if (!P.dead && (pdx * pdx + pdy * pdy + pdz * pdz) < pHitR * pHitR) {
             hurtPlayer(p.dmg, pp.x - p.v.x, pp.z - p.v.z, 4);
             killProj(i, true); dead = true; break;
           }
@@ -1505,7 +1725,8 @@
               const hitPart = findHitPart(e, pp, p.r);
               const l = Math.hypot(p.v.x, p.v.z) || 1;
               const knock = p.parried ? 10 : (p.kind === 'boulder' || p.kind === 'brick') ? 8 : (p.kind === 'rock' ? 4 : 1.5);
-              dmgEnemy(e, p.dmg, p.v.x / l, p.v.z / l, { knock, stunBonus: (p.kind === 'boulder' || p.parried) ? 0.55 : 0, part: hitPart, hitPos: pp });
+              const projWeapon = p.parried ? 'parry' : (p.kind === 'brick' ? 'brick' : (p.kind === 'blood' ? 'heart' : 'sling'));
+              dmgEnemy(e, p.dmg, p.v.x / l, p.v.z / l, { knock, stunBonus: (p.kind === 'boulder' || p.parried) ? 0.55 : 0, part: hitPart, hitPos: pp, weapon: projWeapon });
               killProj(i, true); dead = true; break;
             }
           }
@@ -1577,12 +1798,14 @@
         limbSize: sz.clone()
       };
     }
-    const addAppendage = (key, node, hitMesh, hpMult, jDir, speedPenalty) => {
+    const addAppendage = (key, node, hitMesh, hpMult, jDir, speedPenalty, subHitMesh) => {
       if (!node || !hitMesh) return;
       getBoxSize(hitMesh, sz);
       const lHp = Math.max(10, Math.round(hp * hpMult));
+      const hitMeshes = [hitMesh];
+      if (subHitMesh && subHitMesh !== hitMesh) hitMeshes.push(subHitMesh);
       limbs[key] = {
-        node, hitMesh, hp: lHp, maxhp: lHp, severed: false,
+        node, hitMesh, hitMeshes, hp: lHp, maxhp: lHp, severed: false,
         jointLocal: node.position.clone(),
         jointDir: jDir,
         stumpSize: Math.max(0.14, Math.min(sz.x, sz.z) * 0.85),
@@ -1590,29 +1813,51 @@
         speedPenalty
       };
     };
-    addAppendage('armL', R.armL, R.armL && (R.armL.userData.mesh || R.armL), T.boss ? 0.35 : 0.30, new V3(-1, 0.25, 0), 0.14);
-    addAppendage('armR', R.armR, R.armR && (R.armR.userData.mesh || R.armR), T.boss ? 0.35 : 0.30, new V3(1, 0.25, 0), 0.14);
-    addAppendage('legL', R.legL, R.legL && (R.legL.userData.mesh || R.legL), T.boss ? 0.40 : 0.35, new V3(-0.3, -1, 0), 0.28);
-    addAppendage('legR', R.legR, R.legR && (R.legR.userData.mesh || R.legR), T.boss ? 0.40 : 0.35, new V3(0.3, -1, 0), 0.28);
+    addAppendage('armL', R.armL, R.armL && (R.armL.userData.mesh || R.armL), T.boss ? 0.35 : 0.30, new V3(-1, 0.25, 0), 0.14, R.armL && R.armL.userData.subMesh);
+    addAppendage('armR', R.armR, R.armR && (R.armR.userData.mesh || R.armR), T.boss ? 0.35 : 0.30, new V3(1, 0.25, 0), 0.14, R.armR && R.armR.userData.subMesh);
+    addAppendage('legL', R.legL, R.legL && (R.legL.userData.mesh || R.legL), T.boss ? 0.40 : 0.35, new V3(-0.3, -1, 0), 0.28, R.legL && R.legL.userData.subMesh);
+    addAppendage('legR', R.legR, R.legR && (R.legR.userData.mesh || R.legR), T.boss ? 0.40 : 0.35, new V3(0.3, -1, 0), 0.28, R.legR && R.legR.userData.subMesh);
     addAppendage('wingL', R.wingL, R.wingL && (R.wingL.children[0] || R.wingL), 0.28, new V3(-1, 0.4, -0.5), 0.24);
     addAppendage('wingR', R.wingR, R.wingR && (R.wingR.children[0] || R.wingR), 0.28, new V3(1, 0.4, -0.5), 0.24);
     e.limbs = limbs;
   }
 
+  function ensureEnemyLimbMatrices(e) {
+    const t = S.time || 0;
+    if (e._matTime !== t) {
+      e._matTime = t;
+      e.g.updateMatrixWorld(true);
+    }
+  }
+  function getHitMeshInvMat(hm) {
+    const t = S.time || 0;
+    const ud = hm.userData || (hm.userData = {});
+    if (ud._invTime !== t || !ud._invMat) {
+      ud._invTime = t;
+      ud._invMat = (ud._invMat || new THREE.Matrix4()).copy(hm.matrixWorld).invert();
+    }
+    return ud._invMat;
+  }
+
   function findHitPart(e, pt, rad) {
     if (!e.limbs) return 'torso';
-    e.g.updateMatrixWorld(true);
+    ensureEnemyLimbMatrices(e);
     let best = null, bestD = Infinity, headD = Infinity;
     const thr = (rad || 0.3) + 0.16;
     for (const name of PART_ORDER) {
       const L = e.limbs[name];
-      if (!L || L.severed || !L.hitMesh || !L.hitMesh.geometry) continue;
-      if (!L.hitMesh.geometry.boundingBox) L.hitMesh.geometry.computeBoundingBox();
-      _invMat.copy(L.hitMesh.matrixWorld).invert();
-      _localPt.copy(pt).applyMatrix4(_invMat);
-      const d = L.hitMesh.geometry.boundingBox.distanceToPoint(_localPt);
-      if (name === 'head') headD = d;
-      if (d <= thr && d < bestD) { bestD = d; best = name; }
+      if (!L || L.severed) continue;
+      const ms = L.hitMeshes || (L.hitMesh ? [L.hitMesh] : null);
+      if (!ms) continue;
+      for (let mi = 0; mi < ms.length; mi++) {
+        const hm = ms[mi];
+        if (!hm || !hm.geometry) continue;
+        if (!hm.geometry.boundingBox) hm.geometry.computeBoundingBox();
+        _localPt.copy(pt).applyMatrix4(getHitMeshInvMat(hm));
+        const d = hm.geometry.boundingBox.distanceToPoint(_localPt);
+        if (name === 'head' && d < headD) headD = d;
+        if (d <= thr && d < bestD) { bestD = d; best = name; }
+      }
     }
     if (headD <= thr + 0.06 && headD <= bestD + 0.12) return 'head';
     return best || 'torso';
@@ -1623,7 +1868,7 @@
     const strict = !!(opts && opts.strict);
     const returnInfo = !!(opts && opts.returnInfo);
     if (!e.limbs) return strict ? null : (returnInfo ? { part: 'torso', dist: origin.distanceTo(e.g.position), point: e.g.position.clone() } : 'torso');
-    e.g.updateMatrixWorld(true);
+    ensureEnemyLimbMatrices(e);
     _hitRay.set(origin, dir);
     const p = pad == null ? 0.16 : pad;
     const headBias = (opts && opts.headBias != null) ? opts.headBias : (strict ? 0 : 0.25);
@@ -1631,16 +1876,21 @@
     let headPt = null;
     for (const name of PART_ORDER) {
       const L = e.limbs[name];
-      if (!L || L.severed || !L.hitMesh || !L.hitMesh.geometry) continue;
-      if (!L.hitMesh.geometry.boundingBox) L.hitMesh.geometry.computeBoundingBox();
-      _tmpBox.copy(L.hitMesh.geometry.boundingBox).expandByScalar(p);
-      _invMat.copy(L.hitMesh.matrixWorld).invert();
-      _localRay.copy(_hitRay).applyMatrix4(_invMat);
-      if (_localRay.intersectBox(_tmpBox, _hitPt)) {
-        _hitPt.applyMatrix4(L.hitMesh.matrixWorld);
-        const d = origin.distanceTo(_hitPt);
-        if (name === 'head') { headDist = d; headPt = _hitPt.clone(); }
-        if (d < bestDist) { bestDist = d; best = name; _bestHitPt.copy(_hitPt); }
+      if (!L || L.severed) continue;
+      const ms = L.hitMeshes || (L.hitMesh ? [L.hitMesh] : null);
+      if (!ms) continue;
+      for (let mi = 0; mi < ms.length; mi++) {
+        const hm = ms[mi];
+        if (!hm || !hm.geometry) continue;
+        if (!hm.geometry.boundingBox) hm.geometry.computeBoundingBox();
+        _tmpBox.copy(hm.geometry.boundingBox).expandByScalar(p);
+        _localRay.copy(_hitRay).applyMatrix4(getHitMeshInvMat(hm));
+        if (_localRay.intersectBox(_tmpBox, _hitPt)) {
+          _hitPt.applyMatrix4(hm.matrixWorld);
+          const d = origin.distanceTo(_hitPt);
+          if (name === 'head' && d < headDist) { headDist = d; headPt = _hitPt.clone(); }
+          if (d < bestDist) { bestDist = d; best = name; _bestHitPt.copy(_hitPt); }
+        }
       }
     }
     if (headBias > 0 && headDist < Infinity && headDist <= bestDist + headBias) {
@@ -1839,11 +2089,13 @@
     stump.position.copy(L.jointLocal);
     stump.userData.om = stump.material;
     e.g.add(stump);
+    if (e.meshes) e.meshes.push(stump);
     if (partName === 'head') {
       const neckBone = new THREE.Mesh(BX(s * 0.48, s * 0.65, s * 0.48), MT(0xe8dcc8, { basic: false }));
       neckBone.position.set(L.jointLocal.x, L.jointLocal.y + s * 0.28, L.jointLocal.z - s * 0.08);
       neckBone.userData.om = neckBone.material;
       e.g.add(neckBone);
+      if (e.meshes) e.meshes.push(neckBone);
     }
 
     // Jato inicial forte na junção
@@ -1855,7 +2107,10 @@
       e.severedCount = (e.severedCount || 0) + 1;
       e.limbSpeedMul = Math.max(0.30, (e.limbSpeedMul || 1) - (L.speedPenalty || 0.18));
       e.bleedJoints.push({ localPos: L.jointLocal.clone(), localDir: L.jointDir.clone(), cd: 0.05 });
-      S.style = Math.min(420, S.style + 12);
+      addStyle(15);
+      const limbBasePerUnit = 840 / Math.max(1, S.levelBloodExpected || 1);
+      const limbW = enemyBloodWeight(e);
+      if (limbW > 0) addBloodLiters(limbBasePerUnit * limbW * 0.12 * (WEAPON_BLOOD[e._lastHitWeapon] || 1.0));
 
       if (e.T.flying && !e.wingsLost && e.limbs.wingL && e.limbs.wingL.severed && e.limbs.wingR && e.limbs.wingR.severed) {
         e.wingsLost = true;
@@ -1880,6 +2135,9 @@
     m.position.set(x || 0, y || 0, z || 0);
     m.userData.om = m.material;
     parent.add(m);
+    let root = parent;
+    while (root.parent && root.parent !== scene) root = root.parent;
+    if (root.userData && root.userData._eMeshes) root.userData._eMeshes.push(m);
     return m;
   }
 
@@ -2201,7 +2459,11 @@
       limbSpeedMul: 1, severedCount: 0, bleedJoints: [], crushCd: 0,
       wingsLost: false, crawling: false, crawlT: 0, fallVel: 0
     };
-    g.traverse(o => { if (o.isMesh && !o.userData.isShadow) o.userData.om = o.material; });
+    g.userData._cullSphere = { lx: 0, ly: rig.h * 0.5, lz: 0, r: Math.max(T.r, rig.h * 0.5) + 1.0 };
+    const eMeshes = [];
+    g.traverse(o => { if (o.isMesh && !o.userData.isShadow) { o.userData.om = o.material; eMeshes.push(o); } });
+    g.userData._eMeshes = eMeshes;
+    e.meshes = eMeshes;
     initEnemyLimbs(e);
     e.shadow = addBlobShadow(g, T.r);
     enemies.push(e);
@@ -2214,15 +2476,27 @@
   ];
   function setFlash(e, on) {
     e.flashing = on;
+    const gm = e.glory ? GLORY_MATS[e.gloryMatIdx || 0] : null;
+    if (e.meshes) {
+      for (let i = 0; i < e.meshes.length; i++) {
+        const o = e.meshes[i];
+        o.material = on ? FLASH : (gm || o.userData.om);
+      }
+      return;
+    }
     e.g.traverse(o => {
       if (o.isMesh && !o.userData.isShadow) {
-        o.material = on ? FLASH : (e.glory ? GLORY_MATS[e.gloryMatIdx || 0] : o.userData.om);
+        o.material = on ? FLASH : (gm || o.userData.om);
       }
     });
   }
   function setGloryGlow(e, intensity) {
     if (intensity <= 0) {
       e.gloryMatIdx = -1;
+      if (e.meshes && !e.flashing) {
+        for (let i = 0; i < e.meshes.length; i++) e.meshes[i].material = e.meshes[i].userData.om;
+        return;
+      }
       e.g.traverse(o => {
         if (o.isMesh && !o.userData.isShadow && !e.flashing) o.material = o.userData.om;
       });
@@ -2232,6 +2506,10 @@
     if (e.gloryMatIdx === idx && !e.flashing) return;
     e.gloryMatIdx = idx;
     const gm = GLORY_MATS[idx];
+    if (e.meshes && !e.flashing) {
+      for (let i = 0; i < e.meshes.length; i++) e.meshes[i].material = gm;
+      return;
+    }
     e.g.traverse(o => {
       if (o.isMesh && !o.userData.isShadow && !e.flashing) o.material = gm;
     });
@@ -2254,10 +2532,10 @@
     setGloryGlow(e, 0.85);
   }
   const gloryQueue = [];
-  function queueGloryCandidate(e, kx, kz) {
+  function queueGloryCandidate(e, kx, kz, weapon) {
     if (e._gloryPending || e.dead) return;
     e._gloryPending = true;
-    gloryQueue.push({ e, kx, kz });
+    gloryQueue.push({ e, kx, kz, weapon });
   }
   function flushGloryQueue() {
     if (!gloryQueue.length) return;
@@ -2274,11 +2552,11 @@
     }
     const winner = lowest.length ? lowest[(Math.random() * lowest.length) | 0].e : null;
     for (const item of gloryQueue) {
-      const { e, kx, kz } = item;
+      const { e, kx, kz, weapon } = item;
       e._gloryPending = false;
       if (e.dead || !enemies.includes(e)) continue;
       if (e === winner) enterGloryState(e, kx, kz);
-      else killEnemy(e, kx, kz);
+      else killEnemy(e, kx, kz, { weapon });
     }
     gloryQueue.length = 0;
   }
@@ -2381,20 +2659,25 @@
     const dx = P.pos.x - sx, dz = P.pos.z - sz, l = Math.hypot(dx, dz) || 1;
     P.vel.x += dx / l * (kb || 5); P.vel.z += dz / l * (kb || 5);
     SFX.play('hurt');
-    S.style = Math.max(0, S.style - 25);
+    S.style = Math.max(0, S.style - 30);
+    if (S.style <= 0) { S.styleT = 0; S.lastStyleRankIdx = -1; }
+    S.hitCombo = 0;
+    S.hitComboT = 0;
     if (P.hp <= 0) { P.hp = 0; die(); }
   }
 
   function dmgEnemy(e, amt, kx, kz, o) {
     if (e.dead || e.downed || e.kicked || e._gloryPending || e.galiusIntro || e.maximusIntro || e.invuln) return false;
     o = o || {};
+    const weapId = o.weapon || (WEAPONS[curW] ? WEAPONS[curW].id : 'fists');
+    e._lastHitWeapon = weapId;
     if (e.glory) {
       if (e.gloryGrace > 0) return true;
       e.glory = false;
       setGloryGlow(e, 0);
       e.flash = 0.06;
       SFX.play('hit', o.hitSfx || 'general');
-      killEnemy(e, kx, kz);
+      killEnemy(e, kx, kz, { weapon: weapId });
       return true;
     }
     const T = e.T;
@@ -2440,6 +2723,8 @@
     else if (o.stunBonus) e.stun = Math.max(e.stun, o.stunBonus * 0.5);
     S.hitMark = 0.12;
     SFX.play('hit', o.hitSfx || 'general');
+    registerStyleHit(weapId, part, isHead ? 10 : 5);
+    awardEnemyHitBlood(e, a, weapId, part);
     const spurtN = Math.min(22, 6 + ((a / 8) | 0));
     const hp = o.hitPos;
     const sx = hp ? hp.x : c.x, sy = hp ? hp.y : (c.y + e.h * 0.6), sz = hp ? hp.z : c.z;
@@ -2469,8 +2754,8 @@
         say('Galius caiu! Arranque o Coração Ateu!', 'NIVALDO', 4);
         return true;
       }
-      S.style = Math.min(420, S.style + 15);
-      killEnemy(e, kx, kz, { decapitated: true });
+      addStyle(18);
+      killEnemy(e, kx, kz, { decapitated: true, weapon: weapId });
       return true;
     }
 
@@ -2509,14 +2794,14 @@
           return true;
         }
         if (e.phase === 2) {
-          killEnemy(e, kx, kz);
+          killEnemy(e, kx, kz, { weapon: weapId });
         }
       }
       return true;
     }
     if (e.hp <= 0 && !T.immortal) {
-      if (!T.boss && !T.galius2 && !e.grabbed) queueGloryCandidate(e, kx, kz);
-      else killEnemy(e, kx, kz);
+      if (!T.boss && !T.galius2 && !e.grabbed) queueGloryCandidate(e, kx, kz, weapId);
+      else killEnemy(e, kx, kz, { weapon: weapId });
     }
     return true;
   }
@@ -2539,8 +2824,10 @@
     g.rotation.y = yaw;
     const inRender = World.isPosInRender(x, z);
     g.visible = inRender;
+    g.userData._cullSphere = { lx: 0, ly: rig.h * 0.5, lz: 0, r: Math.max(0.55, rig.h * 0.5) + 0.85 };
     scene.add(g);
-    g.traverse(o => { if (o.isMesh && !o.userData.isShadow) o.userData.om = o.material; });
+    const pMeshes = [];
+    g.traverse(o => { if (o.isMesh && !o.userData.isShadow) { o.userData.om = o.material; pMeshes.push(o); } });
 
     let labelEl = null;
     const labelBox = $('peasantLabels');
@@ -2559,7 +2846,7 @@
       orbitDir: Math.random() < 0.5 ? 1 : -1,
       kv: new V3(), flash: 0, flashing: false, anim: rnd(0, 6),
       beingChased: false, thankT: 0, thankText: '', waveT: 0, screamCd: rnd(0.5, 2.5),
-      dead: false, ragdoll: null, labelEl
+      dead: false, ragdoll: null, labelEl, meshes: pMeshes
     };
     p.shadow = addBlobShadow(g, 0.55);
     peasants.push(p);
@@ -2668,7 +2955,7 @@
         p.savedYaw = p.yaw;
         if (p.flashing) {
           p.flashing = false;
-          p.g.traverse(o => { if (o.isMesh && o.userData.om) o.material = o.userData.om; });
+          if (p.meshes) { for (let i = 0; i < p.meshes.length; i++) p.meshes[i].material = p.meshes[i].userData.om; }
         }
         p.g.visible = false;
         if (p.labelEl) p.labelEl.classList.add('hidden');
@@ -2697,10 +2984,13 @@
     }
     if (p.flash > 0) {
       p.flash -= dt;
-      if (!p.flashing) { p.flashing = true; p.g.traverse(o => { if (o.isMesh && !o.userData.isShadow) o.material = FLASH; }); }
+      if (!p.flashing) {
+        p.flashing = true;
+        if (p.meshes) { for (let i = 0; i < p.meshes.length; i++) p.meshes[i].material = FLASH; }
+      }
     } else if (p.flashing) {
       p.flashing = false;
-      p.g.traverse(o => { if (o.isMesh && !o.userData.isShadow && o.userData.om) o.material = o.userData.om; });
+      if (p.meshes) { for (let i = 0; i < p.meshes.length; i++) p.meshes[i].material = p.meshes[i].userData.om; }
     }
 
     if (p.ragdoll) {
@@ -2714,8 +3004,12 @@
         p.g.rotation.z += r.rvz * dt;
         if (R.armL) R.armL.rotation.x = Math.sin(p.anim * 22) * 1.4 - 1.2;
         if (R.armR) R.armR.rotation.x = Math.cos(p.anim * 22) * 1.4 - 1.2;
+        if (R.forearmL) R.forearmL.rotation.x = -0.65 - Math.abs(Math.cos(p.anim * 22)) * 0.75;
+        if (R.forearmR) R.forearmR.rotation.x = -0.65 - Math.abs(Math.sin(p.anim * 22)) * 0.75;
         if (R.legL) R.legL.rotation.x = Math.sin(p.anim * 20) * 1.1;
         if (R.legR) R.legR.rotation.x = -Math.sin(p.anim * 20) * 1.1;
+        if (R.kneeL) R.kneeL.rotation.x = 0.45 + Math.abs(Math.cos(p.anim * 20)) * 0.85;
+        if (R.kneeR) R.kneeR.rotation.x = 0.45 + Math.abs(Math.sin(p.anim * 20)) * 0.85;
         if (pointInWall(pos.x, pos.z, pos.y)) {
           resolveCircle(pos, p.r);
           r.vx *= -0.55; r.vz *= -0.55;
@@ -2770,15 +3064,24 @@
       resolveCircle(pos, p.r);
     }
 
-    // Verifica se algum inimigo está perseguindo este camponês
-    let chaser = null, bestD = 24;
-    for (let i = 0; i < enemies.length; i++) {
-      const e = enemies[i];
-      if (e.dead || e.downed || e.T.boss || !e.inRender) continue;
-      if (e.targetPeasant === p || Math.hypot(e.g.position.x - pos.x, e.g.position.z - pos.z) < 12) {
-        const d = Math.hypot(e.g.position.x - pos.x, e.g.position.z - pos.z);
-        if (d < bestD) { bestD = d; chaser = e; }
+    // Verifica se algum inimigo está perseguindo este camponês (cacheado por 0.16s)
+    p._chaserScanCd = (p._chaserScanCd || 0) - dt;
+    let chaser = p._cachedChaser;
+    if (p._chaserScanCd <= 0 || (chaser && (chaser.dead || chaser.downed || !chaser.inRender))) {
+      p._chaserScanCd = 0.16;
+      chaser = null;
+      let bestD2 = 24 * 24;
+      for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e.dead || e.downed || e.T.boss || !e.inRender) continue;
+        const dx = e.g.position.x - pos.x, dz = e.g.position.z - pos.z;
+        const d2 = dx * dx + dz * dz;
+        if ((e.targetPeasant === p || d2 < 12 * 12) && d2 < bestD2) {
+          bestD2 = d2;
+          chaser = e;
+        }
       }
+      p._cachedChaser = chaser;
     }
     p.beingChased = !!chaser;
 
@@ -2858,20 +3161,31 @@
     p.savedYaw = p.yaw;
 
     const moving = ml > 0.01;
-    const sw = moving ? Math.sin(p.anim * spd * 2.6) * 0.65 : 0;
-    if (R.legL) { R.legL.rotation.x = sw; R.legR.rotation.x = -sw; }
+    const pPh = p.anim * spd * 2.6;
+    const sw = moving ? Math.sin(pPh) * 0.65 : 0;
+    if (R.legL) {
+      R.legL.rotation.x = sw; R.legR.rotation.x = -sw;
+      if (R.kneeL) R.kneeL.rotation.x = moving ? Math.max(0.06, -Math.cos(pPh) * 0.82) : 0.06;
+      if (R.kneeR) R.kneeR.rotation.x = moving ? Math.max(0.06, Math.cos(pPh) * 0.82) : 0.06;
+    }
     if (R.armL && R.armR) {
       if (p.beingChased) {
-        R.armL.rotation.x = -2.45 + Math.sin(p.anim * 15) * 0.42;
-        R.armR.rotation.x = -2.45 - Math.sin(p.anim * 15) * 0.42;
+        R.armL.rotation.x = -2.35 + Math.sin(p.anim * 15) * 0.42;
+        R.armR.rotation.x = -2.35 - Math.sin(p.anim * 15) * 0.42;
+        if (R.forearmL) R.forearmL.rotation.x = -0.85 + Math.cos(p.anim * 15) * 0.35;
+        if (R.forearmR) R.forearmR.rotation.x = -0.85 - Math.cos(p.anim * 15) * 0.35;
         if (R.head) R.head.rotation.y = Math.sin(p.anim * 11) * 0.25;
       } else if (p.thankT > 0) {
         R.armL.rotation.x = -sw * 0.5;
-        R.armR.rotation.x = -2.4 + Math.sin(p.anim * 12) * 0.38;
+        R.armR.rotation.x = -2.1 + Math.sin(p.anim * 12) * 0.28;
+        if (R.forearmL) R.forearmL.rotation.x = -0.32;
+        if (R.forearmR) R.forearmR.rotation.x = -0.85 + Math.sin(p.anim * 12 + 0.6) * 0.48;
         if (R.head) R.head.rotation.y = 0;
       } else {
         R.armL.rotation.x = -sw * 0.55;
         R.armR.rotation.x = sw * 0.55;
+        if (R.forearmL) R.forearmL.rotation.x = -0.30 - Math.max(0, sw) * 0.35;
+        if (R.forearmR) R.forearmR.rotation.x = -0.30 - Math.max(0, -sw) * 0.35;
         if (R.head) R.head.rotation.y = Math.sin(p.anim * 1.6) * 0.14;
       }
     }
@@ -2916,7 +3230,8 @@
     if (T.model === 'maximus') {
       S.kills++;
       S.levelKills = (S.levelKills || 0) + 1;
-      S.style = Math.min(420, S.style + T.pts * 0.7 + 8);
+      addStyle(T.pts * 0.8 + 18);
+      registerStyleKill(e, ko);
       if (P.faithMode <= 0) addFaith(T.faith);
       if (WEAPONS[6].owned) P.blood = Math.min(AMMO_MAX.blood, P.blood + T.blood);
       S.maximusCorpse = e;
@@ -2936,7 +3251,8 @@
     burst(c.x, c.y + e.h * 0.7, c.z, 0xffcc40, 3, 6, 0.5, 0.15, 10);
     S.kills++;
     S.levelKills = (S.levelKills || 0) + 1;
-    S.style = Math.min(420, S.style + T.pts * 0.7 + 8);
+    addStyle(T.pts * 0.8 + 12);
+    registerStyleKill(e, ko);
     if (P.faithMode <= 0) addFaith(T.faith);
     if (WEAPONS[6].owned) P.blood = Math.min(AMMO_MAX.blood, P.blood + T.blood);
     quip();
@@ -3726,14 +4042,15 @@
     else if (e.flashing) setFlash(e, false);
     if (e.recover > 0) e.recover -= dt;
 
-    // Sangramento contínuo nas junções de membros arrancados
+    // Sangramento contínuo nas junções de membros arrancados (só recalcula matriz quando um jato vai disparar)
     if (bleedJointsEnabled && goreQualityMul > 0 && e.bleedJoints && e.bleedJoints.length > 0 && !e.dead) {
-      g.updateMatrixWorld(true);
+      let matUpdated = false;
       for (let i = 0; i < e.bleedJoints.length; i++) {
         const bj = e.bleedJoints[i];
         bj.cd -= dt;
         if (bj.cd <= 0) {
           bj.cd = rnd(0.07, 0.15);
+          if (!matUpdated) { g.updateMatrixWorld(true); matUpdated = true; }
           _tmpV.copy(bj.localPos).applyMatrix4(g.matrixWorld);
           const wx = _tmpV.x, wy = _tmpV.y, wz = _tmpV.z;
           _partCenter.copy(bj.localDir).applyAxisAngle(_localPt.set(0, 1, 0), e.yaw);
@@ -3780,7 +4097,7 @@
         const md = e.r + o.r + 0.5;
         if (Math.abs(ox) < md && Math.abs(oz) < md && Math.hypot(ox, oz) < md && Math.abs(o.g.position.y - pos.y) < e.h + 1.5) {
           const l = Math.hypot(e.kickVel.x, e.kickVel.z) || 1;
-          dmgEnemy(o, 55, e.kickVel.x / l, e.kickVel.z / l, { knock: 14, stunBonus: 0.6 });
+          dmgEnemy(o, 55, e.kickVel.x / l, e.kickVel.z / l, { knock: 14, stunBonus: 0.6, weapon: 'kick' });
         }
       }
       const wallHit = pointInWall(pos.x, pos.z, pos.y + (e.h || 2.5) * 0.5);
@@ -3791,7 +4108,7 @@
       if (e.kickT <= 0 || wallHit || (groundHit && e.kickT < 1.05)) {
         e.kicked = false;
         SFX.play('boom');
-        killEnemy(e, e.kickVel.x, e.kickVel.z);
+        killEnemy(e, e.kickVel.x, e.kickVel.z, { weapon: 'kick' });
         return;
       }
       e.savedPos.copy(pos);
@@ -3845,18 +4162,23 @@
         // Quando já foi atingido por Nivaldo ou está dentro do raio de 5m: persegue o Nivaldo
         e.targetPeasant = null;
       } else {
-        // Fora do raio de 5m do Nivaldo: persegue o camponês mais próximo
-        let bestP = null, bestPD = Infinity;
-        for (let i = 0; i < peasants.length; i++) {
-          const cp = peasants[i];
-          if (cp.dead || !cp.inRender) continue;
-          const d = Math.hypot(cp.g.position.x - pos.x, cp.g.position.z - pos.z);
-          if (d < bestPD) { bestPD = d; bestP = cp; }
-        }
-        e.targetPeasant = bestP;
-        if (bestP && bestPD < 28) {
-          e.lastPeasant = bestP;
-          e.lastPeasantT = 8.0;
+        // Fora do raio de 5m do Nivaldo: persegue o camponês mais próximo (cacheado por 0.18s)
+        e._peasantScanCd = (e._peasantScanCd || 0) - dt;
+        if (e._peasantScanCd <= 0 || (e.targetPeasant && (e.targetPeasant.dead || !e.targetPeasant.inRender))) {
+          e._peasantScanCd = 0.18;
+          let bestP = null, bestPD2 = Infinity;
+          for (let i = 0; i < peasants.length; i++) {
+            const cp = peasants[i];
+            if (cp.dead || !cp.inRender) continue;
+            const px = cp.g.position.x - pos.x, pz = cp.g.position.z - pos.z;
+            const d2 = px * px + pz * pz;
+            if (d2 < bestPD2) { bestPD2 = d2; bestP = cp; }
+          }
+          e.targetPeasant = bestP;
+          if (bestP && bestPD2 < 28 * 28) {
+            e.lastPeasant = bestP;
+            e.lastPeasantT = 8.0;
+          }
         }
       }
     }
@@ -3885,19 +4207,27 @@
       return;
     }
 
-    if (e.kv.lengthSq() > 0.01) {
-      pos.x += e.kv.x * dt; pos.z += e.kv.z * dt;
-      e.kv.multiplyScalar(Math.max(0, 1 - dt * 5));
-      resolveCircle(pos, e.r);
-    }
     if (e.downed) {
-      pos.y += (-2.3 - pos.y) * Math.min(1, dt * 3);
+      e.kv.set(0, 0, 0);
+      if (!S.rip) {
+        const gy = groundAt(pos.x, pos.z, pos.y + 3.0, e.r);
+        const targetDownY = gy - (T.model === 'galius' ? 5.20 : 2.3);
+        pos.y += (targetDownY - pos.y) * Math.min(1, dt * (T.model === 'galius' ? 8 : 3));
+      }
       e.savedPos.copy(pos);
       e.savedYaw = e.yaw;
       animEnemy(e, dt, false);
       return;
     }
-    if (e.kneel) pos.y += (-1.6 - pos.y) * Math.min(1, dt * 3);
+    if (e.kv.lengthSq() > 0.01) {
+      pos.x += e.kv.x * dt; pos.z += e.kv.z * dt;
+      e.kv.multiplyScalar(Math.max(0, 1 - dt * 5));
+      resolveCircle(pos, e.r);
+    }
+    if (e.kneel) {
+      const gy = groundAt(pos.x, pos.z, pos.y + 3.0, e.r);
+      pos.y += ((gy - (T.model === 'galius' ? 2.6 : 1.6)) - pos.y) * Math.min(1, dt * 3);
+    }
     if (e.stun > 0) {
       e.stun -= dt;
       updateEnemyVertical(e, pos, dt, dist);
@@ -4108,11 +4438,22 @@
 
   function animEnemy(e, dt, moving) {
     const R = e.rig, a = e.anim, T = e.T;
+    if (e.crawling && e.crawlT < 1) e.crawlT = Math.min(1, (e.crawlT || 0) + dt * 6);
+    if (!T.boss && !e.grabbed && !e.glory && !e.downed) {
+      if (!e.g.visible) return;
+      const dx = e.g.position.x - P.pos.x, dz = e.g.position.z - P.pos.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > 24 * 24) {
+        const stride = d2 > 38 * 38 ? 3 : 2;
+        e._animSkip = ((e._animSkip || 0) + 1) % stride;
+        if (e._animSkip !== 0) return;
+      }
+    }
     const limbMul = e.limbSpeedMul || 1;
-    const sw = moving ? Math.sin(a * T.speed * limbMul * 2.2) * 0.7 : 0;
+    const stepPh = a * T.speed * limbMul * 2.2;
+    const sw = moving ? Math.sin(stepPh) * 0.7 : 0;
     const legLOff = e.limbs && e.limbs.legL && e.limbs.legL.severed;
     const legROff = e.limbs && e.limbs.legR && e.limbs.legR.severed;
-    if (e.crawling && e.crawlT < 1) e.crawlT = Math.min(1, (e.crawlT || 0) + dt * 6);
     if (e.crawling && !e.downed) {
       e.g.rotation.z = moving ? Math.sin(a * 5.5) * 0.14 : 0;
     } else if (T.model === 'galius' && !e.downed && !e.galiusIntro && e.state !== 'galiusBite') {
@@ -4124,6 +4465,9 @@
         R.torso.rotation.y = moving ? Math.sin(wad) * 0.10 : 0;
         R.torso.rotation.x = moving ? 0.08 + Math.abs(Math.sin(wad)) * 0.05 : 0.04;
       }
+    } else if (T.model === 'galius' && e.downed && !(e.ripDeform > 0)) {
+      e.g.rotation.z = 0;
+      if (R.torso) R.torso.rotation.set(0.06, 0, 0);
     } else if (legLOff !== legROff && !e.downed) {
       e.g.rotation.z = (legLOff ? 0.14 : -0.14) + (moving ? Math.sin(a * T.speed * limbMul * 2.2) * 0.08 : 0);
     } else if (e.g.rotation.z !== 0) {
@@ -4134,35 +4478,62 @@
     const windP = winding ? clamp(1 - e.st / wt, 0, 1) : 0;
     const strikeT = e.recover > 0 ? e.recover / 0.35 : 0;
     if (R.legL && !e.downed) {
+      const flyingAir = T.flying && !e.wingsLost && !e.kneel;
       if (T.model === 'galius' && !e.galiusIntro) {
-        const gsw = moving ? Math.sin(a * 4.2) * 0.50 : 0;
-        R.legL.rotation.x = e.kneel ? -1.4 : gsw;
-        R.legR.rotation.x = e.kneel ? -1.4 : -gsw;
+        const gPh = a * 4.2;
+        const gsw = moving ? Math.sin(gPh) * 0.50 : 0;
+        R.legL.rotation.x = e.kneel ? 1.35 : gsw;
+        R.legR.rotation.x = e.kneel ? 1.35 : -gsw;
+        if (R.kneeL) R.kneeL.rotation.x = e.kneel ? 0.55 : (moving ? Math.max(0.10, -Math.cos(gPh) * 0.65) : 0.10);
+        if (R.kneeR) R.kneeR.rotation.x = e.kneel ? 0.55 : (moving ? Math.max(0.10, Math.cos(gPh) * 0.65) : 0.10);
+      } else if (flyingAir) {
+        const fBob = Math.sin(a * 5.2) * 0.14;
+        R.legL.rotation.x = -0.35 + fBob;
+        R.legR.rotation.x = -0.25 - fBob;
+        if (R.kneeL) R.kneeL.rotation.x = 0.78 - fBob * 0.6;
+        if (R.kneeR) R.kneeR.rotation.x = 0.68 + fBob * 0.6;
       } else {
-        R.legL.rotation.x = e.kneel ? -1.4 : sw;
-        R.legR.rotation.x = e.kneel ? -1.4 : -sw;
+        R.legL.rotation.x = e.kneel ? -1.35 : sw;
+        R.legR.rotation.x = e.kneel ? -1.35 : -sw;
+        if (R.kneeL) R.kneeL.rotation.x = e.kneel ? 2.05 : (moving ? Math.max(0.08, -Math.cos(stepPh) * 0.85) : 0.08);
+        if (R.kneeR) R.kneeR.rotation.x = e.kneel ? 2.05 : (moving ? Math.max(0.08, Math.cos(stepPh) * 0.85) : 0.08);
       }
+    } else if (R.legL && e.downed && T.model === 'galius') {
+      R.legL.rotation.x = 1.35;
+      R.legR.rotation.x = 1.35;
+      if (R.kneeL) R.kneeL.rotation.x = 0.55;
+      if (R.kneeR) R.kneeR.rotation.x = 0.55;
     }
     if (e.crawling && !e.downed) {
       if (R.armL && R.armR) {
         if (e.state === 'stompWind') {
           R.armL.rotation.x = -2.9 * windP; R.armR.rotation.x = -2.9 * windP;
+          if (R.forearmL) R.forearmL.rotation.x = -0.85 * windP;
+          if (R.forearmR) R.forearmR.rotation.x = -0.85 * windP;
         } else {
           const crawlArm = moving ? Math.sin(a * 5.5) * 0.65 : 0;
           R.armL.rotation.x = -1.75 + crawlArm;
           R.armR.rotation.x = -1.75 - crawlArm - windP * 1.4 + (strikeT > 0 ? 1.1 * (1 - strikeT) : 0);
+          if (R.forearmL) R.forearmL.rotation.x = -0.55 - Math.max(0, -crawlArm) * 0.55;
+          if (R.forearmR) R.forearmR.rotation.x = -0.55 - Math.max(0, crawlArm) * 0.55 - windP * 0.4;
         }
       }
       if (R.head) R.head.rotation.x = -0.85;
     } else if (T.model === 'galius' && R.armL && R.armR) {
       const mix = (x, y, t) => x + (y - x) * t;
+      const setGF = (lx, rx) => {
+        if (R.forearmL) R.forearmL.rotation.set(lx, 0, 0);
+        if (R.forearmR) R.forearmR.rotation.set(rx, 0, 0);
+      };
       if (e.galiusIntro === 'burst') {
         R.armL.rotation.set(-1.35, 0, 0.45);
         R.armR.rotation.set(-1.35, 0, -0.45);
+        setGF(-0.75, -0.75);
         if (R.head) R.head.rotation.x = -0.15;
       } else if (e.galiusIntro === 'walk') {
         R.armL.rotation.set(-sw * 0.65, 0, 0.14);
         R.armR.rotation.set(sw * 0.65, 0, -0.14);
+        setGF(-0.32 - Math.max(0, sw) * 0.25, -0.32 - Math.max(0, -sw) * 0.25);
         if (R.head) R.head.rotation.x = 0.08;
       } else if (e.galiusIntro === 'grab') {
         const p = clamp((e.galiusIntroT || 0) / 0.78, 0, 1);
@@ -4170,10 +4541,12 @@
           const k = p / 0.6;
           R.armL.rotation.set(mix(0, -1.7, k), 0, mix(0.14, 0.45, k));
           R.armR.rotation.set(mix(0, -1.7, k), 0, mix(-0.14, -0.35, k));
+          setGF(mix(-0.3, -0.55, k), mix(-0.3, -0.55, k));
         } else {
           const k = (p - 0.6) / 0.4;
           R.armL.rotation.set(mix(-1.7, -1.12, k), 0, mix(0.45, 0.52, k));
           R.armR.rotation.set(mix(-1.7, -1.12, k), 0, mix(-0.35, -0.36, k));
+          setGF(mix(-0.55, -0.35, k), mix(-0.55, -0.28, k));
           if (R.weapon) R.weapon.rotation.z = mix(-0.3, -1.21, k);
         }
       } else if (e.galiusIntro === 'roar') {
@@ -4181,13 +4554,16 @@
         const shake = Math.sin((e.galiusIntroT || 0) * 32) * 0.06;
         R.armL.rotation.set(mix(-1.12, -2.35, p) + shake, 0, mix(0.52, -0.48, p));
         R.armR.rotation.set(mix(-1.12, -2.45, p) - shake, 0, mix(-0.36, 0.38, p));
+        setGF(mix(-0.35, -0.65, p), mix(-0.28, -0.45, p));
         if (R.weapon) R.weapon.rotation.z = mix(-1.21, 0.12, p);
         if (R.head) R.head.rotation.x = mix(0, -0.42, p) + shake * 0.5;
       } else if (e.downed) {
-        R.armL.rotation.set(0.4, 0, 0.15);
-        R.armR.rotation.set(0.4, 0, -0.15);
-        if (R.weapon) R.weapon.rotation.z = -0.4;
-        if (R.head) R.head.rotation.x = 0.5;
+        R.armL.rotation.set(0.35, 0, 0.35);
+        R.armR.rotation.set(0.35, 0, -0.35);
+        setGF(-0.35, -0.35);
+        if (R.weapon) R.weapon.rotation.z = -0.35;
+        if (R.head && !(e.ripDeform > 0)) R.head.rotation.set(0.24, 0, 0);
+        if (R.jaw) R.jaw.rotation.x = 0.32;
       } else if (e.state === 'galiusBite') {
         const bt = e.biteT || 0;
         if (e.bitePhase === 'throw') {
@@ -4195,10 +4571,12 @@
           if (bt < 0.14) {
             const k = bt / 0.14;
             R.armL.rotation.set(mix(-2.05, -2.85, k), mix(0.45, 0.1, k), mix(-0.32, 0.25, k));
+            setGF(mix(-0.95, -0.55, k), -0.35);
             if (R.torso) R.torso.rotation.set(mix(0.05, -0.18, k), mix(0, -0.22, k), 0);
           } else {
             const k = clamp((bt - 0.14) / 0.22, 0, 1);
             R.armL.rotation.set(mix(-2.85, -0.55, k), mix(0.1, -0.15, k), mix(0.25, 0.15, k));
+            setGF(mix(-0.55, -0.18, k), -0.35);
             if (R.torso) R.torso.rotation.set(mix(-0.18, 0.32, k), mix(-0.22, 0.28, k), 0);
           }
           R.armR.rotation.set(-0.95, -0.18, -0.45);
@@ -4208,20 +4586,26 @@
           // 1a. Galius se abaixa e estica a mão esquerda até o Nivaldo no chão
           const k = clamp(bt / 0.35, 0, 1);
           if (R.torso) R.torso.rotation.set(mix(0.04, 0.54, k), mix(0, 0.18, k), 0);
-          if (R.legL) R.legL.rotation.x = mix(0, -0.36, k);
-          if (R.legR) R.legR.rotation.x = mix(0, -0.36, k);
+          if (R.legL) R.legL.rotation.x = mix(0, -0.42, k);
+          if (R.legR) R.legR.rotation.x = mix(0, -0.42, k);
+          if (R.kneeL) R.kneeL.rotation.x = mix(0.10, 0.72, k);
+          if (R.kneeR) R.kneeR.rotation.x = mix(0.10, 0.72, k);
           R.armL.rotation.set(mix(-1.12, -0.52, k), mix(0.22, 0.15, k), mix(0.62, 0.14, k));
           R.armR.rotation.set(mix(-1.12, -0.75, k), -0.18, -0.48);
+          setGF(mix(-0.35, -0.22, k), -0.35);
           if (R.head) R.head.rotation.x = mix(0, 0.28, k);
           if (R.jaw) R.jaw.rotation.x = 0.15;
         } else if (bt < 1.00) {
           // 1b/2a. Pega com a mão e leva a mão até a boca
           const k = clamp((bt - 0.35) / 0.65, 0, 1);
           if (R.torso) R.torso.rotation.set(mix(0.54, 0.04, k), mix(0.18, 0, k), 0);
-          if (R.legL) R.legL.rotation.x = mix(-0.36, 0, k);
-          if (R.legR) R.legR.rotation.x = mix(-0.36, 0, k);
+          if (R.legL) R.legL.rotation.x = mix(-0.42, 0, k);
+          if (R.legR) R.legR.rotation.x = mix(-0.42, 0, k);
+          if (R.kneeL) R.kneeL.rotation.x = mix(0.72, 0.12, k);
+          if (R.kneeR) R.kneeR.rotation.x = mix(0.72, 0.12, k);
           R.armL.rotation.set(mix(-0.52, -2.05, k), mix(0.15, 0.48, k), mix(0.14, -0.34, k));
           R.armR.rotation.set(mix(-0.75, -0.95, k), -0.18, -0.45);
+          setGF(mix(-0.22, -0.95, k), -0.35);
           if (R.head) R.head.rotation.x = mix(0.28, 0.18, k);
           if (R.jaw) R.jaw.rotation.x = mix(0.15, 0.58, k);
         } else {
@@ -4230,6 +4614,7 @@
           if (R.torso) R.torso.rotation.set(0.06, 0, 0);
           R.armL.rotation.set(-2.05, 0.48, -0.34);
           R.armR.rotation.set(-0.95, -0.18, -0.45);
+          setGF(-0.95, -0.35);
           if (R.head) R.head.rotation.x = 0.24 + chomp * 0.18;
           if (R.jaw) R.jaw.rotation.x = 0.08 + chomp * 0.68;
         }
@@ -4237,12 +4622,14 @@
         const k = clamp(1 - (e.st || 0) / 0.75, 0, 1);
         R.armL.rotation.set(mix(-1.12, 0.15, k), 0, mix(0.62, 0.35, k));
         R.armR.rotation.set(mix(-1.12, -0.35, k), 0, mix(-0.44, -0.65, k));
+        setGF(mix(-0.35, -0.45, k), mix(-0.28, -0.45, k));
         if (R.torso) R.torso.rotation.x = Math.sin(k * Math.PI) * 0.22;
         if (R.head) R.head.rotation.x = 0.18 * k;
       } else if (e.state === 'galiusBeamWind') {
         const k = clamp(1 - (e.st || 0) / 0.65, 0, 1);
         R.armL.rotation.set(mix(0.15, 0.35, k), 0, mix(0.35, 0.85, k));
         R.armR.rotation.set(mix(-0.35, 0.35, k), 0, mix(-0.65, -0.85, k));
+        setGF(mix(-0.45, -0.65, k), mix(-0.45, -0.65, k));
         if (R.torso) R.torso.rotation.x = mix(0, -0.24, k);
         if (R.head) R.head.rotation.x = mix(0.18, -0.35, k);
         if (R.jaw) R.jaw.rotation.x = 0.55 * k;
@@ -4250,6 +4637,7 @@
         const shake = Math.sin(a * 30) * 0.05;
         R.armL.rotation.set(0.35 + shake, 0, 0.92);
         R.armR.rotation.set(0.35 - shake, 0, -0.92);
+        setGF(-0.65, -0.65);
         if (R.torso) R.torso.rotation.x = -0.22 + shake * 0.5;
         if (R.head) R.head.rotation.x = -0.35 + shake;
         if (R.jaw) R.jaw.rotation.x = 0.62;
@@ -4259,11 +4647,13 @@
           const u = k / 0.5;
           R.armL.rotation.set(mix(0.35, -0.45, u), 0, mix(0.92, 0.45, u));
           R.armR.rotation.set(mix(0.35, -0.65, u), 0, mix(-0.92, -0.45, u));
+          setGF(mix(-0.65, -0.25, u), mix(-0.65, -0.25, u));
           if (R.torso) R.torso.rotation.x = mix(-0.22, 0.32, u);
         } else {
           const u = (k - 0.5) / 0.5;
           R.armL.rotation.set(mix(-0.45, -1.12, u), mix(0, 0.22, u), mix(0.45, 0.62, u));
           R.armR.rotation.set(mix(-0.65, -1.12, u), mix(0, -0.18, u), mix(-0.45, -0.44, u));
+          setGF(mix(-0.25, -0.35, u), mix(-0.25, -0.28, u));
           if (R.torso) R.torso.rotation.x = mix(0.32, 0.04, u);
         }
         if (R.jaw) R.jaw.rotation.x = 0.08;
@@ -4272,6 +4662,7 @@
         R.armL.rotation.z = mix(0.62, -0.25, windP);
         R.armR.rotation.x = mix(-1.12, -2.9, windP);
         R.armR.rotation.z = mix(-0.44, 0, windP);
+        setGF(mix(-0.35, -0.55, windP), mix(-0.28, -0.75, windP));
         if (R.weapon) R.weapon.rotation.z = mix(-1.21, 0, Math.min(1, windP * 1.35));
       } else if (strikeT > 0 && !winding) {
         const p = 1 - strikeT;
@@ -4281,12 +4672,14 @@
           R.armR.rotation.z = 0;
           R.armL.rotation.x = 0.35;
           R.armL.rotation.z = -0.25;
+          setGF(-0.55, mix(-0.75, -0.15, k));
           if (R.weapon) R.weapon.rotation.z = 0;
         } else if (p < 0.55) {
           R.armR.rotation.x = -1.02;
           R.armR.rotation.z = 0;
           R.armL.rotation.x = 0.35;
           R.armL.rotation.z = -0.25;
+          setGF(-0.55, -0.15);
           if (R.weapon) R.weapon.rotation.z = 0;
         } else {
           let k = (p - 0.55) / 0.45;
@@ -4297,12 +4690,14 @@
           R.armL.rotation.x = mix(0.35, -1.12, k);
           R.armL.rotation.y = mix(0, 0.22, k);
           R.armL.rotation.z = mix(-0.25, 0.62, k);
+          setGF(mix(-0.55, -0.35, k), mix(-0.15, -0.28, k));
           if (R.weapon) R.weapon.rotation.z = mix(0, -1.21, k);
         }
       } else {
         const bob = moving ? Math.sin(a * 4.2) * 0.10 : 0;
         R.armL.rotation.set(-1.12 + bob, 0.22, 0.62);
         R.armR.rotation.set(-1.12 + bob, -0.18, -0.44);
+        setGF(-0.35, -0.28);
         if (R.weapon) R.weapon.rotation.z = -1.21;
         if (R.head) R.head.rotation.x = moving ? Math.sin(a * 4.2) * 0.06 : 0;
         if (R.jaw) R.jaw.rotation.x = 0.08 + Math.sin(a * 2.5) * 0.04;
@@ -4310,12 +4705,19 @@
     } else if (R.legL && R.armL && !R.book) {
       if (e.maximusIntro) {
         const mix = (x, y, t) => x + (y - x) * t;
+        const setMJ = (fl, fr, kl, kr) => {
+          if (R.forearmL) R.forearmL.rotation.set(fl, 0, 0);
+          if (R.forearmR) R.forearmR.rotation.set(fr, 0, 0);
+          if (R.kneeL) R.kneeL.rotation.set(kl, 0, 0);
+          if (R.kneeR) R.kneeR.rotation.set(kr, 0, 0);
+        };
         const t = e.maximusIntroT || 0;
         if (e.maximusIntro === 'fall') {
           R.legL.rotation.x = -0.35;
           R.legR.rotation.x = 0.28;
           R.armL.rotation.set(-2.2, 0, -0.55);
           R.armR.rotation.set(-2.2, 0, 0.55);
+          setMJ(-0.55, -0.55, 0.85, 0.45);
           if (R.head) R.head.rotation.x = 0.25;
         } else if (e.maximusIntro === 'land') {
           const p = clamp(t / 0.85, 0, 1);
@@ -4324,6 +4726,7 @@
           R.legR.rotation.x = -0.75 * crouch;
           R.armL.rotation.set(-0.5 * crouch, 0, -0.35 * crouch);
           R.armR.rotation.set(-0.8 * crouch, 0, 0.25 * crouch);
+          setMJ(-0.65 * crouch - 0.25, -0.65 * crouch - 0.25, 1.35 * crouch + 0.08, 1.35 * crouch + 0.08);
           if (R.head) R.head.rotation.x = 0.35 * crouch;
         } else if (e.maximusIntro === 'unsheathe') {
           const p = clamp(t / 1.35, 0, 1);
@@ -4332,10 +4735,12 @@
           if (p < 0.32) {
             const k = p / 0.32;
             R.armR.rotation.set(mix(0, -1.15, k), 0, mix(0, 0.85, k));
+            setMJ(-0.32, mix(-0.25, -0.95, k), 0.08, 0.08);
           } else {
             const k = (p - 0.32) / 0.68;
             const s = k * k * (3 - 2 * k);
             R.armR.rotation.set(mix(-1.15, -0.85, s), 0, mix(0.85, -0.38, s));
+            setMJ(-0.32, mix(-0.95, -0.45, s), 0.08, 0.08);
           }
           if (R.head) R.head.rotation.x = 0.05;
         } else if (e.maximusIntro === 'shield') {
@@ -4345,10 +4750,12 @@
           if (p < 0.34) {
             const k = p / 0.34;
             R.armL.rotation.set(mix(0.15, 0.55, k), 0, mix(0, -0.45, k));
+            setMJ(mix(-0.32, -0.85, k), -0.45, 0.08, 0.08);
           } else {
             const k = (p - 0.34) / 0.66;
             const s = k * k * (3 - 2 * k);
             R.armL.rotation.set(mix(0.55, -1.05, s), 0, mix(-0.45, 0.32, s));
+            setMJ(mix(-0.85, -0.55, s), -0.45, 0.08, 0.08);
           }
           if (R.head) R.head.rotation.x = 0;
         } else if (e.maximusIntro === 'pose') {
@@ -4356,9 +4763,18 @@
           R.legL.rotation.x = 0; R.legR.rotation.x = 0;
           R.armL.rotation.set(mix(-0.15, -0.35, p), 0, 0.35);
           R.armR.rotation.set(mix(-0.85, -1.35, p), 0, -0.32);
+          setMJ(mix(-0.45, -0.65, p), mix(-0.45, -0.32, p), 0.08, 0.08);
           if (R.head) R.head.rotation.x = mix(0, -0.18, p);
         }
       } else if (T.model === 'maximus') {
+        const setMF = (fl, fr) => {
+          if (R.forearmL) R.forearmL.rotation.set(fl, 0, 0);
+          if (R.forearmR) R.forearmR.rotation.set(fr, 0, 0);
+        };
+        const setMK = (kl, kr) => {
+          if (R.kneeL) R.kneeL.rotation.set(kl, 0, 0);
+          if (R.kneeR) R.kneeR.rotation.set(kr, 0, 0);
+        };
         // Chamas animadas na cabeça (Fase 2) + brilho vermelho cintilante na espada
         if (R.flames && R.flameHead && R.flameHead.visible) {
           for (let fi = 0; fi < R.flames.length; fi++) {
@@ -4387,93 +4803,125 @@
           if (pt < 1.0) {
             R.armR.rotation.set(-0.65, 0, -0.18);
             R.armL.rotation.set(-0.55, 0, 0.18);
+            setMF(-0.65, -0.55); setMK(0.35, 0.35);
             if (R.head) R.head.rotation.x = 0.42;
           } else if (pt < 2.15) {
             const u = clamp((pt - 1.0) / 0.5, 0, 1);
             R.armR.rotation.set(-0.65, 0, -0.18);
             R.armL.rotation.set(-2.3 * u, 0, 0.25);
+            setMF(-0.65 - 0.55 * u, -0.55); setMK(0.25, 0.25);
             if (R.head) R.head.rotation.x = 0.25 - u * 0.45;
           } else {
             R.armR.rotation.set(-2.2, 0, -0.35);
             R.armL.rotation.set(-1.1, 0, 0.45);
+            setMF(-0.75, -0.35); setMK(0.18, 0.18);
             if (R.head) R.head.rotation.x = -0.25;
           }
         } else if (e.state === 'mRushWind') {
           R.legL.rotation.x = -0.8; R.legR.rotation.x = 0.55;
+          setMK(1.15, 0.55);
           R.armR.rotation.set(0.6, 0.3, -0.7);
           R.armL.rotation.set(0.9, 0, 0.8);
+          setMF(-0.85, -0.65);
           if (R.head) R.head.rotation.x = 0.35;
         } else if (e.state === 'mRush') {
-          const run = Math.sin(a * 34);
+          const runPh = a * 34;
+          const run = Math.sin(runPh);
           R.legL.rotation.x = run * 1.15; R.legR.rotation.x = -run * 1.15;
+          setMK(Math.max(0.15, -Math.cos(runPh) * 1.15), Math.max(0.15, Math.cos(runPh) * 1.15));
           R.armR.rotation.set(-1.35, 0.15, -0.12);
           R.armL.rotation.set(-0.45 + run * 0.5, 0, 0.55);
+          setMF(-0.85, -0.32);
           if (R.head) R.head.rotation.x = 0.25;
         } else if (e.state === 'mImpaleWind') {
           const tremor = Math.sin(a * 40) * 0.03;
           R.legL.rotation.x = 0.55; R.legR.rotation.x = -0.65;
+          setMK(0.35, 0.85);
           R.armR.rotation.set(0.75 + tremor, 0.2, -0.45);
           R.armL.rotation.set(0.55, 0, 0.7);
+          setMF(-0.75, -0.85);
           if (R.head) R.head.rotation.x = -0.1;
         } else if (e.state === 'mImpaleDash') {
-          const run = Math.sin(a * 36);
+          const runPh = a * 36;
+          const run = Math.sin(runPh);
           R.legL.rotation.x = run * 0.9 + 0.3; R.legR.rotation.x = -run * 0.9 - 0.2;
+          setMK(Math.max(0.15, -Math.cos(runPh) * 1.0), Math.max(0.15, Math.cos(runPh) * 1.0));
           R.armR.rotation.set(-1.58, 0, 0.04);
           R.armL.rotation.set(-1.48, 0, 0.22);
+          setMF(-0.35, -0.15);
           if (R.head) R.head.rotation.x = 0.15;
         } else if (e.state === 'mImpaled') {
           const strain = Math.sin(a * 24) * 0.04;
           R.legL.rotation.x = 0.55; R.legR.rotation.x = -0.75;
+          setMK(0.35, 0.95);
           R.armR.rotation.set(-1.58 + strain, 0, 0.04);
           R.armL.rotation.set(-1.45 + strain, 0, 0.2);
+          setMF(-0.45, -0.22);
           if (R.head) R.head.rotation.x = -0.18;
         } else if (e.state === 'mImpaleMiss') {
           const tug = Math.sin(a * 22) * 0.08;
           R.legL.rotation.x = 0.7; R.legR.rotation.x = -0.35;
+          setMK(0.45, 0.65);
           R.armR.rotation.set(-1.2 + tug, 0, 0.1);
           R.armL.rotation.set(-0.95 + tug, 0, 0.3);
+          setMF(-0.75, -0.65);
           if (R.head) R.head.rotation.x = 0.4;
         } else if (e.state === 'mSlideWind' || e.state === 'mSlide') {
           R.legL.rotation.x = -0.95; R.legR.rotation.x = 0.55;
+          setMK(1.35, 0.35);
           R.armR.rotation.set(-1.35, -0.5, -0.65);
           R.armL.rotation.set(0.35, 0, 0.65);
+          setMF(-0.75, -0.32);
           if (R.head) R.head.rotation.x = 0.22;
         } else if (e.state === 'mPirWind' || e.state === 'mPir') {
           R.armR.rotation.set(-1.45, 0, -1.15);
           R.armL.rotation.set(-0.65, 0, 0.95);
+          setMF(-0.55, -0.22); setMK(0.25, 0.25);
         } else if (e.state === 'mLungeWind') {
           R.armR.rotation.set(0.35, 0, -0.25);
           R.armL.rotation.set(0.45, 0, 0.45);
+          setMF(-0.75, -0.85); setMK(0.45, 0.55);
         } else if (e.state === 'mLunge') {
           R.legL.rotation.x = 0.65; R.legR.rotation.x = -0.75;
+          setMK(0.25, 0.95);
           R.armR.rotation.set(-1.62, 0, 0);
           R.armL.rotation.set(0.55, 0, 0.55);
+          setMF(-0.65, -0.15);
         } else if (e.state === 'mLeapWind') {
           R.legL.rotation.x = -0.6; R.legR.rotation.x = -0.6;
+          setMK(1.15, 1.15);
           R.armR.rotation.set(-2.75, 0, 0.22);
           R.armL.rotation.set(-2.65, 0, -0.22);
+          setMF(-0.65, -0.55);
         } else if (e.state === 'mLeap') {
           R.legL.rotation.x = -0.25; R.legR.rotation.x = 0.35;
+          setMK(0.75, 0.45);
           R.armR.rotation.set(-2.35, 0, 0.18);
           R.armL.rotation.set(-2.25, 0, -0.18);
+          setMF(-0.45, -0.35);
           if (R.head) R.head.rotation.x = 0.28;
         } else if (e.state === 'mStuck') {
           const tug = Math.sin(a * 26) * 0.12;
           R.legL.rotation.x = -0.55; R.legR.rotation.x = 0.35;
+          setMK(0.85, 0.45);
           R.armR.rotation.set(-0.95 + tug, 0, 0.16);
           R.armL.rotation.set(-0.95 + tug, 0, -0.16);
+          setMF(-0.72, -0.72);
           if (R.head) R.head.rotation.x = 0.38 + tug * 0.5;
         } else if (e.state === 'mCleaveWind') {
           R.armR.rotation.set(-2.6, 0, -0.3);
           R.armL.rotation.set(-2.2, 0, 0.2);
+          setMF(-0.75, -0.85); setMK(0.32, 0.42);
         } else if (strikeT > 0) {
           R.armR.rotation.set(-0.75, 0, -0.2);
           R.armL.rotation.set(0.25, 0, 0.35);
+          setMF(-0.55, -0.18);
         } else {
           // Pose de guarda ágil (Fase 1) ou agressiva (Fase 2)
           const p2 = e.phase === 2;
           R.armR.rotation.set(p2 ? -1.15 : -0.95 + sw * 0.25, 0, -0.22);
           R.armL.rotation.set(p2 ? -0.75 : 0.25 - sw * 0.35, 0, 0.38);
+          setMF(p2 ? -0.72 : -0.45, p2 ? -0.42 : -0.35);
           if (R.head) R.head.rotation.x = p2 ? 0.12 : 0;
           if (moving && R.armR) {
             // balanço de braços oposto às pernas (mais solto)
@@ -4533,7 +4981,7 @@
           p[0] += (tx - p[0]) * kk; p[1] += (ty - p[1]) * kk; p[2] += (tz - p[2]) * kk;
           o.rotation.set(p[0], p[1], p[2]);
         };
-        ['armR', 'armL', 'legL', 'legR', 'head'].forEach((key) => {
+        ['armR', 'armL', 'forearmR', 'forearmL', 'legL', 'legR', 'kneeL', 'kneeR', 'head'].forEach((key) => {
           const o = R[key]; if (o) smRot(key, o, o.rotation.x, o.rotation.y, o.rotation.z);
         });
         if (R.root) {
@@ -4545,19 +4993,41 @@
         const base = T.armsFwd ? -1.3 : 0;
         if (e.state === 'stompWind') {
           R.armL.rotation.x = -2.9 * windP; R.armR.rotation.x = -2.9 * windP;
+          if (R.forearmL) R.forearmL.rotation.x = -0.35 - 0.65 * windP;
+          if (R.forearmR) R.forearmR.rotation.x = -0.35 - 0.65 * windP;
         } else {
           R.armL.rotation.x = base + (moving && !T.armsFwd ? -sw * 0.6 : 0);
           R.armR.rotation.x = base + (moving && !T.armsFwd ? sw * 0.6 : 0) - windP * 2.6 + (strikeT > 0 ? 1.1 * (1 - strikeT) : 0) * 1;
           if (strikeT > 0 && !winding) R.armR.rotation.x = base - 2.6 * strikeT + 0.9 * (1 - strikeT);
+          if (R.forearmL) {
+            R.forearmL.rotation.x = T.armsFwd
+              ? (-0.42 + Math.sin(a * 4.5) * 0.14)
+              : (-0.34 - Math.max(0, sw) * 0.35);
+          }
+          if (R.forearmR) {
+            if (winding) R.forearmR.rotation.x = -0.35 - 0.78 * windP;
+            else if (strikeT > 0) R.forearmR.rotation.x = -0.18 - 0.85 * strikeT;
+            else R.forearmR.rotation.x = T.armsFwd
+              ? (-0.42 - Math.sin(a * 4.5) * 0.14)
+              : (-0.34 - Math.max(0, -sw) * 0.35);
+          }
         }
         R.armL.rotation.z = 0; R.armR.rotation.z = 0;
         if (R.head && !e.downed) R.head.rotation.x = 0;
-        if (e.downed) { R.armL.rotation.x = 0.4; R.armR.rotation.x = 0.4; R.head.rotation.x = 0.5; }
+        if (e.downed) {
+          R.armL.rotation.x = 0.4; R.armR.rotation.x = 0.4; R.head.rotation.x = 0.5;
+          if (R.forearmL) R.forearmL.rotation.x = -0.35;
+          if (R.forearmR) R.forearmR.rotation.x = -0.35;
+          if (R.kneeL) R.kneeL.rotation.x = 0.35;
+          if (R.kneeR) R.kneeR.rotation.x = 0.35;
+        }
       }
     }
     if (R.book) { // padre
       R.book.position.y = 1.55 + Math.sin(a * 3) * 0.08;
       R.armL.rotation.x = -1.2 - windP * 1.2; R.armR.rotation.x = -1.2 - windP * 1.2;
+      if (R.forearmL) R.forearmL.rotation.x = -0.55 - windP * 0.45 + Math.sin(a * 3) * 0.08;
+      if (R.forearmR) R.forearmR.rotation.x = -0.55 - windP * 0.45 - Math.sin(a * 3) * 0.08;
       R.book.scale.setScalar(1 + windP * 0.8);
     }
     if (R.wingL && !e.wingsLost) {
@@ -4587,14 +5057,22 @@
       const amp = beaming ? 0.42 : 0.25;
       R.heart.scale.set(1 + p * amp, 1 + p * (amp * 0.65), 1 + p * (amp * 1.2));
     }
-    if (T.model === 'diabrete') { R.armL.rotation.x = -windP * 1.5; R.armR.rotation.x = -windP * 1.5; }
+    if (T.model === 'diabrete') {
+      R.armL.rotation.x = -0.35 - windP * 1.5; R.armR.rotation.x = -0.35 - windP * 1.5;
+      if (R.forearmL) R.forearmL.rotation.x = -0.65 - windP * 0.55 + Math.sin(a * 9) * 0.12;
+      if (R.forearmR) R.forearmR.rotation.x = -0.65 - windP * 0.55 - Math.sin(a * 9) * 0.12;
+    }
     if (e.glory) {
       e.g.rotation.x = (e.crawling ? 1.35 : 0.24) + Math.sin(a * 16) * 0.05;
       e.g.rotation.z = Math.sin(a * 21) * 0.04;
-      if (R.legL) R.legL.rotation.x = -1.4;
-      if (R.legR) R.legR.rotation.x = -1.4;
+      if (R.legL) R.legL.rotation.x = -1.35;
+      if (R.legR) R.legR.rotation.x = -1.35;
+      if (R.kneeL) R.kneeL.rotation.x = 2.05;
+      if (R.kneeR) R.kneeR.rotation.x = 2.05;
       if (R.armL) R.armL.rotation.x = -1.0 + Math.sin(a * 12) * 0.22;
       if (R.armR) R.armR.rotation.x = -1.0 - Math.sin(a * 12) * 0.22;
+      if (R.forearmL) R.forearmL.rotation.x = -0.85 + Math.cos(a * 12) * 0.18;
+      if (R.forearmR) R.forearmR.rotation.x = -0.85 - Math.cos(a * 12) * 0.18;
       if (R.head) {
         R.head.rotation.x = (e.crawling ? -0.65 : 0.45) + Math.sin(a * 14) * 0.14;
         R.head.rotation.y = Math.sin(a * 9) * 0.18;
@@ -4610,9 +5088,11 @@
     if (e.limbs) {
       if (e.limbs.armL && e.limbs.armL.broken && R.armL && !e.downed) {
         R.armL.rotation.x = 0.25 + Math.sin(a * 9) * 0.10;
+        if (R.forearmL) R.forearmL.rotation.x = -0.15 + Math.cos(a * 9) * 0.14;
       }
       if (e.limbs.armR && e.limbs.armR.broken && R.armR && !e.downed) {
         R.armR.rotation.x = 0.25 - Math.sin(a * 9) * 0.10;
+        if (R.forearmR) R.forearmR.rotation.x = -0.15 - Math.cos(a * 9) * 0.14;
       }
     }
     if (e.danglingEyes) {
@@ -4665,7 +5145,8 @@
     }
     for (let i = 0; i < gibs.length; i++) {
       const g = gibs[i];
-      g.inRender = World.isPosInRender(g.x, g.z);
+      const inR = World.isPosInRender(g.x, g.z);
+      if (g.inRender !== inR) { g.inRender = inR; gibsDirty = true; }
     }
     for (let i = 0; i < decals.length; i++) {
       const d = decals[i];
@@ -4690,6 +5171,7 @@
     clearParts, clearProjs, setBloodMode, setGoreDuration, setGoreImpact, setParticleScale, setGoreQuality, setDismember, setBleedJoints, setGibDrips,
     setBlobShadows, setEnemyCullDist, setPeasantLabels, setInternalHeight, setPsxJitter, setPixelatedCanvas, setSSAO,
     setRenderDistance, syncRenderDistanceEntities,
+    computeMapBloodExpected, addBloodLiters, addStyle, registerStyleHit, registerStyleKill, WEAPON_BLOOD, KILL_TYPE_LABELS,
     ETYPES, DIFFICULTIES, getDifficulty, AMMO_MAX, keys, scene, camera, renderer, amb, sun, plight, sky, vmDir, vmScene, vmCam, resize, renderScene,
     setMouse: (v) => { mouseL = v; }, getMouse: () => mouseL, curW: () => curW, setCurW: (v) => { curW = v; }, wcd
   };

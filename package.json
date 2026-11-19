@@ -1,20 +1,18 @@
 {
   "name": "hellslayer",
   "version": "0.1.0",
-  "description": "CABRUNCO — Beta 1",
+  "description": "PARAINFERNÁLIA — Beta 1",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable && powershell -NoProfile -Command \"Copy-Item 'dist\\HELLSLAYER.exe' 'HELLSLAYER.exe' -Force\""
+    "dist": "electron-builder --win dir"
   },
   "build": {
     "appId": "com.hellslayer.game",
-    "productName": "CABRUNCO",
+    "productName": "PARAINFERNÁLIA",
+    "executableName": "HELLSLAYER",
     "directories": {
       "output": "dist"
-    },
-    "portable": {
-      "artifactName": "HELLSLAYER.exe"
     },
     "files": [
       "index.html",
@@ -28,7 +26,7 @@
       "assets/**/*"
     ],
     "win": {
-      "target": "portable",
+      "target": "dir",
       "signAndEditExecutable": false
     }
   },

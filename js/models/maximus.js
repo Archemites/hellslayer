@@ -97,26 +97,29 @@ function buildMaximus() {
   const TATTER_COL = 0x111218;
   const PLUME_COL = 0x4e141c;
 
-  // Pernas esguias blindadas (grevas escuras + joelheiras pontudas + solas carmesim)
+  // Pernas esguias blindadas articuladas (grevas escuras + joelheiras pontudas + solas carmesim)
   const mkLeg = (side) => {
-    const l = limb(root, 0.28, 0.98, 0.28, ARMOR_DARK, side * 0.20, 1.02, 0);
+    const l = limb(root, 0.28, 0.50, 0.28, ARMOR_DARK, side * 0.20, 1.02, 0);
     // Coxote segmentado
     part(l, 0.30, 0.42, 0.32, ARMOR_MID, 0, -0.22, 0);
     part(l, 0.22, 0.36, 0.06, ARMOR_HI, 0, -0.22, 0.16);
-    // Joelheira pontuda
-    const knee = part(l, 0.26, 0.18, 0.12, ARMOR_HI, 0, -0.48, 0.16);
+    // Junta do joelho -> joelheira pontuda + greva + sabaton
+    const kn = limb(l, 0.26, 0.52, 0.26, ARMOR_DARK, 0, -0.48, 0);
+    l.userData.subMesh = kn.userData.mesh;
+    const knee = part(kn, 0.26, 0.18, 0.12, ARMOR_HI, 0, 0, 0.16);
     knee.rotation.x = -0.25;
-    part(l, 0.08, 0.14, 0.08, ARMOR_HI, side * 0.14, -0.46, 0.06);
+    part(kn, 0.08, 0.14, 0.08, ARMOR_HI, side * 0.14, 0.02, 0.06);
     // Greva esguia
-    part(l, 0.26, 0.44, 0.28, ARMOR_DARK, 0, -0.74, 0);
-    part(l, 0.16, 0.38, 0.06, ARMOR_HI, 0, -0.74, 0.14);
+    part(kn, 0.26, 0.44, 0.28, ARMOR_DARK, 0, -0.26, 0);
+    part(kn, 0.16, 0.38, 0.06, ARMOR_HI, 0, -0.26, 0.14);
     // Sabaton pontudo + detalhe carmesim na sola
-    part(l, 0.24, 0.12, 0.38, ARMOR_MID, 0, -0.95, 0.07);
-    part(l, 0.25, 0.03, 0.40, 0xaa141c, 0, -1.01, 0.07, { em: 0x3a0408 });
-    return l;
+    part(kn, 0.24, 0.12, 0.38, ARMOR_MID, 0, -0.47, 0.07);
+    part(kn, 0.25, 0.03, 0.40, 0xaa141c, 0, -0.53, 0.07, { em: 0x3a0408 });
+    return { leg: l, knee: kn };
   };
-  rig.legL = mkLeg(-1);
-  rig.legR = mkLeg(1);
+  const legLObj = mkLeg(-1), legRObj = mkLeg(1);
+  rig.legL = legLObj.leg; rig.kneeL = legLObj.knee;
+  rig.legR = legRObj.leg; rig.kneeR = legRObj.knee;
 
   // Tronco: cintura fina + costelas esqueléticas blindadas + peitoral escuro
   rig.torso = part(root, 0.62, 0.86, 0.42, ARMOR_DARK, 0, 1.46, 0);
@@ -205,40 +208,43 @@ function buildMaximus() {
   plume2.rotation.x = 0.55;
   rig.plume = plume1;
 
-  // Braços com ombreiras pontudas (spiked pauldrons), manoplas com garras e correntes
+  // Braços articulados com ombreiras pontudas (spiked pauldrons), manoplas com garras e correntes
   const mkArm = (side) => {
-    const a = limb(root, 0.24, 0.86, 0.24, ARMOR_DARK, side * 0.44, 1.84, 0);
+    const a = limb(root, 0.24, 0.45, 0.24, ARMOR_DARK, side * 0.44, 1.84, 0);
     // Ombreira angular pontuda estilo cavaleiro sombrio
     const pauldron = part(a, 0.38, 0.22, 0.38, ARMOR_MID, side * 0.06, -0.02, 0);
     pauldron.rotation.z = side * -0.26;
     const spike = part(a, 0.22, 0.10, 0.24, ARMOR_HI, side * 0.24, 0.08, 0);
     spike.rotation.z = side * -0.45;
-    // Braçadeira pontuda no cotovelo/antebraço
-    part(a, 0.26, 0.38, 0.26, ARMOR_MID, 0, -0.52, 0);
-    const elbowSpike = part(a, 0.08, 0.22, 0.10, ARMOR_HI, side * 0.12, -0.42, -0.12);
+    // Junta do cotovelo -> braçadeira pontuda + manopla com garras + corrente
+    const fore = limb(a, 0.22, 0.46, 0.22, ARMOR_DARK, 0, -0.42, 0);
+    a.userData.subMesh = fore.userData.mesh;
+    part(fore, 0.26, 0.38, 0.26, ARMOR_MID, 0, -0.10, 0);
+    const elbowSpike = part(fore, 0.08, 0.22, 0.10, ARMOR_HI, side * 0.12, 0, -0.12);
     elbowSpike.rotation.x = -0.45;
     // Manopla com garras
-    part(a, 0.22, 0.18, 0.22, ARMOR_HI, 0, -0.78, 0.02);
+    part(fore, 0.22, 0.18, 0.22, ARMOR_HI, 0, -0.36, 0.02);
     // Correntes penduradas no pulso
-    part(a, 0.03, 0.22, 0.03, CHAIN_COL, side * 0.12, -0.82, 0.04);
-    return a;
+    part(fore, 0.03, 0.22, 0.03, CHAIN_COL, side * 0.12, -0.40, 0.04);
+    return { arm: a, forearm: fore };
   };
-  rig.armL = mkArm(-1);
-  rig.armR = mkArm(1);
+  const armLObj = mkArm(-1), armRObj = mkArm(1);
+  rig.armL = armLObj.arm; rig.forearmL = armLObj.forearm;
+  rig.armR = armRObj.arm; rig.forearmR = armRObj.forearm;
 
   // Espada Flamberge detalhada na mão direita
   const swordObj = buildMaximusSword();
-  swordObj.root.position.set(0, -0.86, 0.08);
+  swordObj.root.position.set(0, -0.44, 0.08);
   swordObj.root.rotation.x = Math.PI * 0.48;
-  rig.armR.add(swordObj.root);
+  rig.forearmR.add(swordObj.root);
   rig.sword = swordObj.root;
   rig.swordGlowMats = swordObj.glowMats;
 
   // Prop do rosário na mão esquerda (visível apenas na cutscene de morte ao entregar para Nivaldo)
   const rosaryProp = buildRosary(0.88, { hanging: true });
-  rosaryProp.root.position.set(0, -0.86, 0.14);
+  rosaryProp.root.position.set(0, -0.44, 0.14);
   rosaryProp.root.visible = false;
-  rig.armL.add(rosaryProp.root);
+  rig.forearmL.add(rosaryProp.root);
   rig.rosaryProp = rosaryProp.root;
 
   return rig;

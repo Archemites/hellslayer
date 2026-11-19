@@ -13,7 +13,13 @@
   const NIVALDO_3P = BUILD.nivaldo();
   NIVALDO_3P.root.visible = false;
   scene.add(NIVALDO_3P.root);
-  if (window.BloodStain) BloodStain.init(NIVALDO_3P, VMS);
+  let bloodStainReady = false;
+  function ensureBloodStainReady() {
+    if (!bloodStainReady && window.BloodStain) {
+      bloodStainReady = true;
+      BloodStain.init(NIVALDO_3P, VMS);
+    }
+  }
   const TP_CAM = {
     active: false,
     userMode: false,
@@ -133,7 +139,7 @@
 
   function gloryHitRip(gk, e) {
     const body = e.g;
-    A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'fists' });
+    A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'fists', glory: 'rip' });
     if (window.BloodStain) BloodStain.addBlood(0.32, 'fists', 0.35);
     reviveProp(e);
     const strands = [
@@ -151,7 +157,7 @@
       spine = attachHangingSpine(head, L.limbSize);
     }
     if (L && !L.severed) A.severLimb(e, 'head', gk.nx, gk.nz, { noGib: true });
-    A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'fists' });
+    A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'fists', glory: 'decap', decapitated: true });
     if (window.BloodStain) BloodStain.addBlood(0.35, 'fists', 0.35);
     reviveProp(e);
     const c = e.g.position;
@@ -182,7 +188,7 @@
   function gloryHitHammer(gk, e) {
     const nx = gk.nx, nz = gk.nz;
     smashHeadFX(e, nx, nz);
-    A.killEnemy(e, nx, nz, { noGore: true, weapon: 'hammer' });
+    A.killEnemy(e, nx, nz, { noGore: true, weapon: 'hammer', glory: 'hammer', decapitated: true });
     if (window.BloodStain) BloodStain.addBlood(0.32, 'hammer', 0.42);
     reviveProp(e);
     const c = e.g.position;
@@ -218,7 +224,7 @@
       }
     }
     // o tronco explode (gore grande); os membros voam longe
-    A.killEnemy(e, nx, nz, { weapon: 'kick' });
+    A.killEnemy(e, nx, nz, { weapon: 'kick', glory: 'kick' });
     if (window.BloodStain) BloodStain.addBlood(0.28, 'kick', 0.42);
     A.burst(c.x, c.y + e.h * 0.55, c.z, 0xffa040, 14, 12, 0.5, 0.2, 10);
     A.bloodSpurt(c.x, c.y + e.h * 0.55, c.z, nx, nz, 16, 40 * GLORY_BLOOD_MULT, 6);
@@ -325,6 +331,8 @@
           const sw = Math.sin(t * 7) * 0.12;
           if (e.rig.legL) e.rig.legL.rotation.x = 0.25 + sw;
           if (e.rig.legR) e.rig.legR.rotation.x = 0.25 - sw;
+          if (e.rig.kneeL) e.rig.kneeL.rotation.x = 0.55 - sw * 0.8;
+          if (e.rig.kneeR) e.rig.kneeR.rotation.x = 0.55 + sw * 0.8;
           return;
         }
         // rasga ao meio: duas metades
@@ -494,7 +502,7 @@
       if (!fx.kicked && t >= PADRE_T.kick) {
         fx.kicked = true;
         e.g.rotation.set(0, e.g.rotation.y, 0);
-        A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'kick' });
+        A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'kick', glory: 'kick' });
         if (window.BloodStain) BloodStain.addBlood(0.22, 'kick', 0.35);
         reviveProp(e);
         ragdollBody(e, {
@@ -536,7 +544,7 @@
         P.shake = Math.max(P.shake, 1.05);
       } else if (fx.hits === 3 && t >= DEMON_T.hit4) {
         fx.hits = 4;
-        A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'hammer' });
+        A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'hammer', glory: 'hammer' });
         if (window.BloodStain) BloodStain.addBlood(0.45, 'hammer', 0.48);
         spawnMeatPile(c.x, gy, c.z, e.r);
         A.spawnBloodDecal(c.x, c.z, 2.7);
@@ -611,7 +619,7 @@
       if (!fx.stomped && t >= WING_T.stomp) {
         fx.stomped = true;
         smashHeadFX(e, gk.nx, gk.nz);
-        A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'kick' });
+        A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'kick', glory: 'kick', decapitated: true });
         reviveProp(e);
         ragdollBody(e, { vx: 0, vy: 0, vz: 0, layX: Math.PI * 0.5 });
         A.spawnBloodDecal(fx.groundPos.x, fx.groundPos.z, 1.8);
@@ -669,7 +677,7 @@
       if (!fx.impaled && t >= TRIDENT_T.impale) {
         fx.impaled = true;
         const gy = getGroundY(fx.pushPos.x, fx.pushPos.z);
-        A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'kick' });
+        A.killEnemy(e, gk.nx, gk.nz, { noGore: true, weapon: 'fists', glory: 'impale' });
         if (window.BloodStain) BloodStain.addBlood(0.36, 'fists', 0.42);
         reviveProp(e);
         e.g.position.set(fx.pushPos.x, gy, fx.pushPos.z);
@@ -710,7 +718,7 @@
         if (fx.trident && !fx.impaled) scene.remove(fx.trident);
         if (fx.wingL && !fx.thrown) A.addCorpsePart(fx.wingL, { vy: 2, floorOff: 0.15, rad: 0.25 });
         if (fx.wingR && !fx.thrown) A.addCorpsePart(fx.wingR, { vy: 2, floorOff: 0.15, rad: 0.25 });
-        if (fx.e && !fx.e.dead) A.killEnemy(fx.e, gk.nx, gk.nz, { weapon: 'kick' });
+        if (fx.e && !fx.e.dead) A.killEnemy(fx.e, gk.nx, gk.nz, { weapon: 'kick', glory: 'glory' });
       }
       fx.done = true;
     }
@@ -1671,14 +1679,14 @@
         const u = clamp(t / 0.65, 0, 1);
         const e = u * u * (3 - 2 * u);
         N.torsoGroup.position.y = 0.98;
-        N.torsoGroup.rotation.set(0.08 * e, -0.06 * e, 0);
-        N.chestGroup.rotation.set(0.08 * e, -0.04 * e, 0);
-        N.shoulderR.rotation.set(0, -0.35 * e, 0);
-        N.armR.rotation.set(-1.92 * e, 0, -0.38 * e);
-        N.forearmR.rotation.x = -0.22 - 0.06 * e;
-        N.shoulderL.rotation.set(0, 0.35 * e, 0);
+        N.torsoGroup.rotation.set(0.08 * e, 0, 0);
+        N.chestGroup.rotation.set(0.08 * e, 0, 0);
+        N.shoulderR.rotation.set(0, -0.36 * e, 0);
+        N.armR.rotation.set(-1.86 * e, 0, -0.38 * e);
+        N.forearmR.rotation.x = -0.22 - 0.08 * e;
+        N.shoulderL.rotation.set(0, 0.36 * e, 0);
         N.armL.rotation.set(-1.86 * e, 0, 0.38 * e);
-        N.forearmL.rotation.x = -0.22 - 0.10 * e;
+        N.forearmL.rotation.x = -0.22 - 0.08 * e;
         N.legL.rotation.x = -0.20 * e;
         N.kneeL.rotation.x = 0.24 * e;
         N.legR.rotation.x = 0.16 * e;
@@ -1687,14 +1695,14 @@
         const p = (t - 0.8) / 1.2;
         const vib = Math.sin(t * 28) * 0.08;
         N.torsoGroup.position.y = 0.98;
-        N.torsoGroup.rotation.set(0.08 - p * 0.20 + vib, -0.06, 0);
-        N.chestGroup.rotation.set(0.08 - p * 0.22 + vib, -0.04, 0);
-        N.shoulderR.rotation.set(0, -0.35 + 0.15 * p, 0.12 * p);
-        N.armR.rotation.set(-1.92 + p * 0.28 + vib * 1.4, 0, -0.38 + p * 0.12);
-        N.forearmR.rotation.x = -0.28 - 0.32 * p;
-        N.shoulderL.rotation.set(0, 0.35 - 0.15 * p, -0.10 * p);
+        N.torsoGroup.rotation.set(0.08 - p * 0.20 + vib, 0, 0);
+        N.chestGroup.rotation.set(0.08 - p * 0.22 + vib, 0, 0);
+        N.shoulderR.rotation.set(0, -0.36 + 0.15 * p, 0.12 * p);
+        N.armR.rotation.set(-1.86 + p * 0.26 + vib * 1.4, 0, -0.38 + p * 0.12);
+        N.forearmR.rotation.x = -0.30 - 0.30 * p;
+        N.shoulderL.rotation.set(0, 0.36 - 0.15 * p, -0.10 * p);
         N.armL.rotation.set(-1.86 + p * 0.26 - vib * 1.1, 0, 0.38 - p * 0.10);
-        N.forearmL.rotation.x = -0.32 - 0.28 * p;
+        N.forearmL.rotation.x = -0.30 - 0.30 * p;
         N.legL.rotation.x = -0.20;
         N.kneeL.rotation.x = 0.24;
         N.legR.rotation.x = 0.16;
@@ -2070,7 +2078,9 @@
   function el(id) { return ELS[id] || (ELS[id] = $(id)); }
   function setText(id, v) { const e = el(id); if (e && e.__v !== v) { e.__v = v; e.textContent = v; } }
   function setW(id, pct) { const e = el(id); const v = Math.round(pct * 10) / 10; if (e && e.__w !== v) { e.__w = v; e.style.width = v + '%'; } }
-  function show(id, on) { const e = el(id); if (e) e.classList.toggle('hidden', !on); }
+  function show(id, on) { const e = el(id); const b = !!on; if (e && e.__vis !== b) { e.__vis = b; e.classList.toggle('hidden', !b); } }
+  function setStyle(id, prop, val) { const e = el(id); if (!e) return; const k = '__s_' + prop; if (e[k] !== val) { e[k] = val; e.style[prop] = val; } }
+  function setClass(id, cls, on) { const e = el(id); if (!e) return; const b = !!on; const k = '__c_' + cls; if (e[k] !== b) { e[k] = b; e.classList.toggle(cls, b); } }
   const _fwd3Scratch = new V3();
   const _eyePosScratch = new V3();
   function fwd3() {
@@ -2210,7 +2220,9 @@
     'BAPHOMET': '#d946ef',
     'RÔMULO III': '#66e0ff',
     'SUPER-ANJO': '#93c5fd',
-    'GALIUS': '#ff6622'
+    'GALIUS': '#ff6622',
+    'CONSELHO DOS SUPER-CARDEAIS': '#ff5252',
+    'SUPER-CARDEAL': '#ff5252'
   };
   function say(text, who, dur) {
     if (!MSG_COLORS[who]) return;
@@ -2614,9 +2626,9 @@
     const e = P.grabbed;
     if (!e || e.dead) return;
     const f = fwd3();
-    A.dmgEnemy(e, w.dmg, f.x, f.z, { knock: 0, stunBonus: 0.4, hitSfx: w.sfx || 'punch', part: 'torso' });
+    A.dmgEnemy(e, w.dmg, f.x, f.z, { knock: 0, stunBonus: 0.4, hitSfx: w.sfx || 'punch', part: 'torso', weapon: w.id });
     P.shake = Math.max(P.shake, w.id === 'demo' ? 0.45 : 0.18);
-    S.style = Math.min(420, S.style + 10);
+    A.addStyle(12);
   }
   function attack(w) {
     const cdMul = P.faithMode > 0 ? 0.7 : 1;
@@ -2863,7 +2875,7 @@
       if (!e.T.boss && (e.glory || (e.hp <= 30 && (e.T.mass || 1) <= 1.5))) {
         A.launchKickedEnemy(e, nx, nz);
         if (window.BloodStain) BloodStain.addBlood(0.08, 'kick', 0.18);
-        S.style = Math.min(420, S.style + 25);
+        A.addStyle(28);
       } else {
         dmgEnemy(e, kickDmg, nx, nz, {
           knock: 20,
@@ -2951,7 +2963,15 @@
     histZ: [0, 0, 0, 0, 0, 0, 0]
   };
   function updateRosaryPhysics(dt) {
-    if (!P.hasRosary || dt <= 0) return;
+    if (!P.hasRosary) {
+      if (rosaryPhys._visState !== false && VMS && VMS._rosaries) {
+        for (let i = 0; i < VMS._rosaries.length; i++) VMS._rosaries[i].root.visible = false;
+        rosaryPhys._visState = false;
+      }
+      return;
+    }
+    rosaryPhys._visState = true;
+    if (dt <= 0) return;
     const stepDt = Math.min(dt, 0.05);
     rosaryPhys.t += stepDt;
     const f = fwd3();
@@ -3049,18 +3069,27 @@
         }
       }
     };
-    if (NIVALDO_3P && NIVALDO_3P.rosary) applyChain(NIVALDO_3P.rosary);
+    const isChainVisible = (node) => {
+      let cur = node;
+      while (cur) {
+        if (!cur.visible) return false;
+        cur = cur.parent;
+      }
+      return true;
+    };
+    if (NIVALDO_3P && NIVALDO_3P.rosary && isChainVisible(NIVALDO_3P.rosary.root)) {
+      applyChain(NIVALDO_3P.rosary);
+    }
     if (VMS && VMS._rosaries) {
       for (let i = 0; i < VMS._rosaries.length; i++) {
         const r = VMS._rosaries[i];
         r.root.visible = !!P.hasRosary;
-        if (P.hasRosary) applyChain(r);
+        if (P.hasRosary && isChainVisible(r.root)) applyChain(r);
       }
     }
   }
 
   function updateVM(dt) {
-    updateRosaryPhysics(dt);
     for (const k in VMS) VMS[k].root.visible = false;
     if (!SAVE.showVM || isThirdPersonActive() || S.cutscene > 0) return;
     if (S.glory) {
@@ -3641,8 +3670,10 @@
     if (P.dead) { c.fillStyle = 'rgba(0,0,0,.55)'; c.fillRect(0, 0, 32, 32); }
   }
 
-  const rctx = el('radar').getContext('2d');
+  const _radarEl = el('radar');
+  const rctx = _radarEl ? _radarEl.getContext('2d') : null;
   function drawRadar() {
+    if (!rctx) return;
     const c = rctx, R = 60, range = 46, sc = (R - 4) / range;
     c.clearRect(0, 0, 120, 120);
     c.strokeStyle = 'rgba(255,160,60,.25)'; c.lineWidth = 1;
@@ -3685,13 +3716,412 @@
     c.fillStyle = '#6ad0ff'; c.beginPath(); c.moveTo(R, R - 5); c.lineTo(R + 4, R + 4); c.lineTo(R - 4, R + 4); c.closePath(); c.fill();
   }
 
+  const STYLE_RANKS = [
+    { min: 1,   name: 'Brutal',           frontTop: '#ffffff', frontBot: '#e8eef5', sideFar: '#404854', sideMid: '#6b788a', sideNear: '#9aa8ba' },
+    { min: 45,  name: 'Visceral',         frontTop: '#fffdf2', frontBot: '#ffe6a8', sideFar: '#544620', sideMid: '#8a7236', sideNear: '#c4a654' },
+    { min: 90,  name: 'Fatal!',           frontTop: '#fff7cc', frontBot: '#ffd266', sideFar: '#624212', sideMid: '#9c6c1c', sideNear: '#dc9e2a' },
+    { min: 140, name: 'Horrendo!',        frontTop: '#ffebd0', frontBot: '#ffae42', sideFar: '#6b320c', sideMid: '#a85214', sideNear: '#e8781e' },
+    { min: 190, name: 'Pútrido',          frontTop: '#ffe0cc', frontBot: '#ff8533', sideFar: '#70240c', sideMid: '#b03c12', sideNear: '#ec5618' },
+    { min: 240, name: 'Blasfemo',         frontTop: '#ffd4cc', frontBot: '#ff5e3a', sideFar: '#701810', sideMid: '#b42818', sideNear: '#f03b20' },
+    { min: 290, name: 'Pecaminoso',       frontTop: '#ffc0ba', frontBot: '#ff382e', sideFar: '#680e0e', sideMid: '#b01816', sideNear: '#f2201c' },
+    { min: 350, name: 'Satânico',         frontTop: '#ff8078', frontBot: '#ec1414', sideFar: '#580606', sideMid: '#a40a0a', sideNear: '#e80e0e' },
+    { min: 410, name: 'PARAINFERNÁLIA!!!', frontTop: '#6b0000', frontBot: '#290000', sideFar: '#9e0000', sideMid: '#d60e0e', sideNear: '#ff2424' }
+  ];
+
+  function styleRankInfo(v) {
+    if (!v || v < 1) return null;
+    let best = STYLE_RANKS[0], idx = 0;
+    for (let i = 0; i < STYLE_RANKS.length; i++) {
+      if (v >= STYLE_RANKS[i].min) { best = STYLE_RANKS[i]; idx = i; }
+    }
+    return { idx, ...best };
+  }
+
   function rankOf(v) {
-    if (v > 300) return 'SUPER-FÉ!!';
-    if (v > 220) return 'SANTO MARRETEIRO';
-    if (v > 140) return 'EXORCISTA DE OBRA';
-    if (v > 75) return 'OPERÁRIO DA FÉ';
-    if (v > 20) return 'PECADOR';
-    return '—';
+    const info = styleRankInfo(v);
+    return info ? info.name : '—';
+  }
+
+  function bloodRankOf(liters) {
+    const v = Math.floor(Math.max(0, liters || 0));
+    if (v >= 901) return 'SATÂNICO';
+    if (v >= 801) return 'S';
+    if (v >= 701) return 'A++';
+    if (v >= 601) return 'A+';
+    if (v >= 501) return 'A';
+    if (v >= 401) return 'B';
+    if (v >= 301) return 'C';
+    if (v >= 201) return 'D';
+    if (v >= 101) return 'E';
+    return 'F';
+  }
+
+  function bloodRankClass(rk) {
+    if (rk === 'SATÂNICO') return 'rank-satanico';
+    if (rk === 'S') return 'rank-s';
+    if (rk === 'A++' || rk === 'A+' || rk === 'A') return 'rank-a';
+    if (rk === 'B' || rk === 'C') return 'rank-mid';
+    return 'rank-low';
+  }
+
+  /* ---------------- HUD de Estilo 3D (efeito bandeira reto + combo de kills + feed de kills) ---------------- */
+  const _styleCache = {
+    fontReady: false,
+    text: '',
+    frontKey: '',
+    frontCvs: document.createElement('canvas'),
+    sideLayers: [],
+    srcW: 0,
+    srcH: 0,
+    comboNumText: '',
+    cNumFront: document.createElement('canvas'),
+    cNumLayers: [],
+    cNumW: 0,
+    cNumH: 0,
+    cXFront: document.createElement('canvas'),
+    cXLayers: [],
+    cXW: 0,
+    cXH: 0,
+    cXReady: false,
+    fillRankIdx: -2,
+    lastFeedSig: ''
+  };
+  if (document.fonts) {
+    Promise.all([
+      document.fonts.load('700 62px "Silkscreen"'),
+      document.fonts.load('400 62px "Silkscreen"'),
+      document.fonts.ready
+    ]).then(() => {
+      _styleCache.fontReady = true;
+      _styleCache.text = '';
+      _styleCache.comboNumText = '';
+      _styleCache.cXReady = false;
+    }).catch(() => {});
+  }
+
+  function _hexToRgb(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function _lerpRgb(a, b, t) {
+    const r = Math.round(a[0] + (b[0] - a[0]) * t);
+    const g = Math.round(a[1] + (b[1] - a[1]) * t);
+    const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+    return 'rgb(' + r + ',' + g + ',' + bl + ')';
+  }
+
+  function _bake3DWord(text, fontPx, frontCol, farCol, nearCol, numShades, outFront, outLayers) {
+    const font = '700 ' + fontPx + 'px "Silkscreen", monospace';
+    const ctxF = outFront.getContext('2d');
+    ctxF.font = font;
+    const m = ctxF.measureText(text);
+    const w = Math.max(8, Math.ceil(m.width) + 12);
+    const h = Math.ceil(fontPx * 1.24);
+    const cFar = _hexToRgb(farCol);
+    const cNear = _hexToRgb(nearCol);
+
+    const drawInto = (cvs, col) => {
+      cvs.width = w;
+      cvs.height = h;
+      const g = cvs.getContext('2d');
+      g.imageSmoothingEnabled = false;
+      g.clearRect(0, 0, w, h);
+      g.font = font;
+      g.textBaseline = 'middle';
+      g.textAlign = 'left';
+      if (Array.isArray(col)) {
+        const grad = g.createLinearGradient(0, h * 0.14, 0, h * 0.88);
+        grad.addColorStop(0, col[0]);
+        grad.addColorStop(1, col[1]);
+        g.fillStyle = grad;
+      } else {
+        g.fillStyle = col;
+      }
+      g.fillText(text, 4, h * 0.54);
+    };
+
+    drawInto(outFront, frontCol);
+    while (outLayers.length < numShades) outLayers.push(document.createElement('canvas'));
+    for (let i = 0; i < numShades; i++) {
+      const k = numShades > 1 ? i / (numShades - 1) : 1;
+      drawInto(outLayers[i], _lerpRgb(cFar, cNear, k));
+    }
+    return { w, h };
+  }
+
+  function _buildKillFeedNode(item) {
+    const row = document.createElement('div');
+    row.className = 'kill-feed-item' + (item.isSpecial ? ' kf-special' : '');
+    row.dataset.kfId = String(item.id);
+    const fullText = '+ ' + item.label;
+    for (let i = 0; i < fullText.length; i++) {
+      const ch = fullText[i];
+      const sp = document.createElement('span');
+      sp.className = 'kf-char' + (ch === ' ' ? ' kf-space' : '') + (i === 0 ? ' kf-plus' : '');
+      sp.style.setProperty('--ci', String(i));
+      sp.textContent = ch === ' ' ? '\u00A0' : ch;
+      row.appendChild(sp);
+    }
+    return row;
+  }
+
+  function renderKillFeedDOM() {
+    const feedEl = el('killFeed');
+    if (!feedEl) return;
+    const list = (S.killFeed || []).slice(0, 5);
+    const activeIds = new Set();
+    for (let i = 0; i < list.length; i++) activeIds.add(String(list[i].id));
+
+    // Remove nós expirados ou excedentes (> 5)
+    const existing = new Map();
+    for (let i = feedEl.children.length - 1; i >= 0; i--) {
+      const child = feedEl.children[i];
+      const id = child.dataset.kfId;
+      if (!activeIds.has(id)) {
+        feedEl.removeChild(child);
+      } else {
+        existing.set(id, child);
+      }
+    }
+
+    // Insere apenas novos kills no topo (mantendo a animação de cada letra intacta nos existentes)
+    for (let i = list.length - 1; i >= 0; i--) {
+      const item = list[i];
+      const id = String(item.id);
+      let node = existing.get(id);
+      if (!node) {
+        node = _buildKillFeedNode(item);
+        feedEl.insertBefore(node, feedEl.firstChild);
+      }
+      const alpha = item.t < 0.7 ? clamp(item.t / 0.7, 0, 1).toFixed(2) : '1';
+      if (node.style.opacity !== alpha) node.style.opacity = alpha;
+    }
+  }
+
+  const _styleSx = new Float32Array(56);
+  const _styleDx = new Float32Array(56);
+  const _styleDw = new Float32Array(56);
+  const _styleDh = new Float32Array(56);
+  const _styleDy = new Float32Array(56);
+  const _stylePersp = new Float32Array(56);
+  let _styleHudAcc = 0, _styleHudWasActive = false;
+
+  function renderStyleHUD3D(dt) {
+    const hudEl = el('styleHud');
+    const cvs = el('style3dCanvas');
+    if (!hudEl || !cvs) return;
+    const inCutscene = S.cutscene > 0 || (window.IntroCutscene && IntroCutscene.isActive());
+    const enabled = SAVE.showStyle !== false && S.started && !S.ended && !inCutscene;
+    const info = styleRankInfo(S.style);
+    const killCount = S.killCombo || 0;
+    const hasStyleOrCombo = (S.style > 0 && !!info) || killCount > 0;
+    const active = enabled && hasStyleOrCombo;
+    setClass('styleHud', 'hidden', !enabled);
+    setClass('styleHud', 'is-idle', !active);
+    if (!active) { _styleHudWasActive = false; return; }
+
+    const timerT = Math.max(S.styleT || 0, S.killComboT || 0);
+    const pct = clamp(timerT / 5.0, 0, 1) * 100;
+    setW('styleFill', pct);
+    const fillIdx = info ? info.idx : -1;
+    if (_styleCache.fillRankIdx !== fillIdx) {
+      _styleCache.fillRankIdx = fillIdx;
+      const fillEl = el('styleFill');
+      if (fillEl) {
+        if (info) {
+          fillEl.style.background = `linear-gradient(90deg, ${info.sideNear}, ${info.frontBot} 55%, ${info.frontTop})`;
+        } else {
+          fillEl.style.background = 'linear-gradient(90deg, #9aa8ba, #e8eef5 55%, #ffffff)';
+        }
+      }
+    }
+    renderKillFeedDOM();
+
+    const rankIdx = info ? info.idx : -1;
+    const forceDraw = !_styleHudWasActive || rankIdx !== S.lastStyleRankIdx || S.stylePopT > 0;
+    _styleHudWasActive = true;
+    _styleHudAcc += (dt || 0.016);
+    if (!forceDraw && _styleHudAcc < 0.033) return;
+    _styleHudAcc = 0;
+
+    const g = cvs.getContext('2d');
+    const W = cvs.width, H = cvs.height;
+    g.imageSmoothingEnabled = false;
+    g.clearRect(0, 0, W, H);
+
+    const t = S.time || 0;
+    const rankText = info ? info.name.toUpperCase() : 'BRUTAL';
+    const rankColorKey = info ? (info.frontTop + info.frontBot + info.sideNear) : 'default';
+    if (info && info.idx !== S.lastStyleRankIdx) {
+      if (S.lastStyleRankIdx >= 0 && info.idx > S.lastStyleRankIdx) S.stylePopT = 0.34;
+      S.lastStyleRankIdx = info.idx;
+    } else if (!info) {
+      S.lastStyleRankIdx = -1;
+    }
+
+    const STYLE_SHADES = 8;
+    const styleFontPx = rankText.length > 13 ? 42 : rankText.length > 9 ? 50 : 62;
+    if (_styleCache.text !== rankText || _styleCache.frontKey !== rankColorKey) {
+      const fCol = info ? [info.frontTop, info.frontBot] : ['#ffffff', '#e8eef5'];
+      const farCol = info ? info.sideFar : '#404854';
+      const nearCol = info ? info.sideNear : '#9aa8ba';
+      const sz = _bake3DWord(
+        rankText, styleFontPx, fCol, farCol, nearCol, STYLE_SHADES,
+        _styleCache.frontCvs, _styleCache.sideLayers
+      );
+      _styleCache.text = rankText;
+      _styleCache.frontKey = rankColorKey;
+      _styleCache.srcW = sz.w;
+      _styleCache.srcH = sz.h;
+    }
+
+    // Texto de STYLE 3D estilo Hotline Miami: esticado verticalmente, curto horizontalmente e balançando no eixo Z
+    let rightEdgeX = 56;
+    if (info && _styleCache.srcW > 0) {
+      const srcW = _styleCache.srcW, srcH = _styleCache.srcH;
+      const popT = S.stylePopT > 0 ? S.stylePopT / 0.34 : 0;
+      const popScale = 1 + Math.sin(popT * Math.PI) * 0.22;
+      const maxDrawW = 365;
+      const scaleX = Math.min(0.66, maxDrawW / srcW) * popScale;
+      const scaleY = 1.48 * Math.min(1.0, (maxDrawW / srcW) * 1.45) * popScale;
+      const depth = 12;
+      const slices = Math.min(28, Math.max(16, Math.ceil(srcW / 8)));
+      const sliceSrcW = srcW / slices;
+
+      // Calcula largura total em perspectiva para centralizar o pivô de rotação Z (buffers reutilizados)
+      const sxArr = _styleSx;
+      const dxArr = _styleDx;
+      const dwArr = _styleDw;
+      const dhArr = _styleDh;
+      const dyArr = _styleDy;
+      const perspArr = _stylePersp;
+
+      let totalW = 0;
+      for (let i = 0; i < slices; i++) {
+        const u = i / Math.max(1, slices - 1);
+        const persp = 1.18 - u * 0.44;
+        const dw = sliceSrcW * scaleX * (1.0 - u * 0.24);
+        const dh = srcH * scaleY * persp;
+        sxArr[i] = i * sliceSrcW;
+        dxArr[i] = totalW;
+        dwArr[i] = dw + 0.85;
+        dhArr[i] = dh;
+        dyArr[i] = -dh * 0.5 - u * 4.0;
+        perspArr[i] = persp;
+        totalW += dw;
+      }
+
+      const pivotX = 58 + totalW * 0.5;
+      const pivotY = H * 0.55;
+      rightEdgeX = 58 + totalW + 26;
+
+      // Balanço 3D estilo hélice / Hotline Miami no eixo Z
+      const rotZ = Math.sin(t * 2.8) * 0.13 + Math.sin(popT * Math.PI) * -0.09;
+      const extDirX = -3.14 * Math.cos(rotZ * 1.5);
+      const extDirY = -0.48 + Math.sin(rotZ * 2.2) * 1.19;
+
+      g.save();
+      g.translate(pivotX, pivotY);
+      g.rotate(rotZ);
+      for (let d = depth; d >= 0; d--) {
+        let srcCvs;
+        if (d === 0) {
+          srcCvs = _styleCache.frontCvs;
+        } else {
+          const shadeIdx = Math.min(STYLE_SHADES - 1, Math.floor(((depth - d) / depth) * STYLE_SHADES));
+          srcCvs = _styleCache.sideLayers[shadeIdx];
+        }
+        for (let i = 0; i < slices; i++) {
+          const p = perspArr[i];
+          const ox = d * extDirX * p;
+          const oy = d * extDirY * p;
+          g.drawImage(
+            srcCvs,
+            sxArr[i], 0, sliceSrcW, srcH,
+            dxArr[i] - totalW * 0.5 + ox, dyArr[i] + oy, dwArr[i], dhArr[i]
+          );
+        }
+      }
+      g.restore();
+    }
+
+    // Combo de KILLS ao lado (ex: "3X") em 3D vermelho-sangue: esticado verticalmente, saltando forte e balançando no eixo Z!
+    if (killCount > 0) {
+      const COMBO_SHADES = 8;
+      const numStr = String(killCount);
+      if (_styleCache.comboNumText !== numStr) {
+        const szN = _bake3DWord(
+          numStr, 72, '#ffffff', '#360000', '#e01010', COMBO_SHADES,
+          _styleCache.cNumFront, _styleCache.cNumLayers
+        );
+        _styleCache.comboNumText = numStr;
+        _styleCache.cNumW = szN.w;
+        _styleCache.cNumH = szN.h;
+      }
+      const silkLoaded = !document.fonts || document.fonts.check('700 58px "Silkscreen"');
+      if (!_styleCache.cXReady || (silkLoaded && !_styleCache.cXFontOk)) {
+        const szX = _bake3DWord(
+          'X', 58, '#ffffff', '#360000', '#e01010', COMBO_SHADES,
+          _styleCache.cXFront, _styleCache.cXLayers
+        );
+        _styleCache.cXW = szX.w;
+        _styleCache.cXH = szX.h;
+        _styleCache.cXReady = true;
+        _styleCache.cXFontOk = silkLoaded;
+      }
+
+      // Curva de salto forte no kill (S.hitPopT: 0.42 -> 0)
+      const popNorm = S.hitPopT > 0 ? clamp(S.hitPopT / 0.42, 0, 1) : 0;
+      const elapsed = 1 - popNorm;
+      const springBounce = popNorm > 0
+        ? (Math.sin(popNorm * Math.PI) * 0.55 + Math.exp(-elapsed * 5.5) * Math.cos(elapsed * 18) * 0.26 * popNorm)
+        : 0;
+      const cPop = 1 + springBounce;
+      const jumpY = -Math.sin(popNorm * Math.PI) * 34;
+      const popTilt = (killCount % 2 ? 1 : -1) * Math.sin(popNorm * Math.PI) * 0.30;
+
+      // Esticado verticalmente e curto horizontalmente (Hotline Miami)
+      const nw = _styleCache.cNumW * 0.68 * cPop;
+      const nh = _styleCache.cNumH * 1.44 * cPop;
+      const xw = _styleCache.cXW * 0.68 * cPop;
+      const xh = _styleCache.cXH * 1.38 * cPop;
+      const groupW = nw + xw * 0.78;
+      const pivotX = Math.min(W - groupW * 0.5 - 48, rightEdgeX + groupW * 0.5);
+      const pivotY = H * 0.52 + jumpY;
+      const comboRotZ = Math.sin(t * 3.5 + 0.85) * 0.17 + popTilt;
+      const cDepth = 12;
+      const cExtX = 3.14 * Math.cos(comboRotZ * 1.4);
+      const cExtY = -0.43 - Math.sin(comboRotZ * 2.0) * 1.19;
+
+      g.save();
+      g.translate(pivotX, pivotY);
+      g.rotate(comboRotZ);
+
+      const numOffX = -groupW * 0.5;
+      const numOffY = -nh * 0.56;
+      const xOffX = numOffX + nw * 0.82;
+      const xOffY = -xh * 0.36;
+
+      // Extrusão 3D vermelha do número
+      for (let d = cDepth; d >= 0; d--) {
+        const srcCvs = d === 0
+          ? _styleCache.cNumFront
+          : _styleCache.cNumLayers[Math.min(COMBO_SHADES - 1, Math.floor(((cDepth - d) / cDepth) * COMBO_SHADES))];
+        const ox = d * cExtX;
+        const oy = d * cExtY;
+        g.drawImage(srcCvs, 0, 0, _styleCache.cNumW, _styleCache.cNumH, numOffX + ox, numOffY + oy, nw, nh);
+      }
+      // Extrusão 3D vermelha do "X"
+      for (let d = cDepth; d >= 0; d--) {
+        const srcCvs = d === 0
+          ? _styleCache.cXFront
+          : _styleCache.cXLayers[Math.min(COMBO_SHADES - 1, Math.floor(((cDepth - d) / cDepth) * COMBO_SHADES))];
+        const ox = d * cExtX;
+        const oy = d * cExtY;
+        g.drawImage(srcCvs, 0, 0, _styleCache.cXW, _styleCache.cXH, xOffX + ox, xOffY + oy, xw, xh);
+      }
+      g.restore();
+    }
   }
 
   const navScene = new THREE.Scene();
@@ -3823,17 +4253,106 @@
     }
   }
 
+  let _faceAcc = 0, _radarAcc = 0, _faceLastHp = -1;
+  let _objHudLastSig = '';
+
+  function evalObjectiveCondition(cond, roomId, r) {
+    if (!cond) return { label: '', progress: '', done: true };
+    if (cond.type === 'killAll') {
+      const fallbackTotal = (SPAWNS[roomId] && SPAWNS[roomId].length) || 0;
+      const total = r && r.total > 0 ? r.total : (r && r.cleared ? fallbackTotal : 0);
+      const alive = (r && r.spawned && !r.cleared) ? A.aliveInRoom(roomId) : 0;
+      const killed = (r && r.cleared) ? total : Math.max(0, total - alive);
+      const done = !!(r && r.cleared) || !!(r && r.spawned && alive === 0);
+      return {
+        label: cond.label || 'Matar todos os inimigos',
+        progress: '(' + killed + '/' + total + ')',
+        done
+      };
+    }
+    if (typeof cond.eval === 'function') {
+      return cond.eval(roomId, r);
+    }
+    return {
+      label: cond.label || '',
+      progress: cond.progress || '',
+      done: !!cond.done
+    };
+  }
+
+  function areRoomConditionsMet(roomId, r) {
+    const def = ROOMS[roomId];
+    if (def && def.conditions && def.conditions.length > 0) {
+      for (let i = 0; i < def.conditions.length; i++) {
+        if (!evalObjectiveCondition(def.conditions[i], roomId, r).done) return false;
+      }
+      return true;
+    }
+    return A.aliveInRoom(roomId) === 0;
+  }
+
+  function updateObjectiveHUD() {
+    const box = el('objectiveBox');
+    if (!box) return;
+    const mapId = World.currentMap;
+    const roomId = S.objRoom || mapId;
+    const def = ROOMS[roomId];
+    const r = S.rooms[roomId];
+    const mapName = resolveMapBannerName(mapId);
+    const objText = S.objText || (def && def.obj) || '';
+    const condDefs = (def && def.conditions) || [];
+    const evals = [];
+    for (let i = 0; i < condDefs.length; i++) {
+      evals.push(evalObjectiveCondition(condDefs[i], roomId, r));
+    }
+    const sig = mapName + '|' + objText + '|' + evals.map(c => (c.done ? '1' : '0') + c.label + c.progress).join(';');
+    if (sig === _objHudLastSig) return;
+    _objHudLastSig = sig;
+    show('objectiveBox', !!(mapName || objText));
+    setText('objMapName', mapName);
+    setText('objMain', objText);
+    const condWrap = el('objConditions');
+    if (!condWrap) return;
+    if (evals.length === 0) {
+      show('objConditions', false);
+      condWrap.textContent = '';
+      return;
+    }
+    show('objConditions', true);
+    condWrap.textContent = '';
+    for (let i = 0; i < evals.length; i++) {
+      const c = evals[i];
+      const row = document.createElement('div');
+      row.className = 'obj-cond' + (c.done ? ' done' : '');
+      const tag = document.createElement('span');
+      tag.className = 'obj-cond-tag';
+      tag.textContent = c.done ? '✓ Condição: ' : 'Condição: ';
+      row.appendChild(tag);
+      row.appendChild(document.createTextNode(c.label));
+      if (c.progress) {
+        row.appendChild(document.createTextNode(' '));
+        const cnt = document.createElement('span');
+        cnt.className = 'obj-cond-count';
+        cnt.textContent = c.progress;
+        row.appendChild(cnt);
+      }
+      condWrap.appendChild(row);
+    }
+  }
+
   function updateHUD(dt) {
     const hideCrosshair = !!S.glory || S.cutscene > 0;
     show('crosshair', !hideCrosshair && !P.dead && S.started && !S.paused);
     const w = WEAPONS[curW()];
-    setText('hpNum', Math.ceil(P.hp));
-    el('hpNum').style.color = P.hp < 50 ? '#ff3030' : '#ff5a4a';
+    const hpCeil = Math.ceil(P.hp);
+    setText('hpNum', hpCeil);
+    setStyle('hpNum', 'color', P.hp < 50 ? '#ff3030' : '#ff5a4a');
     setText('armorNum', Math.ceil(P.armor || 0));
     setW('faithFill', P.faith);
     const faithKeyName = formatKeyName((SAVE.binds && SAVE.binds.faith) || DEFAULT_BINDS.faith);
     setText('faithTxt', P.faithMode > 0 ? 'SUPER-FÉ!' : (P.faith >= 100 ? '[' + faithKeyName + '] PRONTA' : Math.floor(P.faith) + '%'));
     setW('dashFill', (1 - clamp(P.dashCd / 1.1, 0, 1)) * 100);
+    setClass('dashBar', 'ready', P.dashCd <= 0);
     setText('weaponName', w.name);
     let am = '∞', al = 'ESQ: COMBO 5 SOCOS';
     if (w.id === 'hammer') { al = 'DIR: ARREMESSAR TIJOLO'; }
@@ -3843,85 +4362,91 @@
     else if (w.id === 'cross') { am = S.cross.state === 'held' ? 'PRONTA' : 'NO AR'; al = 'DIR: GOLPE / RECALL'; }
     else if (w.id === 'heart') { am = Math.floor(P.blood); al = 'SANGUE · DIR: RAJADA (15)'; }
     setText('ammoNum', am); setText('ammoLabel', al);
-    el('ammoNum').style.fontSize = (typeof am === 'string' && am.length > 2) ? '24px' : '38px';
-    el('ammoNum').style.color = S.ammoFlash > 0 ? '#ff3030' : '#ffd24a';
-    setText('killCount', S.kills);
+    setStyle('ammoNum', 'fontSize', (typeof am === 'string' && am.length > 2) ? '18px' : '32px');
+    setStyle('ammoNum', 'color', S.ammoFlash > 0 ? '#ff3030' : '#ffd24a');
     const m = Math.floor(S.time / 60), sec = Math.floor(S.time % 60);
     setText('timeCount', String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0'));
-    setText('styleRank', rankOf(S.style));
-    setW('styleFill', clamp(S.style / 300, 0, 1) * 100);
+    updateObjectiveHUD();
+    renderStyleHUD3D(dt);
     updateNavArrow(dt);
     // chefe
     const b = S.boss;
     const bossOn = !!(b && enemies.includes(b) && !b.dead && !b.galiusIntro && !b.maximusIntro && !(S.cutscene > 0 && (S.csKind === 'maximusIntro' || S.csKind === 'galiusIntro')));
-    el('hud').classList.toggle('boss-active', bossOn);
+    setClass('hud', 'boss-active', bossOn);
     if (bossOn) {
       show('bossbar', true);
       setText('bossName', b.T.name);
       setW('bossFill', clamp(b.hp / b.maxhp, 0, 1) * 100);
     } else show('bossbar', false);
-    // overlays
+    // overlays (arredondados a 2 casas para evitar escrita DOM redundante)
     const flashK = SAVE.screenFlash != null ? SAVE.screenFlash : 1;
     const hpRatio = clamp(P.hp / P.maxhp, 0, 1);
     const missing = 1 - hpRatio;
     const critPulse = P.hp < 50 && !P.dead ? Math.sin(S.time * 6) * 0.08 * ((50 - P.hp) / 50) : 0;
     const low = P.dead ? 0.85 : (missing > 0 ? Math.pow(missing, 1.25) * 0.78 + critPulse : 0);
-    el('damage').style.opacity = clamp(low + P.hurtFlash * flashK, 0, 1);
-    el('healFlash').style.opacity = clamp((P.healFlash || 0) * flashK, 0, 1);
-    el('faithTint').style.opacity = P.faithMode > 0 ? (0.7 + Math.sin(S.time * 10) * 0.15) * flashK : 0;
+    setStyle('damage', 'opacity', (Math.round(clamp(low + P.hurtFlash * flashK, 0, 1) * 100) / 100).toString());
+    setStyle('healFlash', 'opacity', (Math.round(clamp((P.healFlash || 0) * flashK, 0, 1) * 100) / 100).toString());
+    setStyle('faithTint', 'opacity', (Math.round((P.faithMode > 0 ? (0.7 + Math.sin(S.time * 10) * 0.15) * flashK : 0) * 100) / 100).toString());
     if (S.slotsT > 0) S.slotsT = Math.max(0, S.slotsT - dt);
-    el('slots').classList.toggle('faded', !(S.slotsT > 0));
-    el('hitmarker').classList.toggle('on', !!SAVE.showHitmarker && S.hitMark > 0);
+    setClass('slots', 'faded', !(S.slotsT > 0));
+    setClass('hitmarker', 'on', !!SAVE.showHitmarker && S.hitMark > 0);
     if (S.msgT <= 0) show('msg', false);
     if (S.baphT <= 0) show('baph', false);
     if (S.prompt) {
       show('prompt', true);
       setText('prompt', S.prompt);
-      el('prompt').classList.toggle('glory-prompt', !!S.gloryPrompt);
+      setClass('prompt', 'glory-prompt', !!S.gloryPrompt);
     } else {
       show('prompt', false);
-      el('prompt').classList.remove('glory-prompt');
+      setClass('prompt', 'glory-prompt', false);
     }
     show('faceWrap', SAVE.showFace !== false);
-    el('faceWrap').classList.toggle('faith-active', P.faithMode > 0);
-    show('radar', SAVE.showRadar !== false);
-    show('styleBox', SAVE.showStyle !== false);
-    if (SAVE.showFace !== false) drawFace();
-    if (SAVE.showRadar !== false) drawRadar();
+    setClass('faceWrap', 'faith-active', P.faithMode > 0);
+    if (SAVE.showFace !== false) {
+      _faceAcc += dt;
+      if (_faceAcc >= 0.05 || hpCeil !== _faceLastHp || P.hurtFlash > 0.1) {
+        _faceAcc = 0;
+        _faceLastHp = hpCeil;
+        drawFace();
+      }
+    }
     A.updatePeasantLabels();
   }
 
   /* ---------------- salas / história ---------------- */
   const ROOMS = {
-    a1: { name: 'EP. 1 · ÁREA 1 · BAIRRO ALTO', obj: 'Elimine todos os demônios do Bairro Alto', track: 'ep1_a1',
+    a1: { name: 'EP. 1 · ÁREA 1 · BAIRRO ALTO', obj: 'Avançar para o próximo setor', track: 'ep1_a1',
+      conditions: [{ type: 'killAll', label: 'Matar todos os inimigos' }],
       onClear() {
         unlockExitGate(); SFX.play('gate');
         say('Bairro Alto purificado! Atravesse o Portão de Saída!', 'NIVALDO', 4.5);
-        setObj('Atravesse o Portão de Saída para os Campos da Perdição', { x: World.exitGate.x, z: World.exitGate.z });
+        setObj('Avançar para o próximo setor', { x: World.exitGate.x, z: World.exitGate.z });
         S.stage = 'a1done';
       } },
-    a2: { name: 'EP. 1 · ÁREA 2 · CAMPOS DA PERDIÇÃO', obj: 'Limpe os campos e celeiros em chamas', track: 'ep1_a2',
+    a2: { name: 'EP. 1 · ÁREA 2 · CAMPOS DA PERDIÇÃO', obj: 'Avançar para o próximo setor', track: 'ep1_a2',
+      conditions: [{ type: 'killAll', label: 'Matar todos os inimigos' }],
       onClear() {
         unlockExitGate(); SFX.play('gate');
         say('Campos purificados! O Portão para o Subúrbio Exterior está aberto!', 'NIVALDO', 4.5);
-        setObj('Atravesse o Portão de Saída para o Subúrbio Exterior', { x: World.exitGate.x, z: World.exitGate.z });
+        setObj('Avançar para o próximo setor', { x: World.exitGate.x, z: World.exitGate.z });
         S.stage = 'a2done';
       } },
-    a3: { name: 'EP. 1 · ÁREA 3 · SUBÚRBIO EXTERIOR', obj: 'Elimine os demônios e guardas do Subúrbio', track: 'ep1_a3',
+    a3: { name: 'EP. 1 · ÁREA 3 · SUBÚRBIO EXTERIOR', obj: 'Avançar para o próximo setor', track: 'ep1_a3',
+      conditions: [{ type: 'killAll', label: 'Matar todos os inimigos' }],
       onClear() {
         unlockExitGate(); SFX.play('gate');
         say('Episódio 1 concluído! Atravesse o Portão rumo à Cidade Baixa!', 'NIVALDO', 4.5);
-        setObj('Atravesse o Portão de Saída para os Casarões dos Super-Ricos', { x: World.exitGate.x, z: World.exitGate.z });
+        setObj('Avançar para o próximo setor', { x: World.exitGate.x, z: World.exitGate.z });
         S.stage = 'a3done';
       } },
-    a4: { name: 'EP. 2 · ÁREA 4 · CASARÕES DOS SUPER-RICOS', obj: 'Elimine os demônios das mansões em chamas', track: 'ep2_a1',
+    a4: { name: 'EP. 2 · ÁREA 4 · BURGO SATANIZADO EXTERIOR', obj: 'Elimine os demônios das mansões em chamas', track: 'ep2_a1',
       onClear() {
         unlockExitGate(); SFX.play('gate');
-        say('Mansões purificadas! O Portão para a Avenida do Horror se abriu!', 'NIVALDO', 4.5);
-        setObj('Atravesse o Portão de Saída para a Avenida do Horror', { x: World.exitGate.x, z: World.exitGate.z });
+        say('Mansões purificadas! O Portão para o Burgo Satanizado Interior se abriu!', 'NIVALDO', 4.5);
+        setObj('Atravesse o Portão de Saída para o Burgo Satanizado Interior', { x: World.exitGate.x, z: World.exitGate.z });
         S.stage = 'a4done';
       } },
-    a5: { name: 'EP. 2 · ÁREA 5 · AVENIDA DO HORROR', obj: 'Rompa os ninhos infernais rumo à Ultra-Igreja', track: 'ep2_a2',
+    a5: { name: 'EP. 2 · ÁREA 5 · BURGO SATANIZADO INTERIOR', obj: 'Rompa os ninhos infernais rumo à Ultra-Igreja', track: 'ep2_a2',
       onClear() {
         unlockExitGate(); SFX.play('gate');
         say('Episódio 2 concluído! A Ultra-Igreja aguarda além do Portão!', 'NIVALDO', 4.5);
@@ -3930,21 +4455,21 @@
       } },
     a6_gate: { name: 'EP. 3 · ÁREA 6 · PORTÕES DA ULTRA-IGREJA', obj: 'Elimine todos os inimigos nos portões', track: 'ep3_gate', onClear: spawnMaximus },
     a6_maximus: { name: 'EP. 3 · ÁREA 6 · PORTÕES DA ULTRA-IGREJA', obj: 'Derrote SÉRGIO MAXIMO, Líder da Super-Guarda Real', track: 'ep3_maximus', noCount: true, onClear: maximusDead },
-    a6_nave: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Esmigalhe os demônios da Ultra-Igreja', track: 'ep3_nave', onClear: galiusEvent },
-    a6_galius1: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Enfrente Galius, o Super-Ateu!', track: 'ep3_galius', noCount: true, noClear: true },
+    a6_nave: { name: 'EP. 3 · ÁREA 6 · A CAPELA DEMONIZADA', obj: 'Esmigalhe os demônios da Capela Demonizada', track: 'ep3_nave', onClear: galiusEvent },
+    a6_galius1: { name: 'EP. 3 · ÁREA 6 · A CAPELA DEMONIZADA', obj: 'Enfrente Galius, o Super-Ateu!', track: 'ep3_galius', noCount: true, noClear: true },
     a6_crypt1: { name: 'EP. 3 · CATACUMBAS · ENTRADA', obj: 'Elimine os endemoniados das catacumbas', track: 'ep3_crypt',
       onClear() { openGate('g_c1'); SFX.play('gate'); setObj('Avance para o Salão dos Mortos', { x: 58, z: -14 }); } },
     a6_crypt2: { name: 'EP. 3 · CATACUMBAS · SALÃO DOS MORTOS', obj: 'Elimine os guardiões do Salão dos Mortos', track: 'ep3_crypt',
       onClear() { openGate('g_c2'); SFX.play('gate'); setObj('Avance para a Galeria dos Ossos', { x: 58, z: -76 }); } },
     a6_crypt3: { name: 'EP. 3 · CATACUMBAS · GALERIA DOS OSSOS', obj: 'Elimine os horrores da Galeria dos Ossos', track: 'ep3_crypt',
       onClear() { openGate('g_c3'); SFX.play('gate'); setObj('Chegue à Câmara Sacra', { x: -4, z: -86 }); } },
-    a6_galius2: { name: 'EP. 3 · ÁREA 6 · A ULTRA-IGREJA', obj: 'Derrote Galius com a Sacra Cruz Papal', track: 'ep3_galius', noCount: true, noClear: true }
+    a6_galius2: { name: 'EP. 3 · ÁREA 6 · A CAPELA DEMONIZADA', obj: 'Derrote Galius com a Sacra Cruz Papal', track: 'ep3_galius', noCount: true, noClear: true }
   };
-  for (const id in ROOMS) S.rooms[id] = { spawned: false, cleared: false };
+  for (const id in ROOMS) S.rooms[id] = { spawned: false, cleared: false, total: 0 };
 
   function startRoom(id, silent) {
     const r = S.rooms[id];
-    r.spawned = true; r.cleared = false;
+    r.spawned = true; r.cleared = false; r.total = 0;
     if (ROOMS[id] && ROOMS[id].track && SFX.setTrack) SFX.setTrack(ROOMS[id].track);
     const list = SPAWNS[id] || [];
     const spawnMul = A.getDifficulty().spawnMul;
@@ -3971,6 +4496,7 @@
         toSpawn.push({ sp: regulars[0], copyIdx: 0 });
       }
     }
+    r.total = toSpawn.length;
     const tmpPos = new V3();
     for (let i = 0; i < toSpawn.length; i++) {
       const { sp, copyIdx } = toSpawn[i];
@@ -3992,6 +4518,96 @@
     if (!silent) setObj(ROOMS[id].obj, null);
     else setObj(ROOMS[id].obj, S.objPos);
   }
+  const MAP_DISPLAY_NAMES = {
+    a1: 'Bairro Alto',
+    a2: 'Campos da Perdição',
+    a3: 'Subúrbio Exterior',
+    a4: 'Burgo Satanizado Exterior',
+    a5: 'Burgo Satanizado Interior',
+    a6_gate: 'Portões da Ultra-Igreja',
+    a6_nave: 'A Capela Demonizada',
+    a6_crypt: 'Catacumbas de Rômulo III'
+  };
+  function resolveMapBannerName(mapId) {
+    if (MAP_DISPLAY_NAMES[mapId]) return MAP_DISPLAY_NAMES[mapId];
+    const r = ROOMS[mapId];
+    if (r && r.name) {
+      const parts = r.name.split('·');
+      return parts[parts.length - 1].trim();
+    }
+    return String(mapId || '');
+  }
+  function hideMapBanner() {
+    S.mapBanner = null;
+    const wrap = el('mapTitleBanner');
+    const line = el('mapTitleLine');
+    if (wrap) {
+      wrap.style.opacity = '0';
+      wrap.style.transform = 'translate(-50%, -50%) scale(0.985)';
+    }
+    if (line) line.style.transform = 'scaleX(0)';
+  }
+  function showMapBanner(mapId, delay) {
+    const title = resolveMapBannerName(mapId);
+    const wrap = el('mapTitleBanner');
+    const textEl = el('mapTitleText');
+    const line = el('mapTitleLine');
+    if (!title || !wrap || !textEl || !line) return;
+    textEl.textContent = title;
+    wrap.style.opacity = '0';
+    wrap.style.transform = 'translate(-50%, -50%) scale(0.985)';
+    line.style.transform = 'scaleX(0)';
+    S.mapBanner = {
+      t: 0,
+      delay: delay != null ? delay : 0.35,
+      inDur: 0.9,
+      holdDur: 2.35,
+      outDur: 1.15
+    };
+  }
+  function updateMapBanner(dt) {
+    const B = S.mapBanner;
+    if (!B) return;
+    const wrap = el('mapTitleBanner');
+    const line = el('mapTitleLine');
+    if (!wrap || !line) { S.mapBanner = null; return; }
+    B.t += dt;
+    const t0 = B.t - B.delay;
+    if (t0 <= 0) {
+      wrap.style.opacity = '0';
+      line.style.transform = 'scaleX(0)';
+      return;
+    }
+    if (t0 < B.inDur) {
+      const p = Math.min(1, t0 / B.inDur);
+      const easeOp = 1 - Math.pow(1 - p, 3);
+      const lineP = Math.max(0, Math.min(1, (t0 - 0.08) / (B.inDur - 0.08)));
+      const easeLine = 1 - Math.pow(1 - lineP, 4);
+      const sc = 0.985 + 0.015 * easeOp;
+      wrap.style.opacity = easeOp.toFixed(4);
+      wrap.style.transform = 'translate(-50%, -50%) scale(' + sc.toFixed(4) + ')';
+      line.style.transform = 'scaleX(' + easeLine.toFixed(4) + ')';
+      return;
+    }
+    const tHold = t0 - B.inDur;
+    if (tHold < B.holdDur) {
+      wrap.style.opacity = '1';
+      wrap.style.transform = 'translate(-50%, -50%) scale(1)';
+      line.style.transform = 'scaleX(1)';
+      return;
+    }
+    const tOut = tHold - B.holdDur;
+    if (tOut < B.outDur) {
+      const p = Math.min(1, tOut / B.outDur);
+      const easeOut = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      wrap.style.opacity = (1 - easeOut).toFixed(4);
+      wrap.style.transform = 'translate(-50%, -50%) scale(1)';
+      line.style.transform = 'scaleX(1)';
+      return;
+    }
+    hideMapBanner();
+  }
+
   function loadMap(mapId, opts) {
     opts = opts || {};
     releaseGrab();
@@ -4002,7 +4618,8 @@
     if (S.corpse) { scene.remove(S.corpse); S.corpse = null; }
     if (S.maximusSpirit) { scene.remove(S.maximusSpirit); S.maximusSpirit = null; }
     S.maximusRig = null; S.maximusCorpse = null;
-    for (const id in S.rooms) S.rooms[id] = { spawned: false, cleared: false };
+    for (const id in S.rooms) S.rooms[id] = { spawned: false, cleared: false, total: 0 };
+    _objHudLastSig = '';
     const sx = opts.x != null ? opts.x : 0;
     const sz = opts.z != null ? opts.z : 10;
     World.viewerX = sx;
@@ -4015,53 +4632,642 @@
       P.hasRosary = false; P.maxhp = 200;
       P.hp = P.maxhp; P.faith = 0; P.faithMode = 0; P.rocks = 0; P.blood = 0;
       WEAPONS.forEach((w, i) => w.owned = i < 2);
-      updateSlots(); selectWeapon(0, true);
+      updateSlots(); selectWeapon(1, true);
     }
     S.levelKills = 0;
     S.levelTotal = 0;
     S.levelTime = 0;
     S.levelPeakStyle = 0;
+    S.levelBloodLiters = 0;
+    S.style = 0;
+    S.styleT = 0;
+    S.hitCombo = 0;
+    S.hitComboT = 0;
+    S.hitPopT = 0;
+    S.levelMaxCombo = 0;
+    S.killCombo = 0;
+    S.killComboT = 0;
+    S.stylePopT = 0;
+    S.lastStyleRankIdx = -1;
+    S.killFeed = [];
+    _styleCache.lastFeedSig = '';
+    const firstRoom = opts.room || (mapId === 'a6_crypt' ? 'a6_crypt1' : mapId);
+    A.computeMapBloodExpected(mapId, firstRoom);
     P.pos.set(sx, getGroundY(sx, sz), sz); P.vel.set(0, 0, 0); P.yaw = opts.yaw || 0; P.pitch = 0;
     resetCamera();
-    const firstRoom = opts.room || (mapId === 'a6_crypt' ? 'a6_crypt1' : mapId);
     if (ROOMS[firstRoom]) startRoom(firstRoom);
     A.syncRenderDistanceEntities();
     setCheckpoint(sx, sz, P.yaw);
+    if (!opts.noBanner) showMapBanner(mapId, opts.bannerDelay);
   }
   let pendingNextMap = null;
+
+  /* ---------------- Tela de Passagem de Fase 3D (Nivaldo nos Morros do Inferno) ---------------- */
+  const LC_PAR_TIME = {
+    a1: 90, a2: 120, a3: 135, a4: 150, a5: 150,
+    a6_gate: 180, a6_nave: 180, a6_crypt: 210
+  };
+  const LC_WALK_YAW = Math.PI / 6; // 30 graus no eixo Y (olhando levemente para a direita)
+  const LC_DIR_X = Math.sin(LC_WALK_YAW);
+  const LC_DIR_Z = Math.cos(LC_WALK_YAW);
+
+  const lcSceneState = {
+    built: false,
+    scene: null,
+    cam: null,
+    nivaldo: null,
+    terrainGeo: null,
+    terrainBaseXZ: null,
+    terrainTex: null,
+    props: [],
+    embers: null,
+    emberPos: null,
+    emberVel: null,
+    sky: null,
+    rimLight: null,
+    walkDist: 0,
+    walkPhase: 0,
+    time: 0
+  };
+
+  const lcAnim = {
+    t: 0,
+    done: false,
+    bloodTarget: 0,
+    killsTarget: 0,
+    killsTotal: 0,
+    timeTarget: 0,
+    comboTarget: 0,
+    bloodMax: false,
+    killsMax: false,
+    timeMax: false,
+    comboMax: false,
+    isPerfect: false,
+    rankText: '—',
+    rankCls: 'rank-low',
+    bloodDone: false,
+    killsDone: false,
+    timeDone: false,
+    comboDone: false,
+    rankShown: false,
+    purifiedShown: false,
+    perfectShown: false,
+    lastTickSfx: -1
+  };
+
+  function lcHillHeight(wx, wz) {
+    // Morros infernais ondulados com vales e cristas dramáticas
+    let h = Math.sin(wx * 0.085) * 2.1 + Math.cos(wz * 0.072) * 1.9;
+    h += Math.sin(wx * 0.17 + wz * 0.13) * 0.95;
+    h += Math.cos(wx * 0.31 - wz * 0.24) * 0.36;
+    return h;
+  }
+
+  function lcTerrainY(vx, vz, ox, oz) {
+    // Suaviza levemente a faixa central onde Nivaldo caminha e eleva morros laterais/fundo
+    const base = lcHillHeight(vx + ox, vz + oz);
+    const side = Math.min(1, Math.abs(vx) / 14);
+    const back = Math.max(0, (-vz - 6) / 28);
+    const ridgeBoost = side * side * 3.4 + back * back * 6.5;
+    return base * (0.45 + 0.55 * side) + ridgeBoost * (0.65 + 0.35 * Math.sin((vx + ox) * 0.12));
+  }
+
+  function initIntermissionScene() {
+    if (lcSceneState.built) return;
+    lcSceneState.built = true;
+
+    const sc = new THREE.Scene();
+    sc.fog = new THREE.Fog(0x280706, 12, 62);
+    const cam = new THREE.PerspectiveCamera(42, innerWidth / Math.max(1, innerHeight), 0.1, 160);
+
+    // Céu infernal
+    const skyGeo = new THREE.SphereGeometry(110, 18, 12);
+    const skyMat = new THREE.MeshBasicMaterial({ map: TX.skyTexture(), side: THREE.BackSide, fog: false });
+    const sky = new THREE.Mesh(skyGeo, skyMat);
+    sc.add(sky);
+
+    // Sol / eclipse infernal avermelhado ao fundo dos morros
+    const sunDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(10.5, 20),
+      new THREE.MeshBasicMaterial({ color: 0xff4a18, fog: false })
+    );
+    sunDisc.position.set(-14, 15, -72);
+    sc.add(sunDisc);
+    const sunHalo = new THREE.Mesh(
+      new THREE.CircleGeometry(18, 20),
+      new THREE.MeshBasicMaterial({ color: 0xaa1a08, transparent: true, opacity: 0.35, fog: false })
+    );
+    sunHalo.position.set(-14, 15, -73);
+    sc.add(sunHalo);
+
+    // Iluminação dramática 3 pontos do Inferno
+    const amb = new THREE.AmbientLight(0x4a1612, 1.15);
+    sc.add(amb);
+    const keyLight = new THREE.DirectionalLight(0xffb478, 1.25);
+    keyLight.position.set(5.5, 7.0, 6.5);
+    sc.add(keyLight);
+    const rimLight = new THREE.DirectionalLight(0xff3812, 1.85);
+    rimLight.position.set(-6.0, 5.5, -8.0);
+    sc.add(rimLight);
+    const fireFill = new THREE.PointLight(0xff4210, 1.6, 22);
+    fireFill.position.set(-2.2, 2.4, -3.5);
+    sc.add(fireFill);
+
+    // Terreno de morros do inferno com scroll contínuo
+    const segs = 44;
+    const terrainGeo = new THREE.PlaneGeometry(92, 92, segs, segs);
+    terrainGeo.rotateX(-Math.PI / 2);
+    const posAttr = terrainGeo.attributes.position;
+    const baseXZ = new Float32Array(posAttr.count * 2);
+    for (let i = 0; i < posAttr.count; i++) {
+      baseXZ[i * 2] = posAttr.getX(i);
+      baseXZ[i * 2 + 1] = posAttr.getZ(i) - 18;
+      posAttr.setZ(i, baseXZ[i * 2 + 1]);
+    }
+    const hellTex = TX.get('hellfloor').clone();
+    hellTex.needsUpdate = true;
+    hellTex.wrapS = hellTex.wrapT = THREE.RepeatWrapping;
+    hellTex.repeat.set(22, 22);
+    const terrainMat = psx(new THREE.MeshLambertMaterial({ map: hellTex, color: 0xb84836 }));
+    const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+    sc.add(terrainMesh);
+
+    // Nivaldo em 3ª pessoa andando nos morros, rotacionado 30º no eixo Y
+    const niv = BUILD.nivaldo();
+    niv.root.rotation.order = 'YXZ';
+    niv.root.rotation.set(0, LC_WALK_YAW, 0);
+    sc.add(niv.root);
+
+    // Props infernais pelos morros (rochas vulcânicas, cruzes tortas, árvores secas, brasa)
+    const props = [];
+    const rockMat = MT(0x2a100e);
+    const spireMat = MT(0x1f0a0a);
+    const crossMat = MT(0x24130c);
+    const lavaMat = MT(0xff4a12, { basic: true });
+    let seed = 1337;
+    const srnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    for (let i = 0; i < 34; i++) {
+      const g = new THREE.Group();
+      const kind = i % 4;
+      if (kind === 0) {
+        // Espinho / rocha vulcânica pontiaguda
+        const h = 2.2 + srnd() * 4.5;
+        const r = 0.7 + srnd() * 1.1;
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 5), spireMat);
+        cone.position.y = h * 0.45;
+        cone.rotation.z = (srnd() - 0.5) * 0.25;
+        g.add(cone);
+      } else if (kind === 1) {
+        // Cruz queimada / estaca infernal
+        const h = 2.6 + srnd() * 1.8;
+        const post = new THREE.Mesh(BX(0.22, h, 0.22), crossMat);
+        post.position.y = h * 0.5;
+        g.add(post);
+        const bar = new THREE.Mesh(BX(1.3 + srnd() * 0.5, 0.2, 0.2), crossMat);
+        bar.position.y = h * 0.74;
+        bar.rotation.z = (srnd() - 0.5) * 0.22;
+        g.add(bar);
+        g.rotation.y = srnd() * Math.PI;
+        g.rotation.z = (srnd() - 0.5) * 0.16;
+      } else if (kind === 2) {
+        // Pedregulho escuro com fissura de lava
+        const s = 0.9 + srnd() * 1.6;
+        const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rockMat);
+        rock.scale.set(1.2, 0.75, 1.0);
+        rock.position.y = s * 0.35;
+        g.add(rock);
+        const glow = new THREE.Mesh(BX(s * 0.7, 0.12, s * 0.25), lavaMat);
+        glow.position.y = s * 0.25;
+        g.add(glow);
+      } else {
+        // Árvore morta carbonizada
+        const h = 2.4 + srnd() * 2.0;
+        const trunk = new THREE.Mesh(BX(0.26, h, 0.26), crossMat);
+        trunk.position.y = h * 0.5;
+        g.add(trunk);
+        for (let b = 0; b < 3; b++) {
+          const br = new THREE.Mesh(BX(0.14, 1.3, 0.14), crossMat);
+          br.position.set((b - 1) * 0.35, h * (0.65 + b * 0.1), (b % 2 ? 0.25 : -0.25));
+          br.rotation.z = (b - 1) * 0.75;
+          br.rotation.x = (srnd() - 0.5) * 0.5;
+          g.add(br);
+        }
+      }
+      // Distribui fora do corredor central onde Nivaldo anda
+      let px = (srnd() - 0.5) * 64;
+      if (Math.abs(px) < 3.4) px += (px >= 0 ? 3.8 : -3.8);
+      const pz = (srnd() - 0.5) * 68;
+      sc.add(g);
+      props.push({ mesh: g, bx: px, bz: pz });
+    }
+
+    // Partículas de brasa / cinzas subindo pelo ar infernal
+    const emberCount = 95;
+    const emberGeo = new THREE.BufferGeometry();
+    const emberPos = new Float32Array(emberCount * 3);
+    const emberVel = new Float32Array(emberCount * 3);
+    for (let i = 0; i < emberCount; i++) {
+      emberPos[i * 3] = (srnd() - 0.5) * 26;
+      emberPos[i * 3 + 1] = srnd() * 9;
+      emberPos[i * 3 + 2] = (srnd() - 0.5) * 26 - 4;
+      emberVel[i * 3] = 0.25 + srnd() * 0.55;
+      emberVel[i * 3 + 1] = 0.65 + srnd() * 1.4;
+      emberVel[i * 3 + 2] = (srnd() - 0.5) * 0.5;
+    }
+    emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+    const emberMat = new THREE.PointsMaterial({ color: 0xff8a2a, size: 0.11, transparent: true, opacity: 0.85, fog: true });
+    const embers = new THREE.Points(emberGeo, emberMat);
+    sc.add(embers);
+
+    lcSceneState.scene = sc;
+    lcSceneState.cam = cam;
+    lcSceneState.nivaldo = niv;
+    lcSceneState.terrainGeo = terrainGeo;
+    lcSceneState.terrainBaseXZ = baseXZ;
+    lcSceneState.terrainTex = hellTex;
+    lcSceneState.props = props;
+    lcSceneState.embers = embers;
+    lcSceneState.emberPos = emberPos;
+    lcSceneState.emberVel = emberVel;
+    lcSceneState.sky = sky;
+    lcSceneState.rimLight = rimLight;
+  }
+
+  function formatMMSS(secTotal) {
+    const s = Math.max(0, Math.floor(secTotal || 0));
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return String(m).padStart(2, '0') + ':' + String(rem).padStart(2, '0');
+  }
+
+  function triggerLcShake() {
+    const card = el('lcCard');
+    if (!card) return;
+    card.classList.remove('lc-shake');
+    void card.offsetWidth;
+    card.classList.add('lc-shake');
+  }
+
+  function revealLcFinalState(playSounds) {
+    const a = lcAnim;
+    setText('lcBlood', a.bloodTarget + ' L');
+    setText('lcKills', a.killsTotal > 0 ? (a.killsTarget + ' / ' + a.killsTotal) : String(a.killsTarget));
+    setText('lcTime', formatMMSS(a.timeTarget));
+    setText('lcCombo', a.comboTarget + 'x');
+
+    const rows = [
+      ['lcRowBlood', a.bloodMax],
+      ['lcRowKills', a.killsMax],
+      ['lcRowTime', a.timeMax],
+      ['lcRowCombo', a.comboMax]
+    ];
+    for (let i = 0; i < rows.length; i++) {
+      const rEl = el(rows[i][0]);
+      if (rEl) {
+        rEl.classList.remove('active');
+        rEl.classList.add('done');
+        rEl.classList.toggle('is-max', !!rows[i][1]);
+      }
+    }
+    const rkBox = el('lcRankBox');
+    const rkEl = el('lcRank');
+    if (rkEl) {
+      rkEl.textContent = a.rankText;
+      rkEl.className = 'lc-rank-val ' + a.rankCls;
+    }
+    if (rkBox) rkBox.classList.add('revealed');
+
+    const stampPur = el('lcStampPurified');
+    if (stampPur) {
+      stampPur.classList.remove('hidden');
+      stampPur.classList.toggle('is-perfect', !!a.isPerfect);
+    }
+    const stampPerf = el('lcStampPerfect');
+    if (stampPerf) {
+      stampPerf.classList.toggle('hidden', !a.isPerfect);
+    }
+    if (playSounds) {
+      SFX.play('gore', 'explode');
+      if (a.isPerfect) setTimeout(() => SFX.play('faith'), 120);
+      triggerLcShake();
+    }
+    a.bloodDone = a.killsDone = a.timeDone = a.comboDone = a.rankShown = a.purifiedShown = a.perfectShown = true;
+    a.done = true;
+  }
+
+  function tickIntermission(dt) {
+    initIntermissionScene();
+    const st = lcSceneState;
+    st.time += dt;
+    st.walkDist += dt * 3.15;
+    st.walkPhase += dt * 6.5;
+
+    const ox = st.walkDist * LC_DIR_X;
+    const oz = st.walkDist * LC_DIR_Z;
+
+    // Atualiza malha de morros infernais
+    const posAttr = st.terrainGeo.attributes.position;
+    const baseXZ = st.terrainBaseXZ;
+    for (let i = 0; i < posAttr.count; i++) {
+      const vx = baseXZ[i * 2];
+      const vz = baseXZ[i * 2 + 1];
+      posAttr.setY(i, lcTerrainY(vx, vz, ox, oz));
+    }
+    posAttr.needsUpdate = true;
+    st.terrainGeo.computeVertexNormals();
+    st.terrainTex.offset.set(ox / 4.2, -oz / 4.2);
+
+    // Atualiza props infernais com wrap contínuo
+    const wrap = 66;
+    const halfWrap = wrap * 0.5;
+    for (let i = 0; i < st.props.length; i++) {
+      const p = st.props[i];
+      let rx = ((p.bx - ox) % wrap + wrap + halfWrap) % wrap - halfWrap;
+      let rz = ((p.bz - oz) % wrap + wrap + halfWrap) % wrap - halfWrap - 12;
+      // Garante corredor livre na frente de Nivaldo e da câmera
+      if (Math.abs(rx) < 3.2 && rz > -6 && rz < 12) {
+        rx += (rx >= 0 ? 4.2 : -4.2);
+      }
+      const py = lcTerrainY(rx, rz, ox, oz);
+      p.mesh.position.set(rx, py - 0.15, rz);
+    }
+
+    // Atualiza brasas subindo
+    const ep = st.emberPos, ev = st.emberVel;
+    for (let i = 0; i < ep.length; i += 3) {
+      ep[i] += ev[i] * dt - LC_DIR_X * dt * 1.4;
+      ep[i + 1] += ev[i + 1] * dt;
+      ep[i + 2] += ev[i + 2] * dt - LC_DIR_Z * dt * 1.4;
+      if (ep[i + 1] > 9.5 || ep[i + 2] < -18 || ep[i] < -14) {
+        ep[i] = (Math.random() - 0.5) * 24;
+        ep[i + 1] = -0.5;
+        ep[i + 2] = (Math.random() - 0.5) * 22 - 2;
+      }
+    }
+    st.embers.geometry.attributes.position.needsUpdate = true;
+
+    // Animação de caminhada PUTA e pesada do Nivaldo com o martelinho na mão
+    const N = st.nivaldo;
+    const ph = st.walkPhase;
+    const sw = Math.sin(ph);
+    const stomp = Math.pow(Math.abs(sw), 0.72) * (sw < 0 ? -1 : 1);
+    const groundY = lcTerrainY(0, 0, ox, oz);
+    // Pisada forte com impacto seco no chão
+    const stepBob = Math.pow(Math.abs(sw), 0.65) * 0.135;
+    const stepImpact = Math.pow(Math.max(0, 1 - Math.abs(sw) * 2.4), 2);
+    N.root.position.set(0, groundY + stepBob, 0);
+    N.root.rotation.set(0, LC_WALK_YAW, 0);
+
+    // Pernas marchando com força e joelhos erguidos
+    N.legL.rotation.set(stomp * 0.68, 0, 0.04);
+    N.legR.rotation.set(-stomp * 0.68, 0, -0.04);
+    if (N.kneeL) N.kneeL.rotation.set(Math.max(0, -Math.cos(ph)) * 0.85, 0, 0);
+    if (N.kneeR) N.kneeR.rotation.set(Math.max(0, Math.cos(ph)) * 0.85, 0, 0);
+    if (N.footL) N.footL.rotation.set(Math.max(0, Math.cos(ph)) * 0.28, 0, 0);
+    if (N.footR) N.footR.rotation.set(Math.max(0, -Math.cos(ph)) * 0.28, 0, 0);
+
+    // Ombros largos e tensos; mão esquerda (armL) empunhando o martelinho pronto pra descer o cacete
+    N.armL.rotation.set(-0.22 - stomp * 0.48, 0.08, 0.22);
+    N.armR.rotation.set(-0.14 + stomp * 0.56, -0.08, -0.24);
+    if (N.forearmL) N.forearmL.rotation.set(-0.56 - Math.max(0, stomp) * 0.26, 0, 0);
+    if (N.forearmR) N.forearmR.rotation.set(-0.68 - Math.max(0, -stomp) * 0.30, 0, 0);
+    if (N.hammer) {
+      N.hammer.visible = true;
+      N.hammer.rotation.x = Math.PI * 0.5 + Math.sin(ph) * 0.12;
+      N.hammer.rotation.z = -0.10 + Math.cos(ph) * 0.06;
+    }
+
+    // Tronco inclinado pra frente com gingado pesado de raiva
+    if (N.torsoGroup) {
+      N.torsoGroup.rotation.set(0.16 + stepImpact * 0.035, -stomp * 0.17, Math.cos(ph) * 0.065);
+    }
+    // Cabeça levemente abaixada encarando por baixo da sobrancelha (olhar assassino)
+    if (N.head) {
+      N.head.rotation.set(-0.07 + stepImpact * 0.03, stomp * 0.07, -Math.cos(ph) * 0.04);
+    }
+    if (N.rosary) N.rosary.root.visible = !!P.hasRosary;
+
+    // Luz de fogo pulsando suavemente
+    st.rimLight.intensity = 1.85 + Math.sin(st.time * 5.2) * 0.28;
+
+    // Câmera enquadrando Nivaldo à esquerda-centro com leve trepidada nas pisadas
+    const aspect = innerWidth / Math.max(1, innerHeight);
+    if (Math.abs(st.cam.aspect - aspect) > 1e-4) {
+      st.cam.aspect = aspect;
+      st.cam.updateProjectionMatrix();
+    }
+    const camSwayX = Math.sin(st.time * 0.95) * 0.07;
+    const camSwayY = Math.cos(st.time * 1.25) * 0.04 - stepImpact * 0.035;
+    st.cam.position.set(1.42 + camSwayX, groundY + 1.54 + camSwayY, 5.20);
+    st.cam.lookAt(1.16, groundY + 1.24, 0.0);
+    st.sky.position.copy(st.cam.position);
+
+    // Animação sequencial da contagem de status (0 até o valor) + carimbos
+    const a = lcAnim;
+    if (!a.done) {
+      a.t += dt;
+      const tickSfx = (nowT) => {
+        if (nowT - a.lastTickSfx > 0.055) {
+          a.lastTickSfx = nowT;
+          SFX.play('ui');
+        }
+      };
+
+      // 1. Litros de sangue (0.20s -> 0.85s)
+      if (a.t >= 0.20 && !a.bloodDone) {
+        const u = clamp((a.t - 0.20) / 0.65, 0, 1);
+        const eased = 1 - Math.pow(1 - u, 3);
+        const rEl = el('lcRowBlood');
+        if (rEl) rEl.classList.add('active');
+        const val = Math.round(a.bloodTarget * eased);
+        setText('lcBlood', val + ' L');
+        if (u < 1) tickSfx(a.t);
+        else {
+          a.bloodDone = true;
+          if (rEl) { rEl.classList.remove('active'); rEl.classList.add('done'); if (a.bloodMax) rEl.classList.add('is-max'); }
+          SFX.play(a.bloodMax ? 'pickup' : 'ui');
+        }
+      }
+
+      // 2. Kills (0.92s -> 1.42s)
+      if (a.t >= 0.92 && !a.killsDone) {
+        const u = clamp((a.t - 0.92) / 0.50, 0, 1);
+        const eased = 1 - Math.pow(1 - u, 3);
+        const rEl = el('lcRowKills');
+        if (rEl) rEl.classList.add('active');
+        const val = Math.round(a.killsTarget * eased);
+        setText('lcKills', a.killsTotal > 0 ? (val + ' / ' + a.killsTotal) : String(val));
+        if (u < 1) tickSfx(a.t);
+        else {
+          a.killsDone = true;
+          if (rEl) { rEl.classList.remove('active'); rEl.classList.add('done'); if (a.killsMax) rEl.classList.add('is-max'); }
+          SFX.play(a.killsMax ? 'pickup' : 'ui');
+        }
+      }
+
+      // 3. Tempo (1.48s -> 1.98s)
+      if (a.t >= 1.48 && !a.timeDone) {
+        const u = clamp((a.t - 1.48) / 0.50, 0, 1);
+        const eased = 1 - Math.pow(1 - u, 2);
+        const rEl = el('lcRowTime');
+        if (rEl) rEl.classList.add('active');
+        setText('lcTime', formatMMSS(a.timeTarget * eased));
+        if (u < 1) tickSfx(a.t);
+        else {
+          a.timeDone = true;
+          setText('lcTime', formatMMSS(a.timeTarget));
+          if (rEl) { rEl.classList.remove('active'); rEl.classList.add('done'); if (a.timeMax) rEl.classList.add('is-max'); }
+          SFX.play(a.timeMax ? 'pickup' : 'ui');
+        }
+      }
+
+      // 4. Maior Combo (2.04s -> 2.54s)
+      if (a.t >= 2.04 && !a.comboDone) {
+        const u = clamp((a.t - 2.04) / 0.50, 0, 1);
+        const eased = 1 - Math.pow(1 - u, 3);
+        const rEl = el('lcRowCombo');
+        if (rEl) rEl.classList.add('active');
+        setText('lcCombo', Math.round(a.comboTarget * eased) + 'x');
+        if (u < 1) tickSfx(a.t);
+        else {
+          a.comboDone = true;
+          if (rEl) { rEl.classList.remove('active'); rEl.classList.add('done'); if (a.comboMax) rEl.classList.add('is-max'); }
+          SFX.play(a.comboMax ? 'pickup' : 'ui');
+        }
+      }
+
+      // 5. Rank Final (2.68s)
+      if (a.t >= 2.68 && !a.rankShown) {
+        a.rankShown = true;
+        const rkEl = el('lcRank');
+        const rkBox = el('lcRankBox');
+        if (rkEl) {
+          rkEl.textContent = a.rankText;
+          rkEl.className = 'lc-rank-val ' + a.rankCls;
+        }
+        if (rkBox) rkBox.classList.add('revealed');
+        SFX.play('parry');
+      }
+
+      // 6. Carimbo "ÁREA PURIFICADA" por cima dos status (3.05s)
+      if (a.t >= 3.05 && !a.purifiedShown) {
+        a.purifiedShown = true;
+        const stampPur = el('lcStampPurified');
+        if (stampPur) {
+          stampPur.classList.remove('hidden');
+          stampPur.classList.toggle('is-perfect', !!a.isPerfect);
+        }
+        SFX.play('gore', 'explode');
+        triggerLcShake();
+        if (!a.isPerfect) a.done = true;
+      }
+
+      // 7. Se tudo estiver no máximo: "PERFEITO" embaixo com brilhinhos e estrelas (3.45s)
+      if (a.isPerfect && a.t >= 3.45 && !a.perfectShown) {
+        a.perfectShown = true;
+        const stampPerf = el('lcStampPerfect');
+        if (stampPerf) stampPerf.classList.remove('hidden');
+        SFX.play('faith');
+        triggerLcShake();
+        a.done = true;
+      }
+    }
+  }
+
+  function renderIntermission() {
+    if (!lcSceneState.built) initIntermissionScene();
+    const r = A.renderer;
+    r.setRenderTarget(null);
+    r.setClearColor(0x280706);
+    r.clear();
+    r.render(lcSceneState.scene, lcSceneState.cam);
+  }
+
   function showLevelComplete(fromMap, nextMap, nextLabel) {
     S.intermission = true;
     pendingNextMap = nextMap;
     if (document.exitPointerLock) document.exitPointerLock();
+    show('hud', false);
     SFX.play('boom');
     setTimeout(() => SFX.play('portal'), 180);
-    const total = Math.max(1, S.levelTotal || 1);
-    const kills = Math.min(total, S.levelKills || 0);
-    const kPct = Math.round((kills / total) * 100);
-    const peak = Math.max(S.levelPeakStyle || 0, S.style || 0);
-    const sPct = Math.min(100, Math.round((peak / 240) * 100));
-    const t = S.levelTime || 0;
-    const m = Math.floor(t / 60), sec = Math.floor(t % 60);
-    const rk = rankOf(peak);
+
+    const bloodL = Math.round(S.levelBloodLiters || 0);
+    S.completedBloodSum = (S.completedBloodSum || 0) + bloodL;
+    S.completedMapsCount = (S.completedMapsCount || 0) + 1;
+
+    const kills = Math.max(0, Math.round(S.levelKills || 0));
+    const killsTotal = Math.max(S.levelTotal || 0, kills);
+    const t = Math.max(0, S.levelTime || 0);
+    const maxCombo = Math.max(0, Math.round(S.levelMaxCombo || S.hitCombo || 0));
+    const parTime = LC_PAR_TIME[fromMap] || Math.max(60, (killsTotal || 12) * 5);
+    const comboTargetMax = Math.min(15, Math.max(8, killsTotal || 10));
+
+    const rk = bloodRankOf(bloodL);
     const rInfo = ROOMS[fromMap];
     setText('lcEyebrow', 'NÍVEL CONCLUÍDO');
     setText('lcTitle', rInfo ? rInfo.name : fromMap.toUpperCase());
-    setText('lcKills', kills + ' / ' + total + ' (' + kPct + '%)');
-    setText('lcStyle', sPct + '%');
-    setText('lcTime', String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0'));
-    setText('lcRank', rk);
+    setText('lcBlood', '0 L');
+    setText('lcKills', killsTotal > 0 ? ('0 / ' + killsTotal) : '0');
+    setText('lcTime', '00:00');
+    setText('lcCombo', '0x');
     setText('lcNextBtn', '▶ AVANÇAR PARA ' + nextLabel + ' [ESPAÇO]');
+
+    // Reseta estados visuais dos status e carimbos
+    ['lcRowBlood', 'lcRowKills', 'lcRowTime', 'lcRowCombo'].forEach((id) => {
+      const rEl = el(id);
+      if (rEl) rEl.classList.remove('active', 'done', 'is-max');
+    });
+    const rkBox = el('lcRankBox');
+    if (rkBox) rkBox.classList.remove('revealed');
+    const rkEl = el('lcRank');
+    if (rkEl) { rkEl.textContent = '—'; rkEl.className = 'lc-rank-val'; }
+    const stampPur = el('lcStampPurified');
+    if (stampPur) { stampPur.classList.add('hidden'); stampPur.classList.remove('is-perfect'); }
+    const stampPerf = el('lcStampPerfect');
+    if (stampPerf) stampPerf.classList.add('hidden');
+
+    // Configura alvo da contagem e critério de PERFEITO (tudo no máximo)
+    lcAnim.t = 0;
+    lcAnim.done = false;
+    lcAnim.bloodTarget = bloodL;
+    lcAnim.killsTarget = kills;
+    lcAnim.killsTotal = killsTotal;
+    lcAnim.timeTarget = t;
+    lcAnim.comboTarget = maxCombo;
+    lcAnim.bloodMax = bloodL >= 901;
+    lcAnim.killsMax = killsTotal > 0 ? (kills >= killsTotal) : (kills > 0);
+    lcAnim.timeMax = t <= parTime;
+    lcAnim.comboMax = maxCombo >= comboTargetMax;
+    lcAnim.isPerfect = lcAnim.bloodMax && lcAnim.killsMax && lcAnim.timeMax && lcAnim.comboMax;
+    lcAnim.rankText = rk;
+    lcAnim.rankCls = bloodRankClass(rk);
+    lcAnim.bloodDone = lcAnim.killsDone = lcAnim.timeDone = lcAnim.comboDone = false;
+    lcAnim.rankShown = lcAnim.purifiedShown = lcAnim.perfectShown = false;
+    lcAnim.lastTickSfx = -1;
+
+    initIntermissionScene();
+    lcSceneState.walkDist = 0;
+    lcSceneState.walkPhase = 0;
+    lcSceneState.time = 0;
+    tickIntermission(0.016);
+
     show('levelComplete', true);
   }
   function finishLevelComplete(ev) {
     if (ev && ev.stopPropagation) ev.stopPropagation();
     if (!S.intermission || !pendingNextMap) return;
+    // Se a contagem ainda estiver rodando, 1º toque/Espaço conclui imediatamente os valores e carimbos
+    if (!lcAnim.done) {
+      revealLcFinalState(true);
+      return;
+    }
     const next = pendingNextMap;
     pendingNextMap = null;
     S.intermission = false;
     S.paused = false;
     show('pause', false);
     show('levelComplete', false);
+    show('hud', true);
     if (!nolock) requestLock();
     fade('#000', 0.25, () => {
       loadMap(next, { keepPlayer: true });
@@ -4101,10 +5307,10 @@
       const r = S.rooms[id];
       if (!r.spawned || r.cleared || ROOMS[id].noClear) continue;
       const alive = A.aliveInRoom(id);
-      if (alive === 0) {
+      if (areRoomConditionsMet(id, r)) {
         r.cleared = true;
         ROOMS[id].onClear();
-      } else if (alive <= 3 && S.objRoom === id) {
+      } else if (alive > 0 && alive <= 3 && S.objRoom === id) {
         let nearest = null, bestD = 1e9;
         for (const e of enemies) {
           if (e.room === id && !e.dead) {
@@ -4131,6 +5337,10 @@
     const card = el('bossTitleCard');
     if (hud) hud.classList.toggle('cinema', isCinema);
     if (bars) bars.classList.toggle('on', isCinema);
+    if (isCinema) {
+      setClass('styleHud', 'hidden', true);
+      setClass('styleHud', 'is-idle', true);
+    }
     if (card) {
       card.classList.toggle('galius', variant === 'galius');
       if (isCinema && mainTitle) {
@@ -4269,6 +5479,7 @@
     P.shake = Math.max(P.shake, 0.8);
     SFX.play('hurt');
     S.style = Math.max(0, S.style - 25);
+    if (S.style <= 0) { S.styleT = 0; S.lastStyleRankIdx = -1; }
     if (P.hp <= 0) { P.hp = 0; return true; }
     return false;
   }
@@ -4571,7 +5782,8 @@
       }
       if (S.maximusRig && S.maximusRig.armL && S.csT >= 7.2) {
         const offer = clamp((S.csT - 7.2) / 0.8, 0, 1);
-        S.maximusRig.armL.rotation.x = -1.25 * offer;
+        S.maximusRig.armL.rotation.x = -1.05 * offer;
+        if (S.maximusRig.forearmL) S.maximusRig.forearmL.rotation.x = -0.45 * offer;
       }
       if (S.csT >= 8.5 && S.maximusRig && S.maximusRig.rosaryProp && S.maximusRig.rosaryProp.visible) {
         S.maximusRig.rosaryProp.visible = false;
@@ -4648,20 +5860,32 @@
       if (S.cutscene <= 0) setCinemaUI(false);
     } else if (S.csKind === 'rip') {
       P.vel.set(0, 0, 0);
-      if (S.ripStandPos) {
-        P.pos.lerp(S.ripStandPos, Math.min(1, dt * 12));
-      }
+      P.dashT = 0;
       if (S.ripYaw != null) {
-        P.yaw = A.lerpAngle(P.yaw, S.ripYaw, Math.min(1, dt * 12));
+        P.yaw = A.lerpAngle(P.yaw, S.ripYaw, Math.min(1, dt * 18));
       }
       if (S.ripTarget && !S.ripTarget.dead) {
         const g = S.ripTarget;
-        g.g.position.y += ((P.pos.y - 2.3) - g.g.position.y) * Math.min(1, dt * 10);
         if (S.ripTargetYaw != null) {
-          g.yaw = A.lerpAngle(g.yaw, S.ripTargetYaw, Math.min(1, dt * 12));
+          g.yaw = A.lerpAngle(g.yaw, S.ripTargetYaw, Math.min(1, dt * 18));
           g.savedYaw = g.yaw;
           g.g.rotation.y = g.yaw;
         }
+        let targetGy = P.pos.y - 5.20;
+        if (g.rig && g.rig.heart) {
+          g.g.updateMatrixWorld(true);
+          const hp = TP_CAM.lookScratch;
+          g.rig.heart.getWorldPosition(hp);
+          const heartLocalY = hp.y - g.g.position.y;
+          targetGy = (P.pos.y + 1.86) - heartLocalY;
+          if (S.csT < 3.4 && S.ripStandPos && S.ripYaw != null) {
+            const nx = -Math.sin(S.ripYaw), nz = -Math.cos(S.ripYaw);
+            S.ripStandPos.x = hp.x - nx * 0.78;
+            S.ripStandPos.z = hp.z - nz * 0.78;
+          }
+        }
+        g.g.position.y += (targetGy - g.g.position.y) * Math.min(1, dt * 16);
+        g.savedPos.y = g.g.position.y;
         if (g.ripRecoil > 0) {
           g.ripRecoil = Math.max(0, g.ripRecoil - dt * 3.2);
           const dir = g.ripHitDir || 1;
@@ -4688,8 +5912,11 @@
           }
         }
       }
+      if (S.ripStandPos) {
+        P.pos.lerp(S.ripStandPos, Math.min(1, dt * 18));
+      }
       P.pitch += (0 - P.pitch) * Math.min(1, dt * 8);
-      if (S.csT >= 7.26 && !S.galiusCrossPlanted) plantGaliusCross();
+      if (S.csT >= 6.26 && !S.galiusCrossPlanted) plantGaliusCross();
       if (S.cutscene <= 0) {
         S.ripTarget = null;
         S.ripStandPos = null;
@@ -4968,20 +6195,43 @@
   function ripSequence(g) {
     setCinemaUI(true);
     S.cutscene = 9.0; S.csKind = 'rip'; S.csT = 0; S.rip = true; S.galiusCrossPlanted = false; S.galiusMeatPos = null;
-    P.vel.set(0, 0, 0);
+    P.vel.set(0, 0, 0); P.dashT = 0; P.slamming = false;
+    if (g.kv) g.kv.set(0, 0, 0);
     const gp = g.g.position;
     let dx = gp.x - P.pos.x, dz = gp.z - P.pos.z;
     let d = Math.hypot(dx, dz);
     if (d < 0.05) { dx = 0; dz = -1; d = 1; }
     const nx = dx / d, nz = dz / d;
-    const standDist = 1.52;
+    const standDist = 1.92;
     const standPos = new V3(gp.x - nx * standDist, P.pos.y, gp.z - nz * standDist);
-    resolveCircle(standPos, P.r, standPos.y);
-    standPos.y = Math.max(standPos.y, A.groundAt(standPos.x, standPos.z, standPos.y, P.r));
+    resolveCircle(standPos, P.r, standPos.y, 3.35);
+    standPos.y = A.groundAt(standPos.x, standPos.z, P.pos.y + 1.0, P.r);
+    gp.x = standPos.x + nx * standDist;
+    gp.z = standPos.z + nz * standDist;
     S.ripTarget = g;
     S.ripStandPos = standPos;
     S.ripYaw = Math.atan2(-nx, -nz);
     S.ripTargetYaw = Math.atan2(-nx, -nz);
+    P.yaw = S.ripYaw;
+    g.yaw = S.ripTargetYaw;
+    g.savedYaw = g.yaw;
+    g.g.rotation.set(0, g.yaw, 0);
+    if (g.rig && g.rig.torso) g.rig.torso.rotation.set(0.06, 0, 0);
+    if (g.rig && g.rig.heart) {
+      g.g.updateMatrixWorld(true);
+      const hp = TP_CAM.lookScratch;
+      g.rig.heart.getWorldPosition(hp);
+      const heartLocalY = hp.y - gp.y;
+      gp.y = (standPos.y + 1.86) - heartLocalY;
+      g.g.updateMatrixWorld(true);
+      g.rig.heart.getWorldPosition(hp);
+      standPos.x = hp.x - nx * 0.78;
+      standPos.z = hp.z - nz * 0.78;
+    } else {
+      gp.y = standPos.y - 5.20;
+    }
+    g.savedPos.copy(gp);
+    P.pos.copy(standPos);
     TP_CAM.angle = S.ripYaw + 0.58;
     say('Nivaldo enfia a mão no peito de Galius…', '', 2.2);
     SFX.play('heart');
@@ -4989,11 +6239,11 @@
       SFX.play('heart');
       SFX.play('gore', 'gush');
       P.shake = 0.8;
-      burst(gp.x - nx * 0.7, P.pos.y + 2.0, gp.z - nz * 0.7, 0xc01020, 18, 8, 0.8, 0.25, 10);
+      burst(P.pos.x + nx * 0.78, P.pos.y + 1.88, P.pos.z + nz * 0.78, 0xc01020, 18, 8, 0.8, 0.25, 10);
     });
     later(2.0, () => {
       SFX.play('gore', 'explode');
-      burst(gp.x - nx * 0.7, P.pos.y + 2.1, gp.z - nz * 0.7, 0xc01020, 45, 12, 1.2, 0.35, 14);
+      burst(P.pos.x + nx * 0.78, P.pos.y + 1.92, P.pos.z + nz * 0.78, 0xc01020, 45, 12, 1.2, 0.35, 14);
       WEAPONS[6].owned = true; P.blood = 100; S.hasHeart = true;
       SFX.play('weapon'); updateSlots(); selectWeapon(6, true);
       say('CORAÇÃO ATEU adquirido! [7] · Atira sangue, recarrega com a chacina!', '', 4.5);
@@ -5004,8 +6254,8 @@
       say('Nivaldo arranca a Cruz Gigante de Galius e o esmaga com ela!', '', 3);
       if (g.rig.weapon) g.rig.weapon.visible = false;
       const stepBack = new V3(gp.x - nx * 3.1, P.pos.y, gp.z - nz * 3.1);
-      resolveCircle(stepBack, P.r, stepBack.y);
-      stepBack.y = Math.max(stepBack.y, A.groundAt(stepBack.x, stepBack.z, stepBack.y, P.r));
+      resolveCircle(stepBack, P.r, stepBack.y, 3.35);
+      stepBack.y = A.groundAt(stepBack.x, stepBack.z, P.pos.y + 1.0, P.r);
       S.ripStandPos = stepBack;
       if (WEAPONS[5].owned) selectWeapon(5, true);
     });
@@ -5028,6 +6278,10 @@
       burst(p.x, gy + 1.2, p.z, 0xb01020, 70, 16, 1.5, 0.5, 18);
       burst(p.x, gy + 1.2, p.z, 0xffd060, 36, 14, 0.9, 0.3, 12);
       P.shake = 1.5; SFX.play('boom'); SFX.play('gib'); SFX.play('cross');
+      A.registerStyleKill(g, { glory: 'rip', weapon: 'fists', killLabel: 'CORAÇÃO ARRANCADO' });
+      S.kills++;
+      S.levelKills = (S.levelKills || 0) + 1;
+      A.addStyle(80);
       A.removeEnemy(g); S.boss = null; S.rooms.a6_galius1.cleared = true; S.rooms.a6_galius2.cleared = true;
       spawnGaliusMeatPile(p.x, gy, p.z);
       SFX.setIntensity(0.3);
@@ -5216,6 +6470,7 @@
     showRadar: true,
     showFace: true,
     showStyle: true,
+    styleScale: 1.0,
     quips: true,
     peasantLabels: true,
     showFps: false,
@@ -5265,7 +6520,8 @@
     if (!box) return;
     if (SAVE.bestTime != null) {
       const m = Math.floor(SAVE.bestTime / 60), s = Math.floor(SAVE.bestTime % 60);
-      box.innerHTML = '🏆 RECORDE CAP. 1 — TEMPO: <b>' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '</b> · CHACINA: <b>' + SAVE.bestKills + '</b> · RANK: <b>' + SAVE.bestRank + '</b>';
+      const bloodTxt = SAVE.bestBloodLiters != null ? (SAVE.bestBloodLiters + ' L') : (SAVE.bestKills + ' KILLS');
+      box.innerHTML = '🏆 RECORDE CAP. 1 — TEMPO: <b>' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + '</b> · SANGUE: <b>' + bloodTxt + '</b> · RANK: <b>' + SAVE.bestRank + '</b>';
     } else {
       box.textContent = '';
     }
@@ -5274,16 +6530,23 @@
   function endGame() {
     if (S.ended) return;
     S.ended = true; S.stage = 'end';
+    hideMapBanner();
     SFX.play('portal');
-    const rk = rankOf(S.style);
+    const curBlood = Math.round(S.levelBloodLiters || 0);
+    const totalMaps = (S.completedMapsCount || 0) + 1;
+    const avgBlood = Math.round(((S.completedBloodSum || 0) + curBlood) / totalMaps);
+    const totalBlood = Math.round((S.completedBloodSum || 0) + curBlood);
+    const rk = bloodRankOf(avgBlood);
     if (SAVE.bestTime == null || S.time < SAVE.bestTime) SAVE.bestTime = S.time;
     if (S.kills > SAVE.bestKills) SAVE.bestKills = S.kills;
+    if (SAVE.bestBloodLiters == null || avgBlood > SAVE.bestBloodLiters) SAVE.bestBloodLiters = avgBlood;
     SAVE.bestRank = rk;
     SAVE.ch2Unlocked = true;
     writeSave();
     refreshRecordUI();
     const m = Math.floor(S.time / 60), sec = Math.floor(S.time % 60);
-    el('endStats').innerHTML = 'O portal leva a outra região do Inferno… uma floresta?<br><br>CHACINA: <b>' + S.kills + '</b> · TEMPO: <b>' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0') + '</b> · RANK FINAL: <b>' + rk + '</b>';
+    const bloodLabel = totalMaps > 1 ? (avgBlood + ' L/ÁREA (' + totalBlood + ' L TOTAL)') : (curBlood + ' L');
+    el('endStats').innerHTML = 'O portal leva a outra região do Inferno… uma floresta?<br><br>SANGUE DERRAMADO: <b>' + bloodLabel + '</b> · TEMPO: <b>' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0') + '</b> · RANK FINAL: <b>' + rk + '</b>';
     show('end', true);
     if (document.exitPointerLock) document.exitPointerLock();
   }
@@ -5379,13 +6642,13 @@
         const md = e.r + o.r + 1.0;
         if (Math.hypot(ox, oz) < md && Math.abs(o.g.position.y - e.g.position.y) < Math.max(e.h, o.h) + 1.4) {
           P.ramHitSet.add(o);
-          A.dmgEnemy(o, 55, dfx, dfz, { knock: 18, stunBonus: 0.7, hitSfx: 'slam', part: 'torso' });
-          A.dmgEnemy(e, 22, dfx, dfz, { knock: 0, hitSfx: 'slam', part: 'torso' });
+          A.dmgEnemy(o, 55, dfx, dfz, { knock: 18, stunBonus: 0.7, hitSfx: 'slam', part: 'torso', weapon: 'ram' });
+          A.dmgEnemy(e, 22, dfx, dfz, { knock: 0, hitSfx: 'slam', part: 'torso', weapon: 'ram' });
           SFX.play('slam');
           A.burst(e.g.position.x, e.g.position.y + e.h * 0.5, e.g.position.z, 0xb01010, 12, 8, 0.45, 0.22, 12);
           P.shake = Math.max(P.shake, 0.48);
           S.hitStop = 0.035 * (SAVE.hitstop != null ? SAVE.hitstop : 1);
-          S.style = Math.min(420, S.style + 25);
+          A.addStyle(25, 420);
           if (e.dead) { releaseGrab(); return; }
         }
       }
@@ -5535,7 +6798,7 @@
       }
       healPlayer(20, 0.60);
       if (P.faithMode <= 0) addFaith(6);
-      S.style = Math.min(420, S.style + 35);
+      A.addStyle(42);
       el('flash').style.background = '#ff2818';
       P.flashV = 0.28;
     }
@@ -5643,6 +6906,7 @@
   function die() {
     if (P.dead) return;
     P.dead = true; mouseL = false; mouseR = false;
+    hideMapBanner();
     releaseGrab();
     endGlory(); P.wantGlory = false;
     SFX.play('roar');
@@ -5691,7 +6955,7 @@
       const d = dist2(P.pos.x, P.pos.z, ep.x, ep.z);
       if (d < 6.8 + e.r && Math.abs(ep.y - P.pos.y) < 4.5) {
         const l = d || 1;
-        dmgEnemy(e, 48, (ep.x - P.pos.x) / l, (ep.z - P.pos.z) / l, { knock: 16, stunBonus: 0.6 });
+        dmgEnemy(e, 48, (ep.x - P.pos.x) / l, (ep.z - P.pos.z) / l, { knock: 16, stunBonus: 0.6, weapon: 'slam' });
       }
     }
   }
@@ -5872,9 +7136,9 @@
           const l = d || 1;
           const kx = d > 0.05 ? dx / l : -sy;
           const kz = d > 0.05 ? dz / l : -cy;
-          dmgEnemy(e, fallDmg, kx, kz, { knock: P.slamming ? 14 : 7, stunBonus: P.slamming ? 0.6 : 0.3, part: 'torso' });
+          dmgEnemy(e, fallDmg, kx, kz, { knock: P.slamming ? 14 : 7, stunBonus: P.slamming ? 0.6 : 0.3, part: 'torso', weapon: P.slamming ? 'slam' : 'kick' });
           burst(ep.x, ep.y + eh * 0.75, ep.z, 0xb01010, P.slamming ? 18 : 10, 8, 0.5, 0.25, 14);
-          S.style = Math.min(420, S.style + (P.slamming ? 25 : 15));
+          A.addStyle(P.slamming ? 28 : 16);
           P.shake = Math.max(P.shake, P.slamming ? 0.5 : 0.25);
           if (P.slamming) {
             S.hitStop = 0.04 * (SAVE.hitstop != null ? SAVE.hitstop : 1);
@@ -6231,11 +7495,22 @@
           TP_CAM.target.set(P.pos.x - Math.sin(P.yaw) * 0.65, P.pos.y + 1.70, P.pos.z - Math.cos(P.yaw) * 0.65);
         } else if (S.csKind === 'rip') {
           const crossPhase = S.csT >= 3.4 ? clamp((S.csT - 3.4) / 0.5, 0, 1) : 0;
-          dist = 5.2 + crossPhase * 4.8;
-          heightOff = 2.1 + crossPhase * 1.3;
+          dist = 4.6 + crossPhase * 5.4;
+          heightOff = 1.15 + crossPhase * 2.25;
           if (S.ripTarget && !S.ripTarget.dead) {
-            const gp = S.ripTarget.g.position;
-            TP_CAM.target.set((P.pos.x + gp.x) * 0.5, P.pos.y + 1.85 + crossPhase * 1.1, (P.pos.z + gp.z) * 0.5);
+            const g = S.ripTarget;
+            const gp = g.g.position;
+            const midX = (P.pos.x + gp.x) * 0.5;
+            const midZ = (P.pos.z + gp.z) * 0.5;
+            const nx = S.ripYaw != null ? -Math.sin(S.ripYaw) : 0;
+            const nz = S.ripYaw != null ? -Math.cos(S.ripYaw) : -1;
+            const handX = P.pos.x + nx * 0.78;
+            const handZ = P.pos.z + nz * 0.78;
+            TP_CAM.target.set(
+              handX + (midX - handX) * crossPhase,
+              P.pos.y + 1.86 + crossPhase * 1.1,
+              handZ + (midZ - handZ) * crossPhase
+            );
           }
         }
         const desiredX = TP_CAM.target.x + Math.sin(TP_CAM.angle) * dist;
@@ -6337,15 +7612,54 @@
 
   /* ---------------- tick principal ---------------- */
   function tick(dt) {
+    if (window.IntroCutscene && IntroCutscene.isActive()) {
+      if (S.msgT > 0) {
+        S.msgT -= dt;
+        if (S.msgT <= 0) show('msg', false);
+      }
+      IntroCutscene.update(dt, camera);
+      return;
+    }
     if (S.hitStop > 0) { S.hitStop -= dt; dt *= 0.05; }
     S.time += dt;
     S.levelTime = (S.levelTime || 0) + dt;
     S.quipCd -= dt; S.msgT -= dt; S.baphT -= dt;
+    updateMapBanner(dt);
     if (S.hitMark > 0) S.hitMark -= dt;
     if (S.ammoFlash > 0) S.ammoFlash -= dt;
     if (S.grin > 0) S.grin -= dt;
-    S.style = Math.max(0, S.style - dt * (4 + S.style * 0.04));
     S.levelPeakStyle = Math.max(S.levelPeakStyle || 0, S.style);
+    if (S.hitPopT > 0) S.hitPopT = Math.max(0, S.hitPopT - dt);
+    if (S.stylePopT > 0) S.stylePopT = Math.max(0, S.stylePopT - dt);
+    if (S.styleT > 0) {
+      S.styleT -= dt;
+      if (S.styleT <= 0) {
+        S.styleT = 0;
+        S.style = 0;
+        S.killCombo = 0;
+        S.killComboT = 0;
+        S.hitCombo = 0;
+        S.hitComboT = 0;
+        S.lastStyleRankIdx = -1;
+      }
+    } else if (S.style > 0) {
+      S.style = 0;
+      S.lastStyleRankIdx = -1;
+    }
+    if (S.hitComboT > 0) {
+      S.hitComboT -= dt;
+      if (S.hitComboT <= 0) { S.hitComboT = 0; S.hitCombo = 0; }
+    }
+    if (S.killComboT > 0) {
+      S.killComboT -= dt;
+      if (S.killComboT <= 0) { S.killComboT = 0; S.killCombo = 0; }
+    }
+    if (S.killFeed && S.killFeed.length) {
+      for (let i = S.killFeed.length - 1; i >= 0; i--) {
+        S.killFeed[i].t -= dt;
+        if (S.killFeed[i].t <= 0) S.killFeed.splice(i, 1);
+      }
+    }
     if (P.faith < 100) S.faithReady = false;
     // timeline
     for (let i = S.tl.length - 1; i >= 0; i--) { S.tl[i].t -= dt; if (S.tl[i].t <= 0) { const f = S.tl[i].fn; S.tl.splice(i, 1); f(); } }
@@ -6403,6 +7717,7 @@
       }
     }
     updateVM(dt);
+    updateRosaryPhysics(dt);
     updateLowLifeHeartbeat(dt);
     updateHUD(dt);
   }
@@ -6461,23 +7776,34 @@
 
   let titleTime = 0, titleShotIdx = 0, titleShotT = 0;
   const titleLook = new V3();
+  const titleSpawnQueue = [];
+  let titlePeasantsPending = false;
+
+  function spawnTitleEnemyFromEntry(sp) {
+    const e = A.spawnEnemy(sp[0], sp[1], sp[2], 'title_demo', sp[3]);
+    e.homeX = sp[1];
+    e.homeZ = sp[2];
+    e.wanderAng = rnd(0, Math.PI * 2);
+    e.wanderT = rnd(0.5, 2.5);
+    e.chaosCd = rnd(0.4, 2.4);
+  }
 
   function initTitleShowcase() {
     clearTitleShowcase();
     if (SFX.setTrack) SFX.setTrack('title');
     World.updateChunks(TITLE_SHOTS[0].from.x, TITLE_SHOTS[0].from.z, true);
-    A.spawnMapPeasants('a1');
-    for (const sp of TITLE_SPAWNS) {
-      const e = A.spawnEnemy(sp[0], sp[1], sp[2], 'title_demo', sp[3]);
-      e.homeX = sp[1];
-      e.homeZ = sp[2];
-      e.wanderAng = rnd(0, Math.PI * 2);
-      e.wanderT = rnd(0.5, 2.5);
-      e.chaosCd = rnd(0.4, 2.4);
+    titlePeasantsPending = true;
+    titleSpawnQueue.length = 0;
+    for (let i = 0; i < TITLE_SPAWNS.length; i++) titleSpawnQueue.push(TITLE_SPAWNS[i]);
+    // Spawna apenas os primeiros 4 inimigos imediatamente para abrir a tela inicial sem travar
+    for (let i = 0; i < 4 && titleSpawnQueue.length; i++) {
+      spawnTitleEnemyFromEntry(titleSpawnQueue.shift());
     }
   }
 
   function clearTitleShowcase() {
+    titleSpawnQueue.length = 0;
+    titlePeasantsPending = false;
     A.clearRoomEnemies('title_demo');
     A.clearProjs();
     A.clearParts();
@@ -6621,6 +7947,15 @@
   }
 
   function tickTitle(dt) {
+    // Spawna o restante da cena de fundo aos poucos por frame para não travar a abertura
+    if (titlePeasantsPending) {
+      titlePeasantsPending = false;
+      A.spawnMapPeasants('a1');
+    } else if (titleSpawnQueue.length) {
+      for (let i = 0; i < 3 && titleSpawnQueue.length; i++) {
+        spawnTitleEnemyFromEntry(titleSpawnQueue.shift());
+      }
+    }
     titleTime += dt;
     titleShotT += dt;
     const shot = TITLE_SHOTS[titleShotIdx];
@@ -6702,7 +8037,15 @@
   }
 
   function render() {
+    if (S.intermission) {
+      renderIntermission();
+      return;
+    }
     const r = A.renderer;
+    if (window.IntroCutscene && IntroCutscene.isActive()) {
+      IntroCutscene.render(r, camera);
+      return;
+    }
     A.renderScene();
     if (S.started && SAVE.showVM !== false) {
       r.clearDepth();
@@ -6720,9 +8063,14 @@
     }
   }
 
-  let last = performance.now(), fpsAcc = 0, fpsFrames = 0;
+  const IS_RECORD_PREVIEWS = typeof location !== 'undefined' && location.search.indexOf('recordPreviews=1') !== -1;
+  const IS_CAPTURE_PREVIEWS = typeof location !== 'undefined' && location.search.indexOf('capturePreviews=1') !== -1;
+
+  let last = performance.now(), fpsAcc = 0, fpsFrames = 0, _needsIdleRender = true;
+  window.addEventListener('resize', () => { _needsIdleRender = true; });
   function frame(now) {
     requestAnimationFrame(frame);
+    if (!S.started && !IS_RECORD_PREVIEWS && !IS_CAPTURE_PREVIEWS) return;
     const cap = SAVE.fpsCap || 0;
     if (cap > 0) {
       const minInterval = 1000 / cap;
@@ -6731,6 +8079,24 @@
     const rawDt = (now - last) / 1000;
     const dt = Math.min(0.05, rawDt);
     last = now;
+    if (!S.started) {
+      tickTitle(dt);
+      render();
+      return;
+    }
+    if (S.intermission) {
+      tickIntermission(dt);
+      render();
+      return;
+    }
+    if (S.paused || S.ended) {
+      if (_needsIdleRender) {
+        _needsIdleRender = false;
+        render();
+      }
+      return;
+    }
+    _needsIdleRender = true;
     if (SAVE.showFps) {
       fpsAcc += rawDt;
       fpsFrames++;
@@ -6742,8 +8108,7 @@
         setText('fpsCounter', curFps + ' FPS · ' + (SAVE.resH || 360) + 'p · ' + pLbl);
       }
     }
-    if (!S.started) tickTitle(dt);
-    else if (!S.paused && !S.ended && !S.intermission) tick(dt);
+    tick(dt);
     render();
   }
 
@@ -6757,14 +8122,7 @@
   }
   function requestLock() {
     if (nolock) return;
-    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-      try {
-        const fs = document.documentElement.requestFullscreen();
-        if (fs && fs.then) fs.then(lockReservedKeys).catch(() => {});
-      } catch (e) {}
-    } else {
-      lockReservedKeys();
-    }
+    if (document.fullscreenElement) lockReservedKeys();
     const useRaw = SAVE.rawInput !== false;
     try {
       const p = useRaw
@@ -6797,9 +8155,27 @@
       e.returnValue = '';
     }
   });
+  let pauseFeedbackTimer = null;
+  function showPauseFeedback(msg) {
+    const fb = el('pauseFeedback');
+    if (!fb) return;
+    if (pauseFeedbackTimer) { clearTimeout(pauseFeedbackTimer); pauseFeedbackTimer = null; }
+    fb.textContent = msg || '';
+    fb.classList.toggle('is-visible', !!msg);
+    if (msg) {
+      pauseFeedbackTimer = setTimeout(() => {
+        fb.classList.remove('is-visible');
+        pauseFeedbackTimer = null;
+      }, 2200);
+    }
+  }
   function pause(on) {
     if (S.ended || P.dead || S.intermission) return;
     S.paused = on; show('pause', on);
+    if (!on) {
+      show('titleLoadModal', false);
+      showPauseFeedback('');
+    }
     mouseL = false; mouseR = false;
     mouseGuard.pendingX = 0; mouseGuard.pendingY = 0;
   }
@@ -6812,7 +8188,7 @@
       mouseGuard.warmup = 2;
       mouseGuard.lockAt = performance.now();
     }
-    if (!P.locked && S.started && !P.dead && !S.ended && !S.intermission && !nolock) pause(true);
+    if (!P.locked && S.started && !P.dead && !S.ended && !S.intermission && !nolock && !(window.IntroCutscene && IntroCutscene.isActive())) pause(true);
   });
   document.addEventListener('mousemove', (e) => {
     if (!((P.locked || nolock) && S.started && !S.paused && !P.dead && S.cutscene <= 0)) return;
@@ -6878,6 +8254,12 @@
       closeOptions(false);
       return;
     }
+    const isLoadOpen = el('titleLoadModal') && !el('titleLoadModal').classList.contains('hidden');
+    if (e.code === 'Escape' && isLoadOpen && S.started) {
+      e.preventDefault();
+      show('titleLoadModal', false);
+      return;
+    }
     if (!S.started) {
       if (e.code === 'Escape') closeAllTitleModals();
       return;
@@ -6890,6 +8272,19 @@
     }
     if (S.intermission) {
       if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); finishLevelComplete(); }
+      return;
+    }
+    if (window.IntroCutscene && IntroCutscene.isActive()) {
+      if (e.code === 'Space' || e.code === 'Enter') {
+        e.preventDefault();
+        IntroCutscene.skip();
+      } else if (e.code === 'Escape' && !S.paused) {
+        e.preventDefault();
+        pause(true);
+      } else if (e.code === 'Escape' && S.paused && !isOptOpen) {
+        e.preventDefault();
+        pause(false);
+      }
       return;
     }
     if (e.code === (binds.respawn || 'KeyR') && P.dead) respawn();
@@ -6926,14 +8321,24 @@
 
   /* ---------------- início e carregamento ---------------- */
   function startGame(opts) {
-    if (S.started) return;
     opts = opts || {};
+    if (S.started && !opts.forceReload) return;
     nolock = !!opts.nolock;
     clearTitleShowcase();
-    closeAllTitleModals();
+    closeAllTitleModals(true);
+    const tbv = el('titleBgVideo');
+    if (tbv && tbv.pause) { try { tbv.pause(); } catch (e) {} }
     SFX.init();
+    ensureBloodStainReady();
     if (window.BloodStain) BloodStain.reset();
-    show('title', false); show('hud', true);
+    show('title', false); show('pause', false); show('death', false); show('end', false); show('levelComplete', false); show('hud', true);
+    if (S.started) {
+      P.dead = false; S.ended = false; S.intermission = false;
+      releaseGrab(); endGlory();
+      if (window.IntroCutscene && IntroCutscene.isActive()) IntroCutscene.stop(true);
+      S.cutscene = 0; S.rip = false; S.ripTarget = null; S.ripStandPos = null;
+      S.cinemaBoss = null; S.csCamStart = null; setCinemaUI(false);
+    }
     S.started = true; S.paused = false;
     requestLock();
 
@@ -6991,8 +8396,37 @@
       return;
     }
 
+    S.bloodLiters = 0;
+    S.completedBloodSum = 0;
+    S.completedMapsCount = 0;
     loadMap('a1', { keepPlayer: false, x: 0, z: 10, yaw: 0, room: 'a1' });
-    say('ANO 666 D.S.C. — O Portal Maligno engoliu a cidade. Hora de trabalhar.', 'NIVALDO', 5);
+    if (window.IntroCutscene && !opts.skipIntro && !(typeof location !== 'undefined' && location.search.includes('autostart'))) {
+      S.cutscene = 99;
+      S.csKind = 'intro';
+      S.csT = 0;
+      IntroCutscene.start({
+        camera,
+        worldScene: scene,
+        spawnPos: P.pos.clone(),
+        playerEye: P.eye,
+        renderWorld: A.renderScene,
+        say,
+        setCinemaUI,
+        onComplete: () => {
+          S.cutscene = 0;
+          S.csKind = null;
+          S.csT = 0;
+          setCinemaUI(false);
+          show('msg', false);
+          S.msgT = 0;
+          selectWeapon(1, true);
+          resetCamera();
+          if (!nolock && !S.paused) requestLock();
+        }
+      });
+    } else {
+      say('ANO 666 D.S.C. — O Portal Maligno engoliu a cidade. Hora de trabalhar.', 'NIVALDO', 5);
+    }
   }
 
   function syncPickupsRenderState() {
@@ -7075,9 +8509,13 @@
     // HUD & Jogabilidade
     A.setPeasantLabels(cfg.peasantLabels !== false);
     show('fpsCounter', !!cfg.showFps);
-    show('radar', cfg.showRadar !== false);
     show('face', cfg.showFace !== false);
-    show('styleBox', cfg.showStyle !== false);
+    show('styleHud', cfg.showStyle !== false);
+    const shEl = el('styleHud');
+    if (shEl) {
+      const sc = clamp(parseFloat(cfg.styleScale != null ? cfg.styleScale : 1.0) || 1.0, 0.5, 1.6);
+      shEl.style.transform = 'scale(' + sc + ')';
+    }
     applyCrosshairStyle(cfg);
 
     // Áudio
@@ -7093,6 +8531,7 @@
     const { near, far } = getFogTargets(envAt(vx, vz));
     scene.fog.near = near;
     scene.fog.far = far;
+    _needsIdleRender = true;
   }
 
   function applyPreset(presetId, targetCfg) {
@@ -7106,14 +8545,25 @@
     if (dst === SAVE) writeSave();
   }
 
-  // coleciona pickups do mapa e inicia vitrine 3D da tela de título
+  // coleciona pickups do mapa; tela de título usa vídeo webm leve (ou vitrine 3D ao gravar previews)
   SAVE.qualityPreset = detectMatchingPreset(SAVE);
   applySettingsToEngine(SAVE);
   spawnMapPickups('a1');
   buildSlots(); updateSlots();
   A.bind({ die, say, quip, spawnPickup, startImpale, startGaliusBite });
   P.wantDash = false; P.wantUse = false;
-  initTitleShowcase();
+  if (IS_RECORD_PREVIEWS) {
+    show('title', false);
+    show('hud', false);
+    initTitleShowcase();
+    setTimeout(recordAllPreviewVideos, 500);
+  } else if (IS_CAPTURE_PREVIEWS) {
+    show('title', false);
+    show('hud', false);
+    setTimeout(captureAllPreviewPhotos, 400);
+  } else {
+    if (SFX.setTrack) SFX.setTrack('title');
+  }
   SFX.init();
   const unlockAudioOnce = () => {
     try { SFX.init(); } catch (e) {}
@@ -7262,9 +8712,11 @@
     setVal('optScreenFlash', cfg.screenFlash != null ? cfg.screenFlash : 1.0);
     setLbl('optScreenFlashVal', Math.round((cfg.screenFlash != null ? cfg.screenFlash : 1.0) * 100) + '%');
     setChk('optShowVM', cfg.showVM !== false);
-    setChk('optShowRadar', cfg.showRadar !== false);
     setChk('optShowFace', cfg.showFace !== false);
     setChk('optShowStyle', cfg.showStyle !== false);
+    const stSc = cfg.styleScale != null ? cfg.styleScale : 1.0;
+    setVal('optStyleScale', stSc);
+    setLbl('optStyleScaleVal', Math.round(stSc * 100) + '%');
     setChk('optQuips', cfg.quips !== false);
     setChk('optPeasantLabels', cfg.peasantLabels !== false);
     setChk('optShowFps', !!cfg.showFps);
@@ -7438,9 +8890,9 @@
   bindOpt('optVmBob', 'input', t => { SAVE.vmBob = parseFloat(t.value); });
   bindOpt('optScreenFlash', 'input', t => { SAVE.screenFlash = parseFloat(t.value); });
   bindOpt('optShowVM', 'change', t => { SAVE.showVM = !!t.checked; });
-  bindOpt('optShowRadar', 'change', t => { SAVE.showRadar = !!t.checked; });
   bindOpt('optShowFace', 'change', t => { SAVE.showFace = !!t.checked; });
   bindOpt('optShowStyle', 'change', t => { SAVE.showStyle = !!t.checked; });
+  bindOpt('optStyleScale', 'input', t => { SAVE.styleScale = clamp(parseFloat(t.value) || 1.0, 0.5, 1.6); });
   bindOpt('optQuips', 'change', t => { SAVE.quips = !!t.checked; });
   bindOpt('optPeasantLabels', 'change', t => { SAVE.peasantLabels = !!t.checked; });
   bindOpt('optShowFps', 'change', t => { SAVE.showFps = !!t.checked; });
@@ -7476,62 +8928,279 @@
   syncSettingsUI(SAVE);
 
   let pendingDifficulty = 2;
+  let diffTransitionTimer = null;
 
-  function closeAllTitleModals() {
-    ['titleDifficultyModal', 'titleChapterModal', 'titleEpisodeModal', 'titleLoadModal', 'titleExitModal'].forEach(id => {
+  function clearDiffTimer() {
+    if (diffTransitionTimer) {
+      clearTimeout(diffTransitionTimer);
+      diffTransitionTimer = null;
+    }
+  }
+
+  function closeAllTitleModals(immediate) {
+    const isImmediate = immediate === true;
+    clearDiffTimer();
+    const titleEl = el('title');
+    const diffEl = el('titleDifficultyModal');
+    const chapEl = el('titleChapterModal');
+    const diffWasOpen = !!(diffEl && !diffEl.classList.contains('hidden'));
+    const chapWasOpen = !!(chapEl && !chapEl.classList.contains('hidden'));
+
+    ['titleLoadModal', 'titleExitModal'].forEach(id => {
       if (el(id)) show(id, false);
     });
     if (el('optionsModal') && !el('optionsModal').classList.contains('hidden')) {
       closeOptions(true);
     }
+
+    if (diffEl) {
+      diffEl.classList.remove('is-open');
+      diffEl.setAttribute('aria-hidden', 'true');
+    }
+    if (chapEl) {
+      chapEl.classList.remove('is-open');
+      chapEl.setAttribute('aria-hidden', 'true');
+    }
+
+    if ((diffWasOpen || chapWasOpen) && !isImmediate) {
+      diffTransitionTimer = setTimeout(() => {
+        diffTransitionTimer = null;
+        show('titleDifficultyModal', false);
+        show('titleChapterModal', false);
+        if (titleEl) titleEl.classList.remove('title-fading-out');
+      }, 280);
+      return;
+    }
+
+    show('titleDifficultyModal', false);
+    show('titleChapterModal', false);
+    if (titleEl) titleEl.classList.remove('title-fading-out');
+  }
+
+  function openDifficultyScreen(immediate) {
+    clearDiffTimer();
+    ['titleLoadModal', 'titleExitModal'].forEach(id => {
+      if (el(id)) show(id, false);
+    });
+    if (el('optionsModal') && !el('optionsModal').classList.contains('hidden')) {
+      closeOptions(true);
+    }
+
+    const titleEl = el('title');
+    const diffEl = el('titleDifficultyModal');
+    const chapEl = el('titleChapterModal');
+    if (!diffEl) return;
+
+    const chapWasOpen = !!(chapEl && !chapEl.classList.contains('hidden'));
+    const alreadyFaded = !!(titleEl && titleEl.classList.contains('title-fading-out'));
+    if (titleEl) titleEl.classList.add('title-fading-out');
+
+    if (chapEl && chapWasOpen) {
+      chapEl.classList.remove('is-open');
+      chapEl.setAttribute('aria-hidden', 'true');
+    }
+
+    const reveal = () => {
+      diffTransitionTimer = null;
+      if (chapEl) show('titleChapterModal', false);
+      populateDifficulties();
+      diffEl.classList.remove('is-open');
+      show('titleDifficultyModal', true);
+      diffEl.setAttribute('aria-hidden', 'false');
+      void diffEl.offsetWidth;
+      diffEl.classList.add('is-open');
+    };
+
+    if (immediate) {
+      reveal();
+    } else if (chapWasOpen) {
+      diffTransitionTimer = setTimeout(reveal, 260);
+    } else if (alreadyFaded) {
+      reveal();
+    } else {
+      diffTransitionTimer = setTimeout(reveal, 320);
+    }
+  }
+
+  let selectedChapterIdx = 0;
+
+  function openCampaignScreen(immediate) {
+    clearDiffTimer();
+    const titleEl = el('title');
+    const diffEl = el('titleDifficultyModal');
+    const chapEl = el('titleChapterModal');
+    if (!chapEl) return;
+
+    const diffWasOpen = !!(diffEl && !diffEl.classList.contains('hidden'));
+    if (titleEl) titleEl.classList.add('title-fading-out');
+
+    if (diffEl && diffWasOpen) {
+      diffEl.classList.remove('is-open');
+      diffEl.setAttribute('aria-hidden', 'true');
+    }
+
+    const reveal = () => {
+      diffTransitionTimer = null;
+      if (diffEl) show('titleDifficultyModal', false);
+      selectedChapterIdx = 0;
+      populateCampaign(selectedChapterIdx);
+      chapEl.classList.remove('is-open');
+      show('titleChapterModal', true);
+      chapEl.setAttribute('aria-hidden', 'false');
+      void chapEl.offsetWidth;
+      chapEl.classList.add('is-open');
+    };
+
+    if (immediate || !diffWasOpen) {
+      reveal();
+    } else {
+      diffTransitionTimer = setTimeout(reveal, 260);
+    }
+  }
+
+  function setDifficultyPreview(d) {
+    const descEl = el('difficultyPreviewDesc');
+    const statsEl = el('difficultyPreviewStats');
+    if (!d) {
+      if (descEl) descEl.textContent = '';
+      if (statsEl) statsEl.textContent = '';
+      return;
+    }
+    const fmtMul = (n) => Number(n.toFixed(2)) + 'x';
+    if (descEl) descEl.textContent = d.desc;
+    if (statsEl) statsEl.textContent = fmtMul(d.spawnMul) + ' INIMIGOS · ' + fmtMul(d.dmgMul) + ' DANO';
   }
 
   function populateDifficulties() {
     const list = el('difficultyList');
     if (!list) return;
     list.innerHTML = '';
-    const fmtMul = (n) => Number(n.toFixed(2)) + 'x';
-    A.DIFFICULTIES.forEach(d => {
-      const item = document.createElement('div');
-      item.className = 'save-slot-item' + (d.id === 5 ? ' diff-hellslayer' : '');
-      item.innerHTML =
-        '<div>' +
-          '<div class="save-slot-title">' + d.label + '</div>' +
-          '<div class="save-slot-meta">' + d.desc + '</div>' +
-        '</div>' +
-        '<div class="save-slot-badge">' + fmtMul(d.spawnMul) + ' INIMIGOS · ' + fmtMul(d.dmgMul) + ' DANO</div>';
+    setDifficultyPreview(null);
+    A.DIFFICULTIES.forEach((d, idx) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'diff-item diff-tier-' + idx;
+      item.style.setProperty('--i', String(idx));
+      item.setAttribute('role', 'listitem');
+      item.innerHTML = '<span class="diff-item-label">' + d.short + '</span>';
+      item.addEventListener('mouseenter', () => {
+        try { SFX.init(); SFX.play('ui'); } catch (e) {}
+        setDifficultyPreview(d);
+      });
+      item.addEventListener('focus', () => {
+        setDifficultyPreview(d);
+      });
       item.addEventListener('click', () => {
         pendingDifficulty = d.id;
-        closeAllTitleModals();
-        show('titleChapterModal', true);
+        openCampaignScreen(false);
       });
       list.appendChild(item);
     });
   }
 
-  const EPISODES = [
+  const CAMPAIGN_CHAPTERS = [
     {
-      title: 'ÀS MARGENS DO INFERNO',
-      badge: 'ÁREAS 1–3',
-      desc: 'Bairro Alto, Campos da Perdição e Subúrbio Exterior. Recupere seu estilingue na casinha, pegue a foice nos celeiros e abra caminho até a cidade.',
-      preview: { map: 'a1', pos: [-14, 6.5, 10], look: [-4, 2.2, -32], env: 'hell' },
-      data: null
+      id: 'ch1',
+      num: 'CAPÍTULO 1',
+      title: 'Nos Portões do Inferno',
+      meta: 'Ano 666 D.S.C. · 3 Episódios',
+      tag: 'DISPONÍVEL',
+      locked: false,
+      episodes: [
+        {
+          title: 'EPISÓDIO 1 · ÀS MARGENS DO INFERNO',
+          badge: 'ÁREAS 1–3',
+          areas: [
+            {
+              id: 'a1',
+              badge: 'ÁREA 1',
+              title: 'Bairro Alto',
+              desc: 'Casa de Nivaldo e Vizinhança',
+              preview: { map: 'a1', pos: [-14, 6.5, 10], look: [-4, 2.2, -32], env: 'hell' },
+              data: null
+            },
+            {
+              id: 'a2',
+              badge: 'ÁREA 2',
+              title: 'Campos da Perdição',
+              desc: 'Plantações, Celeiros e a Foice',
+              preview: { map: 'a2', pos: [-10, 6.5, 10], look: [0, 2.5, -36], env: 'hell' },
+              data: { x: 0, z: 10, yaw: 0, stage: 'a1done', objRoom: 'a2', hp: 200, rocks: 20, owned: [true, true, true, false, false, false, false], cleared: ['a1'] }
+            },
+            {
+              id: 'a3',
+              badge: 'ÁREA 3',
+              title: 'Subúrbio Exterior',
+              desc: 'Estrada da Cidade e Guardas',
+              preview: { map: 'a3', pos: [-10, 6.5, 10], look: [0, 3.0, -40], env: 'hell' },
+              data: { x: 0, z: 10, yaw: 0, stage: 'a2done', objRoom: 'a3', hp: 200, rocks: 30, owned: [true, true, true, true, false, false, false], cleared: ['a1', 'a2'] }
+            }
+          ]
+        },
+        {
+          title: 'EPISÓDIO 2 · DESCENDO AO HORROR',
+          badge: 'ÁREAS 4–5',
+          areas: [
+            {
+              id: 'a4',
+              badge: 'ÁREA 4',
+              title: 'Burgo Satanizado Exterior',
+              desc: 'Mansões em Chamas e Martelo',
+              intro: 'ÁREAS 4-5 — DESCENDO AO HORROR. A fúria de Nivaldo aumenta a cada segundo…',
+              preview: { map: 'a4', pos: [-14, 8.5, 8], look: [0, 6, -50], env: 'hell' },
+              data: { x: 0, z: 10, yaw: 0, stage: 'a3done', objRoom: 'a4', hp: 200, rocks: 35, owned: [true, true, true, true, false, false, false], cleared: ['a1', 'a2', 'a3'] }
+            },
+            {
+              id: 'a5',
+              badge: 'ÁREA 5',
+              title: 'Burgo Satanizado Interior',
+              desc: 'Ninhos Infernais rumo à Ultra-Igreja',
+              preview: { map: 'a5', pos: [-10, 8.0, 10], look: [0, 5.5, -50], env: 'hell' },
+              data: { x: 0, z: 10, yaw: 0, stage: 'a4done', objRoom: 'a5', hp: 200, rocks: 45, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4'] }
+            }
+          ]
+        },
+        {
+          title: 'EPISÓDIO 3 · A ULTRA-IGREJA',
+          badge: 'ÁREA 6',
+          areas: [
+            {
+              id: 'a6_gate',
+              badge: 'PORTÕES',
+              title: 'Portões da Ultra-Igreja',
+              desc: 'Sérgio Maximo · Guarda Real',
+              intro: 'ÁREA 6 — A ULTRA-IGREJA. Sérgio Maximo guarda os portões da Mega-Estrutura.',
+              preview: { map: 'a6_gate', pos: [0, 9.5, -18], look: [0, 22, -165], env: 'hell' },
+              data: { x: 0, z: 10, yaw: 0, stage: 'a5done', objRoom: 'a6_gate', hp: 200, rocks: 50, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4', 'a5'] }
+            },
+            {
+              id: 'a6_nave',
+              badge: 'CAPELA',
+              title: 'A Capela Demonizada',
+              desc: 'Interior da Mega-Estrutura',
+              preview: { map: 'a6_nave', pos: [0, 6.0, -8], look: [0, 7.0, -48], env: 'church' },
+              data: { x: 0, z: -8, yaw: 0, stage: 'door', objRoom: 'a6_nave', hp: 200, rocks: 60, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6_gate'] }
+            },
+            {
+              id: 'a6_crypt',
+              badge: 'CRIPTA',
+              title: 'Catacumbas de Rômulo III',
+              desc: 'Subsolo · Sacra Cruz Papal',
+              preview: { map: 'a6_crypt', pos: [0, 4.5, -4], look: [0, 3.5, -32], env: 'crypt' },
+              data: { x: 0, z: -4, yaw: 0, stage: 'crypt', objRoom: 'a6_crypt1', hp: 200, rocks: 60, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6_gate', 'a6_nave', 'a6_galius1'] }
+            }
+          ]
+        }
+      ]
     },
     {
-      title: 'DESCENDO AO HORROR',
-      badge: 'ÁREAS 4–5',
-      desc: 'Casarões dos Super-Ricos e Avenida do Horror. Ninhos de demônios maiores, super-gárgulas, padres e o Martelo de Demolição.',
-      intro: 'ÁREAS 4-5 — DESCENDO AO HORROR. A fúria de Nivaldo aumenta a cada segundo…',
-      preview: { map: 'a4', pos: [-14, 8.5, 8], look: [0, 6, -50], env: 'hell' },
-      data: { x: 0, z: 10, yaw: 0, stage: 'a3done', objRoom: 'a4', hp: 200, rocks: 35, owned: [true, true, true, true, false, false, false], cleared: ['a1', 'a2', 'a3'] }
-    },
-    {
-      title: 'A ULTRA-IGREJA',
-      badge: 'ÁREA 6',
-      desc: 'Enfrente Sérgio Maximo no pátio, invada a mega-estrutura, desça às catacumbas e encare Galius, o Super-Ateu criado por Baphomet.',
-      intro: 'ÁREA 6 — A ULTRA-IGREJA. Sérgio Maximo guarda os portões da Mega-Estrutura.',
-      preview: { map: 'a6_gate', pos: [0, 9.5, -18], look: [0, 22, -165], env: 'hell' },
-      data: { x: 0, z: 10, yaw: 0, stage: 'a5done', objRoom: 'a6_gate', hp: 200, rocks: 50, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4', 'a5'] }
+      id: 'ch2',
+      num: 'CAPÍTULO 2',
+      title: 'A Floresta Infernal',
+      meta: 'Em desenvolvimento — disponível após pacificar a cidade.',
+      tag: 'EM BREVE',
+      locked: true,
+      episodes: []
     }
   ];
 
@@ -7546,99 +9215,372 @@
     });
   } catch (e) {}
 
-  let episodePreviews = null;
-  function captureEpisodePreviews() {
-    if (episodePreviews) return episodePreviews;
-    episodePreviews = [];
-    try {
-      const savedPos = camera.position.clone();
-      const savedQuat = camera.quaternion.clone();
-      const savedFov = camera.fov;
-      const savedSky = A.sky.position.clone();
-      const savedPlight = A.plight.position.clone();
-      const savedFogCol = scene.fog.color.getHex();
-      const savedFogNear = scene.fog.near;
-      const savedFogFar = scene.fog.far;
-      const savedAmbCol = A.amb.color.getHex();
-      const savedAmbI = A.amb.intensity;
-      const savedSunCol = A.sun.color.getHex();
-      const savedSunI = A.sun.intensity;
-      const savedRenderChunks = World.renderChunks;
+  let areaPreviews = null;
+  function drawAreaArtwork(g, W, H, areaId) {
+    // Paleta base por ambiente
+    const isChurch = areaId === 'a6_nave';
+    const isCrypt = areaId === 'a6_crypt';
+    const sky = g.createLinearGradient(0, 0, 0, H);
+    if (isCrypt) {
+      sky.addColorStop(0, '#07080d');
+      sky.addColorStop(0.55, '#181a24');
+      sky.addColorStop(1, '#0c0c10');
+    } else if (isChurch) {
+      sky.addColorStop(0, '#0e040c');
+      sky.addColorStop(0.5, '#2b0d1c');
+      sky.addColorStop(1, '#12060a');
+    } else if (areaId === 'a6_gate') {
+      sky.addColorStop(0, '#120206');
+      sky.addColorStop(0.45, '#54100c');
+      sky.addColorStop(0.8, '#b83812');
+      sky.addColorStop(1, '#220806');
+    } else if (areaId === 'a4' || areaId === 'a5') {
+      sky.addColorStop(0, '#100208');
+      sky.addColorStop(0.45, '#4c0c0a');
+      sky.addColorStop(0.75, '#a82c0e');
+      sky.addColorStop(1, '#1c0705');
+    } else {
+      sky.addColorStop(0, '#120308');
+      sky.addColorStop(0.48, '#5a140c');
+      sky.addColorStop(0.76, '#c44a14');
+      sky.addColorStop(1, '#260b07');
+    }
+    g.fillStyle = sky;
+    g.fillRect(0, 0, W, H);
 
+    // Chão / horizonte
+    const hy = Math.round(H * (isChurch || isCrypt ? 0.68 : 0.62));
+    if (!isChurch && !isCrypt) {
+      // Halo / portal distante no céu
+      const gx = areaId === 'a6_gate' ? W * 0.5 : W * 0.62;
+      const gy = H * 0.28;
+      const rad = g.createRadialGradient(gx, gy, 2, gx, gy, H * 0.42);
+      rad.addColorStop(0, 'rgba(255, 140, 48, 0.55)');
+      rad.addColorStop(0.45, 'rgba(180, 32, 16, 0.22)');
+      rad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      g.fillStyle = rad;
+      g.fillRect(0, 0, W, hy);
+
+      // Colinas distantes
+      g.fillStyle = '#240706';
+      g.beginPath();
+      g.moveTo(0, hy);
+      for (let x = 0; x <= W; x += 12) {
+        const y = hy - 8 - Math.sin(x * 0.045 + areaId.length) * 6 - Math.cos(x * 0.09) * 3;
+        g.lineTo(x, y);
+      }
+      g.lineTo(W, hy);
+      g.closePath();
+      g.fill();
+
+      // Solo
+      const grd = g.createLinearGradient(0, hy, 0, H);
+      grd.addColorStop(0, '#2e120a');
+      grd.addColorStop(1, '#120504');
+      g.fillStyle = grd;
+      g.fillRect(0, hy, W, H - hy);
+    } else {
+      g.fillStyle = isCrypt ? '#14151c' : '#1b0b12';
+      g.fillRect(0, hy, W, H - hy);
+    }
+
+    // Helper de chama/glow
+    const flame = (fx, fy, r) => {
+      const fl = g.createRadialGradient(fx, fy, 1, fx, fy, r);
+      fl.addColorStop(0, 'rgba(255, 224, 110, 0.95)');
+      fl.addColorStop(0.4, 'rgba(255, 96, 20, 0.65)');
+      fl.addColorStop(1, 'rgba(180, 20, 0, 0)');
+      g.fillStyle = fl;
+      g.fillRect(fx - r, fy - r, r * 2, r * 2);
+    };
+
+    // Silhueta icônica por área
+    if (areaId === 'a1') {
+      // Bairro Alto: casas em chamas + torre distante
+      g.fillStyle = '#180505';
+      g.fillRect(W * 0.46, hy - 22, 10, 22);
+      g.fillRect(W * 0.485, hy - 30, 5, 8);
+      // Casas
+      const houses = [[10, 26, 24], [44, 22, 18], [104, 28, 22], [134, 22, 26]];
+      houses.forEach(([x, w, h]) => {
+        g.fillStyle = '#190706';
+        g.fillRect(x, hy - h, w, h + 4);
+        g.beginPath();
+        g.moveTo(x - 3, hy - h);
+        g.lineTo(x + w * 0.5, hy - h - 9);
+        g.lineTo(x + w + 3, hy - h);
+        g.closePath();
+        g.fill();
+        g.fillStyle = '#ff9830';
+        g.fillRect(x + 5, hy - h + 6, 4, 5);
+        g.fillRect(x + w - 9, hy - h + 6, 4, 5);
+      });
+      flame(22, hy - 24, 18);
+      flame(118, hy - 22, 16);
+    } else if (areaId === 'a2') {
+      // Campos da Perdição: celeiro, fileiras de plantação e espantalho
+      g.fillStyle = '#1b0705';
+      g.fillRect(18, hy - 26, 36, 28);
+      g.beginPath();
+      g.moveTo(14, hy - 26); g.lineTo(36, hy - 40); g.lineTo(58, hy - 26);
+      g.closePath(); g.fill();
+      g.fillStyle = '#ff8c28';
+      g.fillRect(32, hy - 14, 8, 12);
+      // Espantalho
+      g.fillStyle = '#120403';
+      g.fillRect(114, hy - 22, 2, 24);
+      g.fillRect(105, hy - 16, 20, 2);
+      g.fillRect(112, hy - 26, 6, 5);
+      // Linhas de plantação em perspectiva
+      g.fillStyle = '#3b1e0a';
+      for (let i = 0; i < 6; i++) {
+        g.fillRect(0, hy + 4 + i * 5, W, 2);
+      }
+      flame(74, hy - 6, 15);
+      flame(136, hy - 8, 14);
+    } else if (areaId === 'a3') {
+      // Subúrbio Exterior: estrada em perspectiva + muros
+      g.fillStyle = '#321812';
+      g.beginPath();
+      g.moveTo(W * 0.44, hy); g.lineTo(W * 0.56, hy);
+      g.lineTo(W * 0.82, H); g.lineTo(W * 0.18, H);
+      g.closePath(); g.fill();
+      g.fillStyle = '#190706';
+      g.fillRect(0, hy - 16, 46, 18);
+      g.fillRect(114, hy - 18, 46, 20);
+      g.fillRect(62, hy - 28, 8, 28);
+      g.fillRect(90, hy - 24, 8, 24);
+      flame(48, hy - 10, 14);
+      flame(112, hy - 10, 14);
+    } else if (areaId === 'a4') {
+      // Casarões dos Super-Ricos: mansões largas em chamas
+      const drawMansion = (x, w, h) => {
+        g.fillStyle = '#190606';
+        g.fillRect(x, hy - h, w, h + 4);
+        g.fillRect(x + 6, hy - h - 8, w - 12, 8);
+        g.fillStyle = '#ffb038';
+        for (let wx = x + 5; wx < x + w - 6; wx += 8) {
+          g.fillRect(wx, hy - h + 6, 4, 6);
+          g.fillRect(wx, hy - h + 16, 4, 6);
+        }
+      };
+      drawMansion(8, 52, 30);
+      drawMansion(96, 56, 34);
+      flame(34, hy - 32, 22);
+      flame(124, hy - 34, 24);
+    } else if (areaId === 'a5') {
+      // Avenida do Horror: pilares, ninhos e Ultra-Igreja ao fundo
+      g.fillStyle = '#2a0e0a';
+      g.beginPath();
+      g.moveTo(W * 0.42, hy); g.lineTo(W * 0.58, hy);
+      g.lineTo(W * 0.9, H); g.lineTo(W * 0.1, H);
+      g.closePath(); g.fill();
+      // Catedral ao fundo
+      g.fillStyle = '#150406';
+      g.fillRect(W * 0.41, hy - 36, 28, 36);
+      g.fillRect(W * 0.45, hy - 48, 16, 12);
+      g.fillRect(W * 0.49, hy - 56, 4, 8);
+      // Pilares laterais
+      [18, 40, 114, 136].forEach(px => {
+        g.fillStyle = '#1c0706';
+        g.fillRect(px, hy - 22, 6, 26);
+        flame(px + 3, hy - 23, 10);
+      });
+    } else if (areaId === 'a6_gate') {
+      // Portões da Ultra-Igreja: Mega-Estrutura monumental
+      g.fillStyle = '#140406';
+      g.fillRect(36, hy - 44, 88, 48);
+      g.fillRect(54, hy - 62, 52, 20);
+      g.fillRect(72, hy - 78, 16, 18);
+      // Torres laterais
+      g.fillRect(24, hy - 58, 14, 62);
+      g.fillRect(122, hy - 58, 14, 62);
+      // Portão central brilhante
+      flame(W * 0.5, hy - 14, 24);
+      g.fillStyle = '#ffd24a';
+      g.fillRect(W * 0.5 - 1, hy - 72, 2, 12);
+      g.fillRect(W * 0.5 - 4, hy - 69, 8, 2);
+      g.fillStyle = '#ff6a24';
+      g.fillRect(W * 0.5 - 8, hy - 20, 16, 22);
+    } else if (areaId === 'a6_nave') {
+      // Nave da Ultra-Igreja: colunas altas + vitral central
+      const vitral = g.createRadialGradient(W * 0.5, H * 0.34, 2, W * 0.5, H * 0.34, 28);
+      vitral.addColorStop(0, 'rgba(255, 80, 60, 0.95)');
+      vitral.addColorStop(0.5, 'rgba(180, 20, 80, 0.55)');
+      vitral.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      g.fillStyle = vitral;
+      g.fillRect(W * 0.5 - 28, H * 0.34 - 28, 56, 56);
+      // Colunas em perspectiva
+      [[10, 14], [36, 10], [114, 10], [136, 14]].forEach(([x, w]) => {
+        g.fillStyle = '#110409';
+        g.fillRect(x, 0, w, H);
+      });
+      // Altar dourado
+      g.fillStyle = '#caa040';
+      g.fillRect(W * 0.5 - 12, hy - 8, 24, 10);
+      flame(W * 0.5 - 16, hy - 12, 12);
+      flame(W * 0.5 + 16, hy - 12, 12);
+    } else if (areaId === 'a6_crypt') {
+      // Catacumbas: arcos subterrâneos + tochas + cruz dourada
+      g.strokeStyle = '#262938';
+      g.lineWidth = 6;
+      for (let r = 24; r <= 72; r += 22) {
+        g.beginPath();
+        g.arc(W * 0.5, hy + 4, r, Math.PI, 0);
+        g.stroke();
+      }
+      flame(34, hy - 18, 16);
+      flame(W - 34, hy - 18, 16);
+      // Cruz papal no centro
+      g.fillStyle = '#ffd24a';
+      g.fillRect(W * 0.5 - 2, hy - 26, 4, 22);
+      g.fillRect(W * 0.5 - 8, hy - 20, 16, 4);
+      flame(W * 0.5, hy - 18, 16);
+    }
+
+    // Brasas / partículas sutis
+    g.fillStyle = isCrypt ? 'rgba(255, 196, 110, 0.7)' : 'rgba(255, 176, 80, 0.75)';
+    let seed = 17;
+    for (let i = 0; i < areaId.length; i++) seed = (seed * 31 + areaId.charCodeAt(i)) | 0;
+    for (let i = 0; i < 18; i++) {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      const ex = (seed % W);
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      const ey = (seed % (H - 8));
+      g.fillRect(ex, ey, 2, 2);
+    }
+  }
+
+  function captureAreaPreviews() {
+    if (areaPreviews) return areaPreviews;
+    areaPreviews = {};
+    try {
       const c = document.createElement('canvas');
-      c.width = 192;
-      c.height = 108;
+      c.width = 160;
+      c.height = 90;
       const g = c.getContext('2d');
       g.imageSmoothingEnabled = false;
 
-      World.renderChunks = 16;
-      EPISODES.forEach((ep, i) => {
-        const pv = ep.preview;
-        if (pv.map && World.currentMap !== pv.map) buildMap(pv.map);
-        World.updateChunks(pv.pos[0], pv.pos[2], true);
-        const E = ENV[pv.env] || ENV.hell;
-        camera.position.set(pv.pos[0], pv.pos[1], pv.pos[2]);
-        camera.lookAt(pv.look[0], pv.look[1], pv.look[2]);
-        camera.fov = 68;
-        camera.updateProjectionMatrix();
-        A.sky.position.copy(camera.position);
-        A.plight.position.set(camera.position.x, camera.position.y + 2, camera.position.z);
-        scene.fog.color.setHex(E.fog);
-        scene.fog.near = E.near;
-        scene.fog.far = E.far;
-        A.amb.color.setHex(E.amb); A.amb.intensity = E.ambI;
-        A.sun.color.setHex(E.dir); A.sun.intensity = E.dirI;
-        A.renderer.setClearColor(scene.fog.color);
-        A.renderer.render(scene, camera);
-        g.clearRect(0, 0, c.width, c.height);
-        g.drawImage(A.renderer.domElement, 0, 0, c.width, c.height);
-        episodePreviews[i] = c.toDataURL('image/png');
+      CAMPAIGN_CHAPTERS.forEach(ch => {
+        (ch.episodes || []).forEach(ep => {
+          (ep.areas || []).forEach(area => {
+            g.clearRect(0, 0, c.width, c.height);
+            drawAreaArtwork(g, c.width, c.height, area.id);
+            areaPreviews[area.id] = c.toDataURL('image/png');
+          });
+        });
       });
-      World.renderChunks = savedRenderChunks;
-      if (World.currentMap !== 'a1') buildMap('a1');
-      World.updateChunks(savedPos.x, savedPos.z, true);
-      A.syncRenderDistanceEntities();
-
-      camera.position.copy(savedPos);
-      camera.quaternion.copy(savedQuat);
-      camera.fov = savedFov;
-      camera.updateProjectionMatrix();
-      A.sky.position.copy(savedSky);
-      A.plight.position.copy(savedPlight);
-      scene.fog.color.setHex(savedFogCol);
-      scene.fog.near = savedFogNear;
-      scene.fog.far = savedFogFar;
-      A.amb.color.setHex(savedAmbCol); A.amb.intensity = savedAmbI;
-      A.sun.color.setHex(savedSunCol); A.sun.intensity = savedSunI;
-      A.renderer.setClearColor(scene.fog.color);
     } catch (e) {}
-    return episodePreviews;
+    return areaPreviews;
   }
 
-  function populateEpisodes() {
-    const list = el('episodeList');
-    if (!list) return;
-    const thumbs = captureEpisodePreviews();
-    list.innerHTML = '';
-    EPISODES.forEach((ep, idx) => {
-      const item = document.createElement('div');
-      item.className = 'episode-item';
-      const thumbSrc = (thumbs && thumbs[idx]) ? thumbs[idx] : '';
-      item.innerHTML =
-        '<img class="episode-thumb" alt="' + ep.title + '" src="' + thumbSrc + '">' +
-        '<div class="episode-info">' +
-          '<div class="episode-head">' +
-            '<div class="save-slot-title">EPISÓDIO ' + (idx + 1) + ' · ' + ep.title + '</div>' +
-            '<div class="save-slot-badge">' + ep.badge + '</div>' +
-          '</div>' +
-          '<div class="episode-desc">' + ep.desc + '</div>' +
-        '</div>';
-      item.addEventListener('click', () => {
-        if (!ep.data) startGame({ difficulty: pendingDifficulty });
-        else startGame({ resumeSave: ep.data, episodeIntro: ep.intro, difficulty: pendingDifficulty });
+  function renderCampaignEpisodes(ch, thumbs) {
+    const epContainer = el('episodeList');
+    if (!epContainer) return;
+    epContainer.innerHTML = '';
+
+    if (ch.locked || !ch.episodes || !ch.episodes.length) {
+      const box = document.createElement('div');
+      box.className = 'campaign-coming-soon';
+      box.innerHTML =
+        '<h3>' + ch.num + ' — ' + ch.title.toUpperCase() + '</h3>' +
+        '<p>' + ch.meta + '</p>';
+      epContainer.appendChild(box);
+      return;
+    }
+
+    ch.episodes.forEach((ep, epIdx) => {
+      const row = document.createElement('div');
+      row.className = 'episode-row';
+      row.style.setProperty('--i', String(epIdx));
+
+      const head = document.createElement('div');
+      head.className = 'episode-row-head';
+      head.innerHTML =
+        '<div class="episode-row-title">' + ep.title + '</div>' +
+        '<div class="episode-row-badge">' + ep.badge + '</div>';
+      row.appendChild(head);
+
+      const grid = document.createElement('div');
+      grid.className = 'episode-areas-grid';
+
+      ep.areas.forEach(area => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'area-card';
+        card.innerHTML =
+          '<video class="area-card-bg" src="assets/videos/' + area.id + '.webm" loop muted playsinline preload="metadata"></video>' +
+          '<div class="area-card-scrim"></div>' +
+          '<div class="area-card-top"><span class="area-card-badge">' + area.badge + '</span></div>' +
+          '<div class="area-card-bottom">' +
+            '<div class="area-card-title">' + area.title + '</div>' +
+            '<div class="area-card-desc">' + area.desc + '</div>' +
+          '</div>';
+        const vid = card.querySelector('video');
+        card.addEventListener('mouseenter', () => {
+          try { SFX.init(); SFX.play('ui'); } catch (e) {}
+          if (vid && vid.play) vid.play().catch(() => {});
+        });
+        card.addEventListener('mouseleave', () => {
+          if (vid && vid.pause) { try { vid.pause(); } catch (e) {} }
+        });
+        card.addEventListener('focus', () => {
+          if (vid && vid.play) vid.play().catch(() => {});
+        });
+        card.addEventListener('blur', () => {
+          if (vid && vid.pause) { try { vid.pause(); } catch (e) {} }
+        });
+        card.addEventListener('click', () => {
+          if (!area.data) startGame({ difficulty: pendingDifficulty });
+          else startGame({ resumeSave: area.data, episodeIntro: area.intro, difficulty: pendingDifficulty });
+        });
+        grid.appendChild(card);
       });
-      list.appendChild(item);
+
+      row.appendChild(grid);
+      epContainer.appendChild(row);
     });
+  }
+
+  function populateCampaign(activeIdx) {
+    const chList = el('chapterList');
+    const diffBadge = el('campaignDiffBadge');
+    const diffObj = A.DIFFICULTIES[clamp(pendingDifficulty, 0, A.DIFFICULTIES.length - 1)] || A.DIFFICULTIES[2];
+    if (diffBadge && diffObj) {
+      diffBadge.className = 'campaign-diff-badge diff-tier-' + diffObj.id;
+      diffBadge.textContent = 'Dificuldade: ' + diffObj.short;
+    }
+
+    const thumbs = null;
+    if (!chList) return;
+    chList.innerHTML = '';
+
+    CAMPAIGN_CHAPTERS.forEach((ch, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chapter-block' + (idx === activeIdx ? ' is-active' : '') + (ch.locked ? ' is-locked' : '');
+      btn.style.setProperty('--i', String(idx));
+      btn.innerHTML =
+        '<div class="chapter-num">' + ch.num + '</div>' +
+        '<div class="chapter-title">' + ch.title + '</div>' +
+        '<div class="chapter-meta">' + ch.meta + '</div>' +
+        '<div class="chapter-tag">' + ch.tag + '</div>';
+      btn.addEventListener('mouseenter', () => {
+        try { SFX.init(); SFX.play('ui'); } catch (e) {}
+      });
+      btn.addEventListener('click', () => {
+        if (selectedChapterIdx === idx) return;
+        selectedChapterIdx = idx;
+        chList.querySelectorAll('.chapter-block').forEach((b, bi) => {
+          b.classList.toggle('is-active', bi === idx);
+        });
+        renderCampaignEpisodes(ch, thumbs);
+      });
+      chList.appendChild(btn);
+    });
+
+    const activeChapter = CAMPAIGN_CHAPTERS[activeIdx] || CAMPAIGN_CHAPTERS[0];
+    renderCampaignEpisodes(activeChapter, thumbs);
   }
 
   const STAGE_PRESETS = [
@@ -7661,13 +9603,13 @@
       data: { x: 0, z: 10, yaw: 0, stage: 'a2done', objRoom: 'a3', hp: 200, rocks: 30, owned: [true, true, true, true, false, false, false], cleared: ['a1', 'a2'] }
     },
     {
-      title: 'Área 4 · Casarões dos Super-Ricos',
+      title: 'Área 4 · Burgo Satanizado Exterior',
       meta: 'Ep. 2 · Mansões em Chamas e Martelo de Demolição',
       badge: 'ÁREA 4',
       data: { x: 0, z: 10, yaw: 0, stage: 'a3done', objRoom: 'a4', hp: 200, rocks: 35, owned: [true, true, true, true, false, false, false], cleared: ['a1', 'a2', 'a3'] }
     },
     {
-      title: 'Área 5 · Avenida do Horror',
+      title: 'Área 5 · Burgo Satanizado Interior',
       meta: 'Ep. 2 · Ninhos Infernais rumo à Ultra-Igreja',
       badge: 'ÁREA 5',
       data: { x: 0, z: 10, yaw: 0, stage: 'a4done', objRoom: 'a5', hp: 200, rocks: 45, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4'] }
@@ -7679,9 +9621,9 @@
       data: { x: 0, z: 10, yaw: 0, stage: 'a5done', objRoom: 'a6_gate', hp: 200, rocks: 50, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4', 'a5'] }
     },
     {
-      title: 'Área 6 · Nave da Ultra-Igreja',
+      title: 'Área 6 · A Capela Demonizada',
       meta: 'Ep. 3 · Interior da Mega-Estrutura',
-      badge: 'NAVE',
+      badge: 'CAPELA',
       data: { x: 0, z: -8, yaw: 0, stage: 'door', objRoom: 'a6_nave', hp: 200, rocks: 60, owned: [true, true, true, true, true, false, false], cleared: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6_gate'] }
     },
     {
@@ -7709,7 +9651,7 @@
         '<div><div class="save-slot-title">Último Checkpoint Salvo</div>' +
         '<div class="save-slot-meta">' + (sv.areaLabel || 'Capítulo 1') + diffTxt + ' · Tempo ' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + ' · Chacina ' + (sv.kills || 0) + '</div></div>' +
         '<div class="save-slot-badge">CONTINUAR</div>';
-      autoSlot.addEventListener('click', () => startGame({ resumeSave: sv }));
+      autoSlot.addEventListener('click', () => startGame({ resumeSave: sv, forceReload: true }));
     } else {
       autoSlot.className = 'save-slot-item empty';
       autoSlot.innerHTML =
@@ -7727,7 +9669,7 @@
         '<div><div class="save-slot-title">' + p.title + '</div>' +
         '<div class="save-slot-meta">' + p.meta + '</div></div>' +
         '<div class="save-slot-badge">' + p.badge + '</div>';
-      item.addEventListener('click', () => startGame({ resumeSave: p.data }));
+      item.addEventListener('click', () => startGame({ resumeSave: p.data, forceReload: true }));
       list.appendChild(item);
     });
   }
@@ -7739,29 +9681,20 @@
   });
 
   el('startBtn').addEventListener('click', () => {
-    closeAllTitleModals();
-    populateDifficulties();
-    show('titleDifficultyModal', true);
+    openDifficultyScreen(false);
   });
-  if (el('closeDifficultyBtn')) el('closeDifficultyBtn').addEventListener('click', closeAllTitleModals);
-  if (el('chapter1Card')) {
-    el('chapter1Card').addEventListener('click', () => {
-      closeAllTitleModals();
-      populateEpisodes();
-      show('titleEpisodeModal', true);
+  if (el('closeDifficultyBtn')) {
+    el('closeDifficultyBtn').addEventListener('mouseenter', () => {
+      try { SFX.init(); SFX.play('ui'); } catch (e) {}
     });
+    el('closeDifficultyBtn').addEventListener('click', () => closeAllTitleModals(false));
   }
   if (el('closeChapterBtn')) {
-    el('closeChapterBtn').addEventListener('click', () => {
-      closeAllTitleModals();
-      populateDifficulties();
-      show('titleDifficultyModal', true);
+    el('closeChapterBtn').addEventListener('mouseenter', () => {
+      try { SFX.init(); SFX.play('ui'); } catch (e) {}
     });
-  }
-  if (el('backToChaptersBtn')) {
-    el('backToChaptersBtn').addEventListener('click', () => {
-      closeAllTitleModals();
-      show('titleChapterModal', true);
+    el('closeChapterBtn').addEventListener('click', () => {
+      openDifficultyScreen(false);
     });
   }
   if (el('continueBtn')) {
@@ -7783,6 +9716,28 @@
       openOptions();
     });
   }
+  if (el('pauseRestartBtn')) {
+    el('pauseRestartBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      pause(false);
+      respawn();
+    });
+  }
+  if (el('pauseSaveBtn')) {
+    el('pauseSaveBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      setCheckpoint(P.pos.x, P.pos.z, P.yaw);
+      try { SFX.play('ui'); } catch (err) {}
+      showPauseFeedback('Jogo salvo!');
+    });
+  }
+  if (el('pauseLoadBtn')) {
+    el('pauseLoadBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      populateSaveSlots();
+      show('titleLoadModal', true);
+    });
+  }
   if (el('pauseSettingsBtn')) {
     el('pauseSettingsBtn').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -7791,16 +9746,6 @@
   }
   if (el('pauseMainMenuBtn')) {
     el('pauseMainMenuBtn').addEventListener('click', () => {
-      location.reload();
-    });
-  }
-  if (el('pauseExitBtn')) {
-    el('pauseExitBtn').addEventListener('click', () => {
-      if (window.electronAPI && window.electronAPI.quit) {
-        window.electronAPI.quit();
-        return;
-      }
-      window.close();
       location.reload();
     });
   }
@@ -7823,8 +9768,8 @@
       el('titleCamLabel').textContent = 'SESSÃO ENCERRADA · FECHE A ABA OU CLIQUE EM NOVO JOGO';
     });
   }
-  ['titleDifficultyModal', 'titleChapterModal', 'titleEpisodeModal', 'titleLoadModal', 'titleExitModal'].forEach(id => {
-    if (el(id)) el(id).addEventListener('click', (e) => { if (e.target.id === id) closeAllTitleModals(); });
+  ['titleDifficultyModal', 'titleChapterModal', 'titleLoadModal', 'titleExitModal'].forEach(id => {
+    if (el(id)) el(id).addEventListener('click', (e) => { if (e.target.id === id) closeAllTitleModals(false); });
   });
 
   el('resumeBtn').addEventListener('click', () => { pause(false); requestLock(); });
@@ -7832,7 +9777,166 @@
   el('againBtn').addEventListener('click', () => location.reload());
   el('pause').addEventListener('click', (e) => { if (e.target.id === 'pause') { pause(false); requestLock(); } });
 
-  window.__game = { start: startGame, tick, tickTitle, render, P, S, WEAPONS, enemies, peasants, World, ROOMS, startRoom, devClear, pickups, say, selectWeapon, attack, altAttack, respawn, SAVE, QUALITY_PRESETS, applyPreset, applySettingsToEngine, applyRenderDistanceChange, setMouse: (v) => { mouseL = v; }, get curW() { return curW(); } };
+  async function recordAllPreviewVideos() {
+    if (!window.electronAPI || !window.electronAPI.savePreviewVideo) return;
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const pickMime = () => {
+      const cands = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+      for (const m of cands) { if (MediaRecorder.isTypeSupported(m)) return m; }
+      return 'video/webm';
+    };
+    const recordClip = async (name, resH, durationMs, bitrate, onTick) => {
+      A.setInternalHeight(resH);
+      await sleep(150);
+      const canvas = A.renderer.domElement;
+      const stream = canvas.captureStream(30);
+      const chunks = [];
+      const rec = new MediaRecorder(stream, { mimeType: pickMime(), videoBitsPerSecond: bitrate });
+      rec.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) chunks.push(ev.data); };
+      const stopped = new Promise(res => { rec.onstop = res; });
+      rec.start(150);
+      const t0 = performance.now();
+      let prev = t0;
+      await new Promise(done => {
+        function step(now) {
+          const dt = Math.min(0.05, Math.max(0.001, (now - prev) / 1000));
+          prev = now;
+          const elapsed = (now - t0) / 1000;
+          if (onTick) onTick(dt, elapsed);
+          A.renderScene();
+          if (now - t0 < durationMs) requestAnimationFrame(step);
+          else done();
+        }
+        requestAnimationFrame(step);
+      });
+      rec.stop();
+      await stopped;
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      const buf = await blob.arrayBuffer();
+      await window.electronAPI.savePreviewVideo(name, new Uint8Array(buf));
+    };
+
+    try {
+      // 1) Vídeo da tela de título (9s da vitrine viva no Bairro Sul)
+      titleShotIdx = 0;
+      titleShotT = 0;
+      await recordClip('title', 360, 9000, 1200000, (dt) => {
+        tickTitle(dt);
+      });
+
+      // 2) Vídeos das 8 áreas da campanha
+      const areas = [];
+      CAMPAIGN_CHAPTERS.forEach(ch => (ch.episodes || []).forEach(ep => (ep.areas || []).forEach(a => areas.push(a))));
+      for (const area of areas) {
+        clearTitleShowcase();
+        for (const e of enemies.slice()) A.removeEnemy(e);
+        A.clearProjs();
+        A.clearParts();
+        buildMap(area.id);
+        const pv = area.preview || { pos: [0, 6, 10], look: [0, 3, -30], env: 'hell' };
+        World.updateChunks(pv.pos[0], pv.pos[2], true);
+        await recordClip(area.id, 270, 4000, 550000, (dt, t) => {
+          const swayX = Math.sin(t * 0.78) * 2.4;
+          const swayY = Math.sin(t * 1.1) * 0.35;
+          const driftZ = -t * 0.65;
+          camera.position.set(pv.pos[0] + swayX, pv.pos[1] + swayY, pv.pos[2] + driftZ);
+          camera.lookAt(pv.look[0] + swayX * 0.35, pv.look[1], pv.look[2] + driftZ * 0.4);
+          if (Math.abs(camera.fov - 72) > 0.1) { camera.fov = 72; camera.updateProjectionMatrix(); }
+          World.updateChunks(camera.position.x, camera.position.z, false);
+          const { E, near, far } = getFogTargets(pv.env || envAt(camera.position.x, camera.position.z));
+          scene.fog.color.lerp(E.fog, 0.25);
+          scene.background.lerp(E.sky, 0.25);
+          scene.fog.near += (near - scene.fog.near) * 0.25;
+          scene.fog.far += (far - scene.fog.far) * 0.25;
+          applyLightingProfile(E);
+          updateWorld(t, dt);
+        });
+      }
+    } finally {
+      window.electronAPI.quit();
+    }
+  }
+
+  async function captureAllPreviewPhotos() {
+    if (!window.electronAPI || !window.electronAPI.savePreviewImage) return;
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const SHOTS = {
+      a1:      { pos: [-14, 5.5, 10],  look: [-2, 3.0, -45],   env: 'hell',   relY: true },
+      a2:      { pos: [0, 6.5, 12],    look: [0, 3.5, -55],    env: 'hell',   relY: true },
+      a3:      { pos: [-6, 6.0, 12],   look: [0, 3.5, -55],    env: 'hell',   relY: true },
+      a4:      { pos: [-10, 6.0, 4],   look: [0, 3.5, -50],    env: 'hell',   relY: true },
+      a5:      { pos: [-9, 6.5, 4],    look: [0, 6.0, -65],    env: 'hell',   relY: true },
+      a6_gate: { pos: [0, 9.5, -18],   look: [0, 22, -165],    env: 'hell',   relY: false },
+      a6_nave: { pos: [0, 6.0, -8],    look: [0, 7.0, -48],    env: 'church', relY: false },
+      a6_crypt:{ pos: [0, 4.5, -4],    look: [0, 3.5, -32],    env: 'crypt',  relY: false }
+    };
+    const outW = 640, outH = 496;
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = outW;
+    outCanvas.height = outH;
+    const outCtx = outCanvas.getContext('2d');
+
+    try {
+      A.setInternalHeight(540);
+      await sleep(150);
+      for (const id of Object.keys(SHOTS)) {
+        clearTitleShowcase();
+        for (const e of enemies.slice()) A.removeEnemy(e);
+        A.clearProjs();
+        A.clearParts();
+        buildMap(id);
+        const s = SHOTS[id];
+        const gyPos = (s.relY && World.terrainY) ? World.terrainY(s.pos[0], s.pos[2]) : 0;
+        const gyLook = (s.relY && World.terrainY) ? World.terrainY(s.look[0], s.look[2]) : 0;
+        camera.position.set(s.pos[0], gyPos + s.pos[1], s.pos[2]);
+        camera.lookAt(s.look[0], gyLook + s.look[1], s.look[2]);
+        camera.fov = 72;
+        camera.updateProjectionMatrix();
+        World.updateChunks(camera.position.x, camera.position.z, true);
+        const { E, near, far } = getFogTargets(s.env);
+        if (scene.fog && scene.fog.color) {
+          scene.fog.color.setHex(E.fog);
+          scene.fog.near = near;
+          scene.fog.far = far;
+        }
+        A.amb.color.setHex(E.amb);
+        A.amb.intensity = E.ambI * 1.15;
+        A.sun.color.setHex(E.dir);
+        A.sun.intensity = E.dirI * 1.1;
+        A.renderer.setClearColor(scene.fog ? scene.fog.color : E.fog);
+        applyLightingProfile(0.016, true);
+        updateWorld(1.5, 0.016);
+        A.renderScene();
+
+        // Crop central para proporção exata do portal (640x496) sem distorção
+        const src = A.renderer.domElement;
+        const sw = src.width, sh = src.height;
+        const targetAsp = outW / outH;
+        const srcAsp = sw / sh;
+        let sx = 0, sy = 0, cw = sw, ch = sh;
+        if (srcAsp > targetAsp) {
+          cw = Math.round(sh * targetAsp);
+          sx = Math.round((sw - cw) / 2);
+        } else {
+          ch = Math.round(sw / targetAsp);
+          sy = Math.round((sh - ch) / 2);
+        }
+        outCtx.drawImage(src, sx, sy, cw, ch, 0, 0, outW, outH);
+        const blob = await new Promise(res => outCanvas.toBlob(res, 'image/jpeg', 0.92));
+        const buf = await blob.arrayBuffer();
+        await window.electronAPI.savePreviewImage(id, new Uint8Array(buf));
+        console.log('SAVED_PREVIEW:', id, buf.byteLength);
+        await sleep(60);
+      }
+    } catch (err) {
+      console.error('CAPTURE_ERR:', err && err.stack ? err.stack : err);
+    } finally {
+      window.electronAPI.quit();
+    }
+  }
+
+  window.__game = { start: startGame, tick, tickTitle, tickIntermission, showLevelComplete, render, P, S, WEAPONS, enemies, peasants, World, ROOMS, startRoom, devClear, pickups, say, selectWeapon, attack, altAttack, respawn, SAVE, QUALITY_PRESETS, applyPreset, applySettingsToEngine, applyRenderDistanceChange, setMouse: (v) => { mouseL = v; }, get curW() { return curW(); } };
   if (location.search.includes('autostart')) startGame({ nolock: true });
   requestAnimationFrame(frame);
 })();

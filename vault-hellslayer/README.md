@@ -1,9 +1,9 @@
 ---
-title: HELLSLAYER (CABRUNCO) — Vault Central (MOC)
+title: HELLSLAYER (PARAINFERNÁLIA) — Vault Central (MOC)
 type: moc
 tags:
   - hellslayer
-  - cabrunco
+  - parainfernalia
   - moc
   - ai-context
   - index
@@ -11,7 +11,7 @@ updated: 2026-11-18
 project_version: Beta 1 (0.1.0)
 ---
 
-# 🔥 HELLSLAYER (`CABRUNCO`) — Vault de Engenharia, Design e Contexto para IAs
+# 🔥 HELLSLAYER (`PARAINFERNÁLIA`) — Vault de Engenharia, Design e Contexto para IAs
 
 > **Ponto de entrada universal** para qualquer IA (Claude, Gemini, Codex, Cursor, Copilot) e para desenvolvedores humanos no **GitHub** e no **Obsidian**.
 > Todos os links deste vault usam Markdown relativo (compatível simultaneamente com **GitHub**, **Obsidian Graph/Backlinks** e agentes CLI).
@@ -20,7 +20,7 @@ project_version: Beta 1 (0.1.0)
 
 ## 🎯 O que é este projeto?
 
-**HELLSLAYER** (título de produto `CABRUNCO — Beta 1`) é um *boomer shooter* FPS com estética **PSX / retro-3D** construído em **Electron + Three.js Vanilla (sem bundler)**, onde **Nivaldo Cruz** — um pedreiro de 2,30m e 450kg armado de Super-Fé — tem **3 dias** para atravessar o Inferno, destruir o **Necro-Cristal** e derrotar o corrompido **Super-Papa Testus MMDCLXVI**.
+**HELLSLAYER** (título de produto `PARAINFERNÁLIA — Beta 1`) é um *boomer shooter* FPS com estética **PSX / retro-3D** construído em **Electron + Three.js Vanilla (sem bundler)**, onde **Nivaldo Cruz** — um pedreiro de 2,30m e 450kg armado de Super-Fé — tem **3 dias** para atravessar o Inferno, destruir o **Necro-Cristal** e derrotar o corrompido **Super-Papa Testus MMDCLXVI**.
 
 | Atributo | Valor Atual |
 | :--- | :--- |
